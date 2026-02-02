@@ -1,43 +1,118 @@
-import { redirect } from "next/navigation";
+"use client";
 
-import { createClient } from "@/lib/supabase/server";
-import { InfoIcon } from "lucide-react";
-import { FetchDataSteps } from "@/components/tutorial/fetch-data-steps";
-import { Suspense } from "react";
+import { useEffect, useRef, useState } from "react";
+import { createClient } from "@supabase/supabase-js";
 
-async function UserDetails() {
-  const supabase = await createClient();
-  const { data, error } = await supabase.auth.getClaims();
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+);
 
-  if (error || !data?.claims) {
-    redirect("/auth/login");
+type Location = {
+  id: string;
+  name: string;
+};
+
+export default function ScanPage() {
+  const [locations, setLocations] = useState<Location[]>([]);
+  const [locationId, setLocationId] = useState("");
+  const [barcode, setBarcode] = useState("");
+  const [qty, setQty] = useState(1);
+  const [scanType, setScanType] = useState<"IN" | "OUT">("OUT");
+  const [msg, setMsg] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    loadLocations();
+    inputRef.current?.focus();
+  }, []);
+
+  async function loadLocations() {
+    const { data, error } = await supabase
+      .from("locations")
+      .select("id,name")
+      .order("name");
+
+    if (!error && data) setLocations(data);
   }
 
-  return JSON.stringify(data.claims, null, 2);
-}
+  async function submitScan() {
+    if (!locationId || !barcode || qty <= 0) {
+      setMsg("Missing required fields");
+      return;
+    }
 
-export default function ProtectedPage() {
+    setBusy(true);
+    setMsg("");
+
+    const { error } = await supabase.from("inventory_transactions").insert({
+      location_id: locationId,
+      barcode,
+      qty,
+      type: scanType,
+    });
+
+    if (error) {
+      setMsg(error.message);
+    } else {
+      setMsg("Scan recorded successfully");
+      setBarcode("");
+      setQty(1);
+      inputRef.current?.focus();
+    }
+
+    setBusy(false);
+  }
+
   return (
-    <div className="flex-1 w-full flex flex-col gap-12">
-      <div className="w-full">
-        <div className="bg-accent text-sm p-3 px-5 rounded-md text-foreground flex gap-3 items-center">
-          <InfoIcon size="16" strokeWidth={2} />
-          This is a protected page that you can only see as an authenticated
-          user
-        </div>
+    <div style={{ padding: 20, maxWidth: 500 }}>
+      <h1>ASC Inventory Scan</h1>
+
+      <label>Location</label>
+      <select
+        value={locationId}
+        onChange={(e) => setLocationId(e.target.value)}
+      >
+        <option value="">Select location</option>
+        {locations.map((l) => (
+          <option key={l.id} value={l.id}>
+            {l.name}
+          </option>
+        ))}
+      </select>
+
+      <label>Barcode</label>
+      <input
+        ref={inputRef}
+        value={barcode}
+        onChange={(e) => setBarcode(e.target.value)}
+        placeholder="Scan barcode"
+      />
+
+      <label>Quantity</label>
+      <input
+        type="number"
+        value={qty}
+        min={1}
+        onChange={(e) => setQty(Number(e.target.value))}
+      />
+
+      <div style={{ marginTop: 10 }}>
+        <button onClick={() => setScanType("OUT")}>
+          OUT
+        </button>
+        <button onClick={() => setScanType("IN")}>
+          IN
+        </button>
       </div>
-      <div className="flex flex-col gap-2 items-start">
-        <h2 className="font-bold text-2xl mb-4">Your user details</h2>
-        <pre className="text-xs font-mono p-3 rounded border max-h-32 overflow-auto">
-          <Suspense>
-            <UserDetails />
-          </Suspense>
-        </pre>
-      </div>
-      <div>
-        <h2 className="font-bold text-2xl mb-4">Next steps</h2>
-        <FetchDataSteps />
-      </div>
+
+      <button disabled={busy} onClick={submitScan} style={{ marginTop: 15 }}>
+        Submit Scan
+      </button>
+
+      {msg && <p>{msg}</p>}
     </div>
   );
 }
