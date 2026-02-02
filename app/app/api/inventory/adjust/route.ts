@@ -1,47 +1,46 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
-const supabase = createClient(
+const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
+  process.env.SUPABASE_SERVICE_ROLE_KEY!,
+  { auth: { persistSession: false } }
 );
 
 export async function POST(req: Request) {
   try {
-    const body = await req.json();
+    const { item_id, type, qty } = await req.json();
 
-    const item_id = String(body.item_id ?? "");
-    const type = body.type;
-    const qty = Number(body.qty);
+    const cleanItemId = String(item_id ?? "");
+    const cleanType = type === "IN" || type === "OUT" ? type : null;
+    const cleanQty = Number(qty);
 
-    if (!item_id) {
+    if (!cleanItemId) {
       return NextResponse.json({ error: "Missing item_id" }, { status: 400 });
     }
-
-    if (type !== "IN" && type !== "OUT") {
-      return NextResponse.json({ error: "Invalid type" }, { status: 400 });
+    if (!cleanType) {
+      return NextResponse.json({ error: "type must be IN or OUT" }, { status: 400 });
     }
 
-    // 🚫 NO DEFAULTS — THIS IS WHAT FIXES THE "10" BUG
-    if (!Number.isInteger(qty) || qty <= 0) {
-      return NextResponse.json({ error: "Invalid qty" }, { status: 400 });
+    // ✅ NO DEFAULTS. No "|| 10". If qty isn't valid, it fails.
+    if (!Number.isInteger(cleanQty) || cleanQty <= 0) {
+      return NextResponse.json({ error: "qty must be a positive integer" }, { status: 400 });
     }
 
-    const { error } = await supabase.from("transactions").insert({
-      item_id,
-      type,
-      qty
+    // ✅ ONLY write to transactions. Trigger updates inventory.
+    const { error } = await supabaseAdmin.from("transactions").insert({
+      item_id: cleanItemId,
+      qty: cleanQty,
+      type: cleanType,
     });
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    return NextResponse.json({ success: true });
-  } catch (err: any) {
-    return NextResponse.json(
-      { error: err?.message ?? "Server error" },
-      { status: 500 }
-    );
+    return NextResponse.json({ ok: true });
+  } catch (e: any) {
+    return NextResponse.json({ error: e?.message ?? "Server error" }, { status: 500 });
   }
 }
+
