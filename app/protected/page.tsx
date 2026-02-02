@@ -93,15 +93,25 @@ export default function ProtectedInventoryPage() {
 
       const itemRow = item as ItemRow;
 
-      // INSERT ONE transaction row ONLY (do not update inventory from the app)
-      const { error: txErr } = await supabase.from("transactions").insert([
-        {
-          type: scanType,
-          qty: qtyNum, // EXACT qty you entered (5 means 5)
-          item_id: itemRow.item_id,
-          location_id: locationId,
-        },
-      ]);
+      const clientTxId = crypto.randomUUID();
+
+const { data, error: rpcErr } = await supabase.rpc("apply_transaction", {
+  p_client_tx_id: clientTxId,
+  p_item_id: itemRow.item_id,
+  p_location_id: locationId,
+  p_qty: qtyNum,
+  p_type: scanType,
+});
+
+if (rpcErr) {
+  setErr(rpcErr.message);
+  return;
+}
+
+setMsg(
+  `${scanType} ${qtyNum} saved. On hand now: ${data?.[0]?.on_hand}`
+);
+
 
       if (txErr) {
         setErr(txErr.message);
