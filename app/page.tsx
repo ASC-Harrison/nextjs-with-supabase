@@ -3,8 +3,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createClient } from "@supabase/supabase-js";
 
-type LocationRow = { name: string };
-type ScanType = "OUT" | "IN";
+type ScanType = "IN" | "OUT";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -12,100 +11,137 @@ const supabase = createClient(
 );
 
 export default function Page() {
-  const [locations, setLocations] = useState<LocationRow[]>([]);
+  const [locations, setLocations] = useState<string[]>([]);
   const [locationName, setLocationName] = useState<string>("OR Core");
   const [scanType, setScanType] = useState<ScanType>("OUT");
+
   const [barcode, setBarcode] = useState<string>("");
   const [qty, setQty] = useState<string>("1");
-  const [busy, setBusy] = useState(false);
-  const [msg, setMsg] = useState<string>("");
-  const [err, setErr] = useState<string>("");
 
-  // Prevent accidental double-submit (mobile tap + click / form submit etc.)
-  const submitLockRef = useRef(false);
+  const [busy, setBusy] = useState(false);
+  const lockRef = useRef(false);
+
+  const [statusMsg, setStatusMsg] = useState<string>("");
+  const [errorMsg, setErrorMsg] = useState<string>("");
+
+  // Always turn qty into a real integer (no 10s bug)
+  const qtyInt = useMemo(() => {
+    const n = Number.parseInt(String(qty), 10);
+    return Number.isFinite(n) && n > 0 ? n : 1;
+  }, [qty]);
 
   useEffect(() => {
     (async () => {
       const { data, error } = await supabase
         .from("locations")
         .select("name")
-        .order("name");
-      if (error) setErr(error.message);
-      else setLocations(data ?? []);
+        .order("name", { ascending: true });
+
+      if (error) {
+        setErrorMsg(error.message);
+        return;
+      }
+
+      setLocations((data ?? []).map((r: any) => r.name));
     })();
   }, []);
 
-  const qtyInt = useMemo(() => {
-    const n = Number.parseInt(qty, 10);
-    return Number.isFinite(n) && n > 0 ? n : 1;
-  }, [qty]);
-
   async function submitScan(e?: React.FormEvent) {
     e?.preventDefault();
-    setErr("");
-    setMsg("");
+    setErrorMsg("");
+    setStatusMsg("");
 
-    if (busy || submitLockRef.current) return;
-    submitLockRef.current = true;
+    // iPhone double-tap protection
+    if (busy || lockRef.current) return;
+    lockRef.current = true;
     setBusy(true);
 
     try {
-      if (!barcode.trim()) {
-        setErr("Barcode is required.");
+      const cleanBarcode = barcode.trim();
+      if (!cleanBarcode) {
+        setErrorMsg("Barcode is required.");
+        return;
+      }
+      if (!locationName) {
+        setErrorMsg("Location is required.");
         return;
       }
 
+      // IMPORTANT: these keys MUST match your function parameter names
       const { data, error } = await supabase.rpc("apply_scan", {
-        p_barcode: barcode.trim(),
+        p_barcode: cleanBarcode,
         p_location_name: locationName,
-        p_type: scanType,
         p_qty: qtyInt,
+        p_type: scanType,
       });
 
       if (error) {
-        setErr(error.message);
+        setErrorMsg(error.message);
         return;
       }
 
-      const row = Array.isArray(data) ? data[0] : null;
-      setMsg(
-        row
-          ? `Updated: on_hand=${row.on_hand} status=${row.status}`
-          : "Scan submitted."
-      );
+      // Supabase RPC returns an array for table returns
+      const row = Array.isArray(data) ? data[0] : data;
 
+      if (!row) {
+        setErrorMsg("No data returned from apply_scan().");
+        return;
+      }
+
+      // Your function should return on_hand + status
+      setStatusMsg(`Updated: on_hand=${row.on_hand} status=${row.status}`);
+
+      // reset inputs
       setBarcode("");
       setQty("1");
     } finally {
       setBusy(false);
-      // small delay helps prevent double tap on iPhone
       setTimeout(() => {
-        submitLockRef.current = false;
+        lockRef.current = false;
       }, 300);
     }
   }
 
   return (
-    <main style={{ maxWidth: 520, margin: "40px auto", padding: 16 }}>
-      <h1 style={{ fontSize: 28, fontWeight: 800 }}>ASC Inventory Live</h1>
+    <main style={{ maxWidth: 560, margin: "40px auto", padding: 16 }}>
+      <h1 style={{ fontSize: 26, fontWeight: 900 }}>ASC Inventory Live</h1>
       <p style={{ opacity: 0.75 }}>
-        Scan IN/OUT updates on-hand instantly. LOW flags clear when restocked.
+        Scan IN/OUT updates inventory immediately. Low-stock alerts fire when an
+        item becomes LOW.
       </p>
 
-      <form onSubmit={submitScan} style={{ border: "1px solid #ddd", borderRadius: 12, padding: 16 }}>
-        <label style={{ display: "block", fontWeight: 700, marginBottom: 6 }}>
+      <form
+        onSubmit={submitScan}
+        style={{
+          border: "1px solid #e5e5e5",
+          borderRadius: 14,
+          padding: 16,
+          marginTop: 14,
+        }}
+      >
+        <label style={{ display: "block", fontWeight: 800, marginBottom: 6 }}>
           Location
         </label>
         <select
           value={locationName}
           onChange={(e) => setLocationName(e.target.value)}
-          style={{ width: "100%", padding: 10, borderRadius: 10, marginBottom: 14 }}
+          style={{
+            width: "100%",
+            padding: 12,
+            borderRadius: 10,
+            border: "1px solid #ddd",
+            marginBottom: 14,
+          }}
         >
-          {locations.map((l) => (
-            <option key={l.name} value={l.name}>
-              {l.name}
-            </option>
-          ))}
+          {locations.length === 0 ? (
+            <option value="OR Core">OR Core</option>
+          ) : (
+            locations.map((name) => (
+              <option key={name} value={name}>
+                {name}
+              </option>
+            ))
+          )}
         </select>
 
         <div style={{ display: "flex", gap: 10, marginBottom: 14 }}>
@@ -117,13 +153,14 @@ export default function Page() {
               padding: 12,
               borderRadius: 10,
               border: "1px solid #ddd",
+              fontWeight: 900,
               background: scanType === "OUT" ? "#111" : "#fff",
               color: scanType === "OUT" ? "#fff" : "#111",
-              fontWeight: 800,
             }}
           >
             OUT (use)
           </button>
+
           <button
             type="button"
             onClick={() => setScanType("IN")}
@@ -132,33 +169,47 @@ export default function Page() {
               padding: 12,
               borderRadius: 10,
               border: "1px solid #ddd",
+              fontWeight: 900,
               background: scanType === "IN" ? "#111" : "#fff",
               color: scanType === "IN" ? "#fff" : "#111",
-              fontWeight: 800,
             }}
           >
             IN (restock)
           </button>
         </div>
 
-        <label style={{ display: "block", fontWeight: 700, marginBottom: 6 }}>
+        <label style={{ display: "block", fontWeight: 800, marginBottom: 6 }}>
           Barcode
         </label>
         <input
           value={barcode}
           onChange={(e) => setBarcode(e.target.value)}
           placeholder="Type or scan barcode..."
-          style={{ width: "100%", padding: 12, borderRadius: 10, border: "1px solid #ddd", marginBottom: 14 }}
+          style={{
+            width: "100%",
+            padding: 12,
+            borderRadius: 10,
+            border: "1px solid #ddd",
+            marginBottom: 14,
+          }}
         />
 
-        <label style={{ display: "block", fontWeight: 700, marginBottom: 6 }}>
+        <label style={{ display: "block", fontWeight: 800, marginBottom: 6 }}>
           Qty
         </label>
         <input
+          type="number"
+          min={1}
+          inputMode="numeric"
           value={qty}
           onChange={(e) => setQty(e.target.value)}
-          inputMode="numeric"
-          style={{ width: "100%", padding: 12, borderRadius: 10, border: "1px solid #ddd", marginBottom: 14 }}
+          style={{
+            width: "100%",
+            padding: 12,
+            borderRadius: 10,
+            border: "1px solid #ddd",
+            marginBottom: 14,
+          }}
         />
 
         <button
@@ -179,24 +230,33 @@ export default function Page() {
           {busy ? "Submitting..." : "Submit Scan"}
         </button>
 
-        {err ? (
-          <div style={{ marginTop: 14, padding: 12, borderRadius: 10, background: "#ffe5e5", color: "#7a0000" }}>
-            <b>Error:</b> {err}
+        {errorMsg ? (
+          <div
+            style={{
+              marginTop: 14,
+              padding: 12,
+              borderRadius: 10,
+              background: "#ffe7e7",
+              color: "#7a0000",
+            }}
+          >
+            <b>Error:</b> {errorMsg}
           </div>
         ) : null}
 
-        {msg ? (
-          <div style={{ marginTop: 14, padding: 12, borderRadius: 10, background: "#e9f5ff" }}>
-            {msg}
+        {statusMsg ? (
+          <div
+            style={{
+              marginTop: 14,
+              padding: 12,
+              borderRadius: 10,
+              background: "#e9f5ff",
+            }}
+          >
+            {statusMsg}
           </div>
         ) : null}
       </form>
-
-      <div style={{ marginTop: 14 }}>
-        <a href="/low-stock" style={{ textDecoration: "underline" }}>
-          View Low Stock
-        </a>
-      </div>
     </main>
   );
 }
