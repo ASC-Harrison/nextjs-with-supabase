@@ -6,7 +6,6 @@ import { createClient } from "@supabase/supabase-js";
 type LocationRow = { id: string; name: string };
 type ScanType = "IN" | "OUT";
 
-// Build-safe env reads (won’t crash TypeScript build)
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
 const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "";
 
@@ -24,7 +23,7 @@ export default function Page() {
   const [msg, setMsg] = useState<string>("");
   const [err, setErr] = useState<string>("");
 
-  // Camera / scan
+  // Camera
   const [cameraOpen, setCameraOpen] = useState(false);
   const [cameraStatus, setCameraStatus] = useState<string>("");
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -45,7 +44,7 @@ export default function Page() {
 
       if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
         setErr(
-          "Missing env vars. Add NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY in Vercel Project Settings."
+          "Missing env vars in Vercel: NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY."
         );
         return;
       }
@@ -71,20 +70,12 @@ export default function Page() {
     setErr("");
     setMsg("");
 
-    if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
-      setErr(
-        "Missing env vars. Add NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY in Vercel."
-      );
-      return;
-    }
-
     if (!locationId) return setErr("Pick a location first.");
     if (!barcode.trim()) return setErr("Enter a barcode.");
     if (!qty || qty <= 0) return setErr("Qty must be 1 or more.");
 
     setBusy(true);
     try {
-      // Calls your Postgres function scan_item(p_barcode, p_location, p_type, p_qty)
       const { error } = await supabase.rpc("scan_item", {
         p_barcode: barcode.trim(),
         p_location: locationId,
@@ -92,10 +83,9 @@ export default function Page() {
         p_qty: qty,
       });
 
-      if (error) {
-        setErr(error.message);
-      } else {
-        setMsg(`✅ ${scanType} ${qty} recorded for barcode ${barcode.trim()}`);
+      if (error) setErr(error.message);
+      else {
+        setMsg(`✅ ${scanType} ${qty} recorded for ${barcode.trim()}`);
         setBarcode("");
         setQty(1);
       }
@@ -110,7 +100,7 @@ export default function Page() {
 
     if (!canBarcodeDetect) {
       setErr(
-        "Camera scan isn’t supported in this browser. Try Chrome/Edge, or tell me and I’ll swap to a ZXing scanner that works on most phones."
+        "Camera scan isn’t supported in this browser. Try Chrome/Edge, or we can switch to ZXing scanner."
       );
       return;
     }
@@ -121,10 +111,12 @@ export default function Page() {
         video: { facingMode: "environment" },
         audio: false,
       });
+
       streamRef.current = stream;
 
       if (videoRef.current) {
-        videoRef.current.srcObject = stream;
+        // Build/TS-safe srcObject assignment
+        (videoRef.current as any).srcObject = stream;
         await videoRef.current.play();
       }
 
@@ -150,7 +142,7 @@ export default function Page() {
             }
           }
         } catch {
-          // ignore detection errors; keep looping
+          // keep looping
         }
 
         scanLoopRef.current = window.setTimeout(loop, 150);
@@ -173,7 +165,8 @@ export default function Page() {
       try {
         videoRef.current.pause();
       } catch {}
-      videoRef.current.srcObject = null;
+      // Build/TS-safe srcObject null
+      (videoRef.current as any).srcObject = null;
     }
 
     if (streamRef.current) {
@@ -400,13 +393,8 @@ export default function Page() {
               border: "1px solid #ccc",
             }}
           />
-          <div style={{ marginTop: 8, fontSize: 13, color: "#555" }}>
-            If camera scan doesn’t work on your device, tell me and I’ll switch
-            to a ZXing scanner for maximum compatibility.
-          </div>
         </section>
       ) : null}
     </main>
   );
 }
-
