@@ -6,37 +6,51 @@ import { createClient } from "@supabase/supabase-js";
 type LocationRow = { id: string; name: string };
 type ScanType = "IN" | "OUT";
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL as string,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY as string
-);
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
+const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "";
+
+// Create client (safe)
+const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 export default function Page() {
   const [locations, setLocations] = useState<LocationRow[]>([]);
   const [locationId, setLocationId] = useState<string>("");
+
   const [barcode, setBarcode] = useState<string>("");
   const [qty, setQty] = useState<number>(1);
   const [scanType, setScanType] = useState<ScanType>("OUT");
-  const [busy, setBusy] = useState(false);
-  const [msg, setMsg] = useState<string>("");
-  const [err, setErr] = useState<string>("");
 
-  // Camera / scan
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState("");
+  const [err, setErr] = useState("");
+
+  // camera
   const [cameraOpen, setCameraOpen] = useState(false);
-  const [cameraStatus, setCameraStatus] = useState<string>("");
+  const [cameraStatus, setCameraStatus] = useState("");
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const scanLoopRef = useRef<number | null>(null);
 
+  // ✅ NO @ts-expect-error (this is what was breaking your build)
   const canBarcodeDetect = useMemo(() => {
-    // @ts-expect-error: BarcodeDetector is not in TS DOM types everywhere
-    return typeof window !== "undefined" && "BarcodeDetector" in window;
+    return (
+      typeof window !== "undefined" &&
+      typeof (window as any).BarcodeDetector !== "undefined"
+    );
   }, []);
 
   useEffect(() => {
     (async () => {
       setErr("");
       setMsg("");
+
+      if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+        setErr(
+          "Missing Vercel env vars. Add NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY in Vercel → Project → Settings → Environment Variables."
+        );
+        return;
+      }
+
       const { data, error } = await supabase
         .from("locations")
         .select("id,name")
@@ -46,6 +60,7 @@ export default function Page() {
         setErr(`Could not load locations: ${error.message}`);
         return;
       }
+
       const list = (data ?? []) as LocationRow[];
       setLocations(list);
       if (!locationId && list.length) setLocationId(list[0].id);
@@ -63,7 +78,7 @@ export default function Page() {
 
     setBusy(true);
     try {
-      // Call your Postgres function
+      // Calls your Postgres function scan_item(...)
       const { error } = await supabase.rpc("scan_item", {
         p_barcode: barcode.trim(),
         p_location: locationId,
@@ -74,7 +89,7 @@ export default function Page() {
       if (error) {
         setErr(error.message);
       } else {
-        setMsg(`✅ ${scanType} ${qty} recorded for barcode ${barcode.trim()}`);
+        setMsg(`✅ ${scanType} ${qty} saved for ${barcode.trim()}`);
         setBarcode("");
         setQty(1);
       }
@@ -89,7 +104,7 @@ export default function Page() {
 
     if (!canBarcodeDetect) {
       setErr(
-        "Camera scan isn’t supported in this browser. Try Chrome/Edge, or we can add a scanner library next."
+        "Camera scanning not supported in this browser/device. Use Chrome/Edge, or tell me and I’ll switch you to a ZXing scanner that works on almost every phone."
       );
       return;
     }
@@ -100,37 +115,41 @@ export default function Page() {
         video: { facingMode: "environment" },
         audio: false,
       });
+
       streamRef.current = stream;
 
       if (videoRef.current) {
-        videoRef.current.srcObject = stream;
+        // TS-safe srcObject
+        (videoRef.current as any).srcObject = stream;
         await videoRef.current.play();
       }
 
       setCameraOpen(true);
       setCameraStatus("Point camera at barcode…");
 
-      // @ts-expect-error
-      const detector = new window.BarcodeDetector({
+      // ✅ NO @ts-expect-error
+      const detector = new (window as any).BarcodeDetector({
         formats: ["qr_code", "ean_13", "ean_8", "code_128", "upc_a", "upc_e"],
       });
 
       const loop = async () => {
         if (!videoRef.current) return;
+
         try {
-          const barcodes = await detector.detect(videoRef.current);
-          if (barcodes?.length) {
-            const val = barcodes[0]?.rawValue?.trim();
-            if (val) {
-              setBarcode(val);
-              setCameraStatus(`Captured: ${val}`);
+          const codes = await detector.detect(videoRef.current);
+          if (codes?.length) {
+            const raw = String(codes[0]?.rawValue ?? "").trim();
+            if (raw) {
+              setBarcode(raw);
+              setCameraStatus(`Captured: ${raw}`);
               await closeCamera();
               return;
             }
           }
         } catch {
-          // ignore detection errors; keep looping
+          // ignore, keep scanning
         }
+
         scanLoopRef.current = window.setTimeout(loop, 150);
       };
 
@@ -146,37 +165,59 @@ export default function Page() {
       window.clearTimeout(scanLoopRef.current);
       scanLoopRef.current = null;
     }
+
     if (videoRef.current) {
       try {
         videoRef.current.pause();
       } catch {}
-      videoRef.current.srcObject = null;
+      (videoRef.current as any).srcObject = null;
     }
+
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((t) => t.stop());
       streamRef.current = null;
     }
+
     setCameraOpen(false);
     setCameraStatus("");
   }
 
   return (
-    <main style={{ maxWidth: 720, margin: "0 auto", padding: 16, fontFamily: "system-ui, -apple-system, Segoe UI, Roboto, Arial" }}>
-      <h1 style={{ fontSize: 24, fontWeight: 800, marginBottom: 6 }}>
+    <main
+      style={{
+        maxWidth: 780,
+        margin: "0 auto",
+        padding: 16,
+        fontFamily:
+          "system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif",
+      }}
+    >
+      <h1 style={{ fontSize: 26, fontWeight: 900, marginBottom: 6 }}>
         ASC Inventory Live
       </h1>
       <p style={{ marginTop: 0, color: "#444" }}>
-        Scan IN/OUT updates on-hand instantly and flags LOW stock automatically.
+        Scan IN/OUT updates on-hand instantly. LOW flags clear when restocked.
       </p>
 
-      <section style={{ border: "1px solid #ddd", borderRadius: 12, padding: 16, marginTop: 12 }}>
+      <section
+        style={{
+          border: "1px solid #ddd",
+          borderRadius: 12,
+          padding: 16,
+          marginTop: 12,
+        }}
+      >
         <div style={{ display: "grid", gap: 12 }}>
           <label style={{ display: "grid", gap: 6 }}>
-            <span style={{ fontWeight: 600 }}>Location</span>
+            <span style={{ fontWeight: 700 }}>Location</span>
             <select
               value={locationId}
               onChange={(e) => setLocationId(e.target.value)}
-              style={{ padding: 10, borderRadius: 10, border: "1px solid #ccc" }}
+              style={{
+                padding: 10,
+                borderRadius: 10,
+                border: "1px solid #ccc",
+              }}
             >
               {locations.map((l) => (
                 <option key={l.id} value={l.id}>
@@ -187,7 +228,7 @@ export default function Page() {
           </label>
 
           <div style={{ display: "grid", gap: 6 }}>
-            <span style={{ fontWeight: 600 }}>Scan Type</span>
+            <span style={{ fontWeight: 700 }}>Scan Type</span>
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
               <button
                 type="button"
@@ -199,10 +240,12 @@ export default function Page() {
                   background: scanType === "OUT" ? "#111" : "#fff",
                   color: scanType === "OUT" ? "#fff" : "#111",
                   cursor: "pointer",
+                  fontWeight: 700,
                 }}
               >
                 OUT (use)
               </button>
+
               <button
                 type="button"
                 onClick={() => setScanType("IN")}
@@ -213,6 +256,7 @@ export default function Page() {
                   background: scanType === "IN" ? "#111" : "#fff",
                   color: scanType === "IN" ? "#fff" : "#111",
                   cursor: "pointer",
+                  fontWeight: 700,
                 }}
               >
                 IN (restock)
@@ -221,13 +265,19 @@ export default function Page() {
           </div>
 
           <label style={{ display: "grid", gap: 6 }}>
-            <span style={{ fontWeight: 600 }}>Barcode</span>
+            <span style={{ fontWeight: 700 }}>Barcode</span>
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
               <input
                 value={barcode}
                 onChange={(e) => setBarcode(e.target.value)}
                 placeholder="Type or scan barcode…"
-                style={{ flex: 1, minWidth: 240, padding: 10, borderRadius: 10, border: "1px solid #ccc" }}
+                style={{
+                  flex: 1,
+                  minWidth: 240,
+                  padding: 10,
+                  borderRadius: 10,
+                  border: "1px solid #ccc",
+                }}
               />
               <button
                 type="button"
@@ -239,6 +289,7 @@ export default function Page() {
                   border: "1px solid #ccc",
                   background: "#fff",
                   cursor: "pointer",
+                  fontWeight: 700,
                 }}
               >
                 Use Camera
@@ -250,13 +301,17 @@ export default function Page() {
           </label>
 
           <label style={{ display: "grid", gap: 6, maxWidth: 200 }}>
-            <span style={{ fontWeight: 600 }}>Qty</span>
+            <span style={{ fontWeight: 700 }}>Qty</span>
             <input
               type="number"
               value={qty}
               min={1}
               onChange={(e) => setQty(Number(e.target.value))}
-              style={{ padding: 10, borderRadius: 10, border: "1px solid #ccc" }}
+              style={{
+                padding: 10,
+                borderRadius: 10,
+                border: "1px solid #ccc",
+              }}
             />
           </label>
 
@@ -272,7 +327,7 @@ export default function Page() {
                 background: "#111",
                 color: "#fff",
                 cursor: "pointer",
-                fontWeight: 700,
+                fontWeight: 800,
               }}
             >
               {busy ? "Working…" : "Submit Scan"}
@@ -288,6 +343,7 @@ export default function Page() {
                   border: "1px solid #ccc",
                   background: "#fff",
                   cursor: "pointer",
+                  fontWeight: 700,
                 }}
               >
                 Close Camera
@@ -296,13 +352,27 @@ export default function Page() {
           </div>
 
           {err ? (
-            <div style={{ background: "#ffe8e8", border: "1px solid #ffb4b4", padding: 12, borderRadius: 12 }}>
+            <div
+              style={{
+                background: "#ffe8e8",
+                border: "1px solid #ffb4b4",
+                padding: 12,
+                borderRadius: 12,
+              }}
+            >
               <strong>Error:</strong> {err}
             </div>
           ) : null}
 
           {msg ? (
-            <div style={{ background: "#e9ffe9", border: "1px solid #b7ffb7", padding: 12, borderRadius: 12 }}>
+            <div
+              style={{
+                background: "#e9ffe9",
+                border: "1px solid #b7ffb7",
+                padding: 12,
+                borderRadius: 12,
+              }}
+            >
               {msg}
             </div>
           ) : null}
@@ -310,19 +380,26 @@ export default function Page() {
       </section>
 
       {cameraOpen ? (
-        <section style={{ marginTop: 12, border: "1px solid #ddd", borderRadius: 12, padding: 12 }}>
-          <div style={{ fontWeight: 700, marginBottom: 8 }}>Camera</div>
+        <section
+          style={{
+            marginTop: 12,
+            border: "1px solid #ddd",
+            borderRadius: 12,
+            padding: 12,
+          }}
+        >
+          <div style={{ fontWeight: 800, marginBottom: 8 }}>Camera</div>
           <video
             ref={videoRef}
             playsInline
-            style={{ width: "100%", borderRadius: 12, border: "1px solid #ccc" }}
+            style={{
+              width: "100%",
+              borderRadius: 12,
+              border: "1px solid #ccc",
+            }}
           />
-          <div style={{ marginTop: 8, fontSize: 13, color: "#555" }}>
-            If camera scanning doesn’t work on your device/browser, tell me and I’ll add a ZXing scanner (works on most phones).
-          </div>
         </section>
       ) : null}
     </main>
   );
 }
-
