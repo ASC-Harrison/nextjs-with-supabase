@@ -113,10 +113,7 @@ setMsg(
 );
 
 
-      if (txErr) {
-        setErr(txErr.message);
-        return;
-      }
+      
 
       setMsg(`${scanType} saved: ${itemRow.name} (${qtyNum}).`);
       setBarcode("");
