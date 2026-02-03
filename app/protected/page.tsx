@@ -4,7 +4,12 @@ import React, { useEffect, useRef, useState } from "react";
 import { createClient } from "@supabase/supabase-js";
 
 type LocationRow = { id: string; name: string };
-type ItemRow = { item_id: string; name: string; barcode: string };
+type ItemRow = {
+  id: string;
+  name: string;
+  barcode: string;
+};
+
 type ScanType = "IN" | "OUT";
 
 const supabase = createClient(
@@ -36,7 +41,7 @@ export default function ProtectedInventoryPage() {
       setErr("");
       const { data, error } = await supabase
         .from("locations")
-        .select("id,name")
+        .select("id,name,barcode")
         .order("name", { ascending: true });
 
       if (error) {
