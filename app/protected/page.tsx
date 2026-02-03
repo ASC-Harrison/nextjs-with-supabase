@@ -82,7 +82,8 @@ export default function ProtectedInventoryPage() {
       // Find item by barcode
       const { data: item, error: itemErr } = await supabase
         .from("items")
-        .select("item_id,name,barcode")
+.select("id,name,barcode")
+
         .eq("barcode", cleanedBarcode)
         .single();
 
@@ -97,7 +98,7 @@ export default function ProtectedInventoryPage() {
 
 const { data, error: rpcErr } = await supabase.rpc("apply_transaction", {
   p_client_tx_id: clientTxId,
-  p_item_id: itemRow.item_id,
+  p_item_id: itemRow.id,
   p_location_id: locationId,
   p_qty: qtyNum,
   p_type: scanType,
