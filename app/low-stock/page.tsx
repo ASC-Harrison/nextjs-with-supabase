@@ -27,15 +27,19 @@ export default function LowStockPage() {
       // Join inventory -> items + locations
       const { data, error } = await supabase
         .from("inventory")
-        .select(
-          `
-          on_hand,
-          status,
-          updated_at,
-          items:items ( barcode, name, par_level ),
-          locations:locations ( name )
-        `
-        )
+        .select(`
+  location_id,
+  on_hand,
+  items!inventory_item_id_fkey (
+    name,
+    barcode,
+    par_level
+  ),
+  locations (
+    name
+  )
+`)
+
         .eq("status", "LOW")
         .order("updated_at", { ascending: false });
 
