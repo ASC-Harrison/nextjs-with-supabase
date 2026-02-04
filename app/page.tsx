@@ -30,6 +30,34 @@ export default function Page() {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const scanLoopRef = useRef<number | null>(null);
+  const startCamera = async () => {
+    try {
+      setCameraStatus("Requesting camera…");
+
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: "environment" },
+      });
+
+      streamRef.current = stream;
+
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        await videoRef.current.play();
+      }
+
+      setCameraOpen(true);
+      setCameraStatus("Camera running");
+    } catch (e) {
+      setCameraStatus("Camera not supported or permission denied");
+    }
+  };
+
+  const stopCamera = () => {
+    streamRef.current?.getTracks().forEach((t) => t.stop());
+    streamRef.current = null;
+    setCameraOpen(false);
+    setCameraStatus("");
+  };
 
   const canBarcodeDetect = useMemo(() => {
     return (
