@@ -60,10 +60,12 @@ export default function Page() {
   };
 
   const canBarcodeDetect = useMemo(() => {
-    return (
-      typeof window !== "undefined" &&
-      typeof (window as any).BarcodeDetector !== "undefined"
-    );
+return (
+  <main>
+    <h1>ASC Inventory Live</h1>
+  </main>
+);
+
   }, []);
 
   // Load locations on page load
