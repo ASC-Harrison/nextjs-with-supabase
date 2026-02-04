@@ -59,14 +59,7 @@ export default function Page() {
     setCameraStatus("");
   };
 
-  const canBarcodeDetect = useMemo(() => {
-return (
-  <main>
-    <h1>ASC Inventory Live</h1>
-  </main>
-);
-
-  }, []);
+ 
 
   // Load locations on page load
   useEffect(() => {
