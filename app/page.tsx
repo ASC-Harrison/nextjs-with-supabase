@@ -97,7 +97,6 @@ export default function Page() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cameraOpen]);
 
-  function stopCamera() {
     if (scanLoopRef.current) {
       window.clearInterval(scanLoopRef.current);
       scanLoopRef.current = null;
