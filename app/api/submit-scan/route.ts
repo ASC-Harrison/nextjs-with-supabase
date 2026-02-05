@@ -64,8 +64,7 @@ export async function POST(req: Request) {
     // LOW when on_hand <= par_level (and par_level > 0)
     const isLow = par > 0 && updated <= par;
 
-    // Reset low_stock_notified when restocked above par level
-    const isRestocked = updated > par;
+    const isRestocked = updated > par; // check if we are restocking above par
 
     const { error: updErr } = await supabase
       .from("inventory")
@@ -73,7 +72,7 @@ export async function POST(req: Request) {
         on_hand: updated,
         low_stock: isLow,
         status: isLow ? "LOW" : "OK",
-        // Reset notified when restocked above par
+        // Reset low_stock_notified if restocked above par
         low_stock_notified: isLow ? inv.low_stock_notified : false,
       })
       .eq("item_id", item.id)
@@ -81,8 +80,9 @@ export async function POST(req: Request) {
 
     if (updErr) throw updErr;
 
+    // Trigger low-stock notifier only if it's the first time low (and not notified yet)
     if (isLow && !inv.low_stock_notified) {
-      // Trigger low-stock notifier if it's a first-time low
+      // Send the email
       await fetch(new URL("/api/notify-low-stock", req.url), { method: "POST" });
     }
 
