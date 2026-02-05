@@ -2,6 +2,34 @@
 
 import { useEffect, useState } from "react";
 import { createClient } from "@supabase/supabase-js";
+async function lowStockAlert(itemName: string, onHand: number, par: number) {
+  // Ask permission once
+  if ("Notification" in window && Notification.permission === "default") {
+    try { await Notification.requestPermission(); } catch {}
+  }
+
+  // Pop-up notification
+  if ("Notification" in window && Notification.permission === "granted") {
+    new Notification("LOW STOCK", {
+      body: `${itemName}: ${onHand} left (PAR ${par})`,
+    });
+  }
+
+  // Vibrate (works best on Android; iPhone varies)
+  if ("vibrate" in navigator) navigator.vibrate([200, 100, 200, 100, 400]);
+
+  // Optional tiny beep (may require user interaction first)
+  try {
+    const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+    const o = ctx.createOscillator();
+    const g = ctx.createGain();
+    o.connect(g); g.connect(ctx.destination);
+    o.frequency.value = 880;
+    g.gain.value = 0.05;
+    o.start();
+    setTimeout(() => { o.stop(); ctx.close(); }, 250);
+  } catch {}
+}
 
 type LocationRow = {
   id: string;
@@ -83,6 +111,29 @@ export default function Page() {
         .eq("id", item.id);
 
       if (updateErr) throw updateErr;
+// 🔔 LOW STOCK ALERT (client-side)
+if (data && data.on_hand <= data.par_level) {
+  try {
+    const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+    const o = ctx.createOscillator();
+    const g = ctx.createGain();
+
+    o.type = "sine";
+    o.frequency.value = 880;
+    g.gain.value = 0.05;
+
+    o.connect(g);
+    g.connect(ctx.destination);
+
+    o.start();
+    setTimeout(() => {
+      o.stop();
+      ctx.close();
+    }, 300);
+  } catch (e) {
+    console.warn("Audio alert failed", e);
+  }
+}
 
       setMsg(
         `${scanType} ${amount} → New on-hand: ${newQty}${
