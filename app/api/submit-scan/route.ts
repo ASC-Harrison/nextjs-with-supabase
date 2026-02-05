@@ -1,5 +1,13 @@
 import { createClient } from "@supabase/supabase-js";
 
+function clean(v: any) {
+  return String(v ?? "").trim();
+}
+function toInt(v: any) {
+  const n = Number(v);
+  return Number.isFinite(n) ? Math.trunc(n) : 0;
+}
+
 export async function POST(req: Request) {
   try {
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -13,25 +21,28 @@ export async function POST(req: Request) {
 
     const body = await req.json();
 
-    const barcode = String(body.barcode ?? "").trim();
-    const locationId = String(body.location_id ?? "").trim(); // ✅ IMPORTANT: location_id
-    const qty = Number(body.qty ?? 0);
+    const barcode = clean(body.barcode);
+    const location_id = clean(body.location_id); // ✅
+    const qty = toInt(body.qty);
     const direction = body.direction === "IN" ? "IN" : "OUT";
 
     if (!barcode) return Response.json({ ok: false, error: "Missing barcode" }, { status: 400 });
-    if (!locationId) return Response.json({ ok: false, error: "Missing location_id" }, { status: 400 });
-    if (!Number.isFinite(qty) || qty <= 0) return Response.json({ ok: false, error: "Qty must be > 0" }, { status: 400 });
+    if (!location_id) return Response.json({ ok: false, error: "Missing location_id" }, { status: 400 });
+    if (qty <= 0) return Response.json({ ok: false, error: "Qty must be > 0" }, { status: 400 });
 
     // 1) Find item by barcode
     const { data: item, error: itemErr } = await supabase
       .from("items")
-      .select("id, name")
+      .select("id, name, barcode")
       .eq("barcode", barcode)
       .maybeSingle();
 
     if (itemErr) throw itemErr;
     if (!item) {
-      return Response.json({ ok: false, error: "Item not found for this barcode", barcode }, { status: 404 });
+      return Response.json(
+        { ok: false, error: "Item not found for this barcode", barcode },
+        { status: 404 }
+      );
     }
 
     // 2) Find inventory row by item_id + location_id
@@ -39,18 +50,18 @@ export async function POST(req: Request) {
       .from("inventory")
       .select("id, on_hand, par_level")
       .eq("item_id", item.id)
-      .eq("location_id", locationId)
+      .eq("location_id", location_id)
       .maybeSingle();
 
     if (invErr) throw invErr;
     if (!inv) {
       return Response.json(
-        { ok: false, error: "Item not found for this barcode + location_id", barcode, location_id: locationId },
+        { ok: false, error: "Item not found for this barcode + location_id", barcode, location_id },
         { status: 404 }
       );
     }
 
-    const current = Number(inv.on_hand ?? 0);
+    const current = toInt(inv.on_hand);
     const updated = direction === "OUT" ? Math.max(0, current - qty) : current + qty;
 
     const { error: updErr } = await supabase
@@ -60,14 +71,13 @@ export async function POST(req: Request) {
 
     if (updErr) throw updErr;
 
-    // 3) Run low-stock email check (won’t spam)
+    // 3) Trigger low stock checker (email may send if newly low)
     await fetch(new URL("/api/notify-low-stock", req.url), { method: "POST" });
 
     return Response.json({
       ok: true,
-      item: { id: item.id, name: item.name },
-      barcode,
-      location_id: locationId,
+      item: { id: item.id, name: item.name, barcode: item.barcode },
+      location_id,
       direction,
       qty,
       on_hand_before: current,
