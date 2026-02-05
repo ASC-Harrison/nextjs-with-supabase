@@ -11,7 +11,7 @@ export async function POST(req: Request) {
     const apiKey = process.env.RESEND_API_KEY;
     const to = process.env.LOW_STOCK_EMAIL_TO;
     const from =
-      process.env.LOW_STOCK_EMAIL_FROM || "ASC Inventory <onboarding@resend.dev>";
+     const from = "ASC Inventory <your-email@gmail.com>";
 
     if (!apiKey) {
       return NextResponse.json({ error: "Missing RESEND_API_KEY" }, { status: 500 });
