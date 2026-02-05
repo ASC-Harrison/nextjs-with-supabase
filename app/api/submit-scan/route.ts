@@ -19,28 +19,25 @@ export async function POST(req: Request) {
     if (!location_id) return Response.json({ error: "Missing location_id" }, { status: 400 });
     if (!Number.isFinite(qty) || qty <= 0) return Response.json({ error: "Qty must be > 0" }, { status: 400 });
 
-    // Find item by barcode
     const { data: item, error: itemErr } = await supabase
       .from("items")
       .select("id, name, barcode")
       .eq("barcode", barcode)
       .single();
 
-    if (itemErr || !item) {
-      return Response.json({ error: "Item not found for this barcode" }, { status: 404 });
-    }
+    if (itemErr || !item) return Response.json({ error: "Item not found for this barcode" }, { status: 404 });
 
-    // Find inventory row by composite key
+    // ✅ now selecting par_level too
     let { data: inv, error: invErr } = await supabase
       .from("inventory")
-      .select("on_hand, low_stock, low_stock_notified, status")
+      .select("on_hand, par_level, low_stock_notified")
       .eq("item_id", item.id)
       .eq("location_id", location_id)
       .maybeSingle();
 
     if (invErr) throw invErr;
 
-    // Auto-create if missing
+    // auto-create if missing
     if (!inv) {
       const { data: created, error: createErr } = await supabase
         .from("inventory")
@@ -48,11 +45,12 @@ export async function POST(req: Request) {
           item_id: item.id,
           location_id,
           on_hand: 0,
+          par_level: 0,
           status: "OK",
           low_stock: false,
           low_stock_notified: false,
         })
-        .select("on_hand, low_stock, low_stock_notified, status")
+        .select("on_hand, par_level, low_stock_notified")
         .single();
 
       if (createErr) throw createErr;
@@ -60,11 +58,11 @@ export async function POST(req: Request) {
     }
 
     const current = Number(inv.on_hand ?? 0);
+    const par = Number(inv.par_level ?? 0);
     const updated = direction === "OUT" ? Math.max(0, current - qty) : current + qty;
 
-    // Your inventory table does NOT show par_level, so "LOW" is <= 0 for now.
-    // (If your products table has par_level, tell me and I’ll wire it in.)
-    const isLow = updated <= 0;
+    // ✅ LOW when on_hand <= par_level (and par_level > 0)
+    const isLow = par > 0 && updated <= par;
 
     const { error: updErr } = await supabase
       .from("inventory")
@@ -72,14 +70,14 @@ export async function POST(req: Request) {
         on_hand: updated,
         low_stock: isLow,
         status: isLow ? "LOW" : "OK",
-        low_stock_notified: isLow ? inv.low_stock_notified : false, // reset when restocked
+        // reset notified after restock above par
+        low_stock_notified: isLow ? inv.low_stock_notified : false,
       })
       .eq("item_id", item.id)
       .eq("location_id", location_id);
 
     if (updErr) throw updErr;
 
-    // trigger low-stock email check
     await fetch(new URL("/api/notify-low-stock", req.url), { method: "POST" });
 
     return Response.json({
@@ -87,6 +85,7 @@ export async function POST(req: Request) {
       item: item.name,
       before: current,
       after: updated,
+      par_level: par,
       low_stock: isLow,
     });
   } catch (err: any) {
