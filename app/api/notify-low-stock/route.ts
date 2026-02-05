@@ -1,55 +1,53 @@
-// app/api/notify-low-stock/route.ts
-import { Resend } from "resend";
-
-export const runtime = "nodejs";
+import { NextResponse } from "next/server";
 
 export async function POST(req: Request) {
   try {
     const body = await req.json();
 
-    const {
-      item_name,
-      barcode,
-      on_hand,
-      par_level,
-      location_id,
-    } = body ?? {};
+    const to = process.env.LOW_STOCK_EMAIL_TO;
+    const apiKey = process.env.RESEND_API_KEY;
 
-    if (!process.env.RESEND_API_KEY) {
-      return Response.json({ error: "Missing RESEND_API_KEY" }, { status: 500 });
+    if (!apiKey) {
+      return NextResponse.json({ error: "Missing RESEND_API_KEY" }, { status: 500 });
     }
-    if (!process.env.ALERT_EMAIL_TO) {
-      return Response.json({ error: "Missing ALERT_EMAIL_TO" }, { status: 500 });
+    if (!to) {
+      return NextResponse.json({ error: "Missing LOW_STOCK_EMAIL_TO" }, { status: 500 });
     }
 
-    const resend = new Resend(process.env.RESEND_API_KEY);
+    const subject = body?.subject ?? "Low Stock Alert";
+    const html =
+      body?.html ??
+      `<h2>Low Stock Alert</h2>
+       <pre style="font-size:14px">${JSON.stringify(body, null, 2)}</pre>`;
 
-    const subject = `LOW STOCK: ${item_name ?? "Item"} (${barcode ?? "no barcode"})`;
+    const from =
+      process.env.LOW_STOCK_EMAIL_FROM || "ASC Inventory <onboarding@resend.dev>";
 
-    const text =
-`LOW STOCK ALERT
-
-Item: ${item_name ?? "Unknown"}
-Barcode: ${barcode ?? "Unknown"}
-Location: ${location_id ?? "Unknown"}
-On hand: ${on_hand ?? "?"}
-Par level: ${par_level ?? "?"}
-`;
-
-    const { error } = await resend.emails.send({
-      from: "ASC Inventory <alerts@resend.dev>",
-      to: process.env.ALERT_EMAIL_TO,
-      subject,
-      text,
+    const res = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        from,
+        to,
+        subject,
+        html,
+      }),
     });
 
-    if (error) {
-      return Response.json({ error }, { status: 500 });
+    const data = await res.json();
+
+    if (!res.ok) {
+      return NextResponse.json({ error: "Resend error", details: data }, { status: 500 });
     }
 
-    return Response.json({ ok: true });
+    return NextResponse.json({ ok: true, data });
   } catch (e: any) {
-    return Response.json({ error: e?.message ?? "Server error" }, { status: 500 });
+    return NextResponse.json(
+      { error: e?.message || "Unknown error" },
+      { status: 500 }
+    );
   }
 }
-
