@@ -73,68 +73,82 @@ export default function Page() {
     } catch {}
   }
 
-  async function submitScan() {
-    setErr('')
-    setMsg('')
+ async function submitScan() {
+  setErr("")
+  setMsg("")
 
-    if (!locationId) {
-      setErr('Location is required')
-      return
+  if (!locationId) {
+    setErr("Location is required")
+    return
+  }
+
+  const cleanBarcode = barcode.trim()
+  if (!cleanBarcode) {
+    setErr("Barcode is required")
+    return
+  }
+
+  const amount = Math.max(1, parseInt(qty || "1", 10) || 1)
+  setBusy(true)
+
+  try {
+    // 1️⃣ Find inventory item
+    const { data: item, error: findErr } = await supabase
+      .from("inventory")
+      .select("id, item_name, barcode, on_hand, par_level")
+      .eq("barcode", cleanBarcode)
+      .eq("location_id", locationId)
+      .single()
+
+    if (findErr || !item) {
+      throw new Error("Item not found for this location")
     }
 
-    const cleanBarcode = barcode.trim()
-    if (!cleanBarcode) {
-      setErr('Barcode is required')
-      return
-    }
+    const currentOnHand = Number(item.on_hand ?? 0)
+    const par = Number(item.par_level ?? 0)
 
-    const amount = Math.max(1, parseInt(qty || '1', 10) || 1)
+    // 2️⃣ Calculate new quantity
+    const newQty =
+      scanType === "OUT"
+        ? Math.max(0, currentOnHand - amount)
+        : currentOnHand + amount
 
-    setBusy(true)
-    try {
-      // 1) Find the inventory row for this barcode + location
-      const { data: item, error: findErr } = await supabase
-        .from('inventory')
-        .select('id, item_name, barcode, on_hand, par_level, low_stock')
-        .eq('barcode', cleanBarcode)
-        .eq('location_id', locationId)
-        .single()
+    const low = newQty <= par
 
-      if (findErr || !item) {
-        throw new Error('Item not found for this location')
-      }
+    // 3️⃣ Update inventory
+    const { error: updateErr } = await supabase
+      .from("inventory")
+      .update({
+        on_hand: newQty,
+        low_stock: low,
+      })
+      .eq("id", item.id)
 
-      const currentOnHand = Number(item.on_hand ?? 0)
-      const par = Number(item.par_level ?? 0)
+    if (updateErr) throw updateErr
 
-      const newQty =
-        scanType === 'OUT'
-          ? Math.max(0, currentOnHand - amount)
-          : currentOnHand + amount
-
-      const low = newQty <= par
-
-      // 2) Update inventory
-      const { error: updateErr } = await supabase
-        .from('inventory')
-        .update({
+    // 4️⃣ 🔔 LOW STOCK EMAIL TRIGGER
+    if (low) {
+      await fetch("/api/notify-low-stock", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          item_name: item.item_name,
+          barcode: item.barcode,
+          location_id: locationId,
           on_hand: newQty,
-          low_stock: low,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', item.id)
-if (low) {
-  await fetch("/api/notify-low-stock", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      item_name: item.item_name,
-      barcode: item.barcode,
-      location_id: locationId,
-      on_hand: newQty,
-      par_level: par
-    })
-  });
+          par_level: par,
+        }),
+      })
+    }
+
+    setMsg(`Updated ${item.item_name}: ${newQty} on hand`)
+    setBarcode("")
+    setQty("1")
+  } catch (e: any) {
+    setErr(e.message || "Scan failed")
+  } finally {
+    setBusy(false)
+  }
 }
 
       if (updateErr) throw updateErr
