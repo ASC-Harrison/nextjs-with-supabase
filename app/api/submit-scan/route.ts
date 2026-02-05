@@ -22,7 +22,7 @@ export async function POST(req: Request) {
     // 1) Find item by barcode
     const { data: item, error: itemErr } = await supabase
       .from("items")
-      .select("id, name")
+      .select("id, name, barcode")
       .eq("barcode", barcode)
       .single();
 
@@ -30,41 +30,56 @@ export async function POST(req: Request) {
       return Response.json({ error: "Item not found for this barcode" }, { status: 404 });
     }
 
-    // 2) Find inventory row by item_id + location_id (your schema)
-    const { data: inv, error: invErr } = await supabase
+    // 2) Find inventory row by item_id + location_id
+    let { data: inv, error: invErr } = await supabase
       .from("inventory")
       .select("on_hand, low_stock, low_stock_notified")
       .eq("item_id", item.id)
       .eq("location_id", location_id)
-      .single();
+      .maybeSingle();
 
-    if (invErr || !inv) {
-      return Response.json({ error: "Item not found for this barcode + location" }, { status: 404 });
+    if (invErr) throw invErr;
+
+    // ✅ If missing, auto-create it
+    if (!inv) {
+      const { data: created, error: createErr } = await supabase
+        .from("inventory")
+        .insert({
+          item_id: item.id,
+          location_id,
+          on_hand: 0,
+          status: "OK",
+          low_stock: false,
+          low_stock_notified: false,
+        })
+        .select("on_hand, low_stock, low_stock_notified")
+        .single();
+
+      if (createErr) throw createErr;
+      inv = created;
     }
 
     const current = Number(inv.on_hand ?? 0);
     const updated = direction === "OUT" ? Math.max(0, current - qty) : current + qty;
 
-    // 🔧 Low stock logic:
-    // You do NOT have par_level in inventory, so for now we treat "low" as on_hand <= 0.
-    // (If you want par levels, we can wire it to products table next.)
+    // Your inventory table does NOT show par_level,
+    // so we mark low when on_hand <= 0 for now.
     const isLow = updated <= 0;
 
-    // 3) Update by composite keys (item_id + location_id)
+    // 3) Update inventory by composite keys (item_id + location_id)
     const { error: updErr } = await supabase
       .from("inventory")
       .update({
         on_hand: updated,
         low_stock: isLow,
-        // if it is NOT low anymore, clear notified so it can notify next time it goes low
-        low_stock_notified: isLow ? inv.low_stock_notified : false,
+        low_stock_notified: isLow ? inv.low_stock_notified : false, // clear notified when restocked
       })
       .eq("item_id", item.id)
       .eq("location_id", location_id);
 
     if (updErr) throw updErr;
 
-    // 4) Trigger email check (sends only if low_stock=true and not notified)
+    // 4) Trigger low-stock notifier
     await fetch(new URL("/api/notify-low-stock", req.url), { method: "POST" });
 
     return Response.json({
