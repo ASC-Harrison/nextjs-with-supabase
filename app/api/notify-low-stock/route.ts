@@ -2,28 +2,31 @@ import { Resend } from "resend";
 
 export async function POST(req: Request) {
   try {
-    // Don’t crash if the request has no JSON body
-    let body: any = null;
-    const raw = await req.text();
-    if (raw) body = JSON.parse(raw);
-
     const apiKey = process.env.RESEND_API_KEY;
-    const to = process.env.TEST_EMAIL_TO;
+    const to = process.env.LOW_STOCK_EMAIL_TO;
+    const from = process.env.LOW_STOCK_EMAIL_FROM;
 
     if (!apiKey) {
       return Response.json({ ok: false, error: "Missing RESEND_API_KEY" }, { status: 500 });
     }
     if (!to) {
-      return Response.json({ ok: false, error: "Missing TEST_EMAIL_TO" }, { status: 500 });
+      return Response.json({ ok: false, error: "Missing LOW_STOCK_EMAIL_TO" }, { status: 500 });
+    }
+    if (!from) {
+      return Response.json({ ok: false, error: "Missing LOW_STOCK_EMAIL_FROM" }, { status: 500 });
     }
 
     const resend = new Resend(apiKey);
 
     const result = await resend.emails.send({
-      from: "Inventory Alerts <onboarding@resend.dev>", // works for testing
-      to,
-      subject: "Low stock test",
-      html: `<p>Test email worked.</p><pre>${JSON.stringify(body, null, 2)}</pre>`,
+      from,                 // uses your env var
+      to,                   // uses your env var
+      subject: "Low Stock Alert (Test)",
+      html: `
+        <h2>Low Stock Alert</h2>
+        <p>This is a test email confirming Resend works.</p>
+        <p>If you received this, your setup is correct.</p>
+      `,
     });
 
     return Response.json({ ok: true, result });
