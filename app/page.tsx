@@ -123,6 +123,19 @@ export default function Page() {
           updated_at: new Date().toISOString(),
         })
         .eq('id', item.id)
+if (low) {
+  await fetch("/api/notify-low-stock", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      item_name: item.item_name,
+      barcode: item.barcode,
+      location_id: locationId,
+      on_hand: newQty,
+      par_level: par
+    })
+  });
+}
 
       if (updateErr) throw updateErr
 
