@@ -287,6 +287,38 @@ export default function Page() {
         >
           {busy ? "Working..." : "Submit Scan"}
         </button>
+<button
+  type="button"
+  onClick={submitScan}
+  disabled={busy}
+>
+  {busy ? "Working..." : "Submit Scan"}
+</button>
+
+<button
+  type="button"
+  onClick={async () => {
+    const res = await fetch("/api/notify-low-stock", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        subject: "TEST EMAIL",
+        html: "<h2>✅ Test email sent</h2><p>If you got this, email works.</p>",
+      }),
+    });
+
+    alert("Email test status: " + res.status);
+  }}
+  style={{
+    marginTop: "10px",
+    width: "100%",
+    padding: "10px",
+    borderRadius: "8px",
+    border: "1px solid #999",
+  }}
+>
+  Send Test Email
+</button>
 
         {err ? (
           <p className="mt-3 text-sm text-red-600 whitespace-pre-wrap">{err}</p>
