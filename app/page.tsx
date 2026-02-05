@@ -1,332 +1,214 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { createClient } from "@supabase/supabase-js";
+import React, { useMemo, useState } from "react";
 
-type LocationRow = {
-  id: string;
-  name: string;
-};
+type Direction = "OUT" | "IN";
 
-type ScanType = "IN" | "OUT";
+export default function HomePage() {
+  // 🔴 IMPORTANT: Replace these UUIDs with your real location IDs from Supabase
+  const LOCATIONS = useMemo(
+    () => [
+      { id: "PASTE_OR_CORE_LOCATION_UUID_HERE", name: "OR Core" },
+      { id: "PASTE_SPD_LOCATION_UUID_HERE", name: "SPD" },
+      // add more if you want
+    ],
+    []
+  );
 
-type InventoryRow = {
-  id: string;
-  barcode: string | null;
-  location_id: string;
-  item_id: string | null;
-  product_id: string | null;
-  on_hand: number | null;
-  low_stock: boolean | null;
-  status: string | null;
-  par_level?: number | null; // optional if you ALSO store it on inventory
-};
-
-type ItemRow = {
-  id: string;
-  item_name: string | null;
-  par_level: number | null;
-};
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-);
-
-export default function Page() {
-  const [locations, setLocations] = useState<LocationRow[]>([]);
-  const [locationId, setLocationId] = useState<string>("");
-
-  const [scanType, setScanType] = useState<ScanType>("OUT");
+  const [location_id, setLocationId] = useState(LOCATIONS[0]?.id ?? "");
+  const [direction, setDirection] = useState<Direction>("OUT");
   const [barcode, setBarcode] = useState("");
-  const [qty, setQty] = useState("1");
+  const [qty, setQty] = useState<number>(1);
 
+  const [statusMsg, setStatusMsg] = useState<string>("");
+  const [errorMsg, setErrorMsg] = useState<string>("");
   const [busy, setBusy] = useState(false);
-  const [msg, setMsg] = useState("");
-  const [err, setErr] = useState("");
 
-  const amount = useMemo(() => {
-    const n = parseInt(qty || "1", 10);
-    return Number.isFinite(n) && n > 0 ? n : 1;
-  }, [qty]);
+  async function callJson(url: string, payload?: any) {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: payload ? JSON.stringify(payload) : undefined,
+    });
+    const text = await res.text();
+    let data: any = null;
+    try {
+      data = text ? JSON.parse(text) : null;
+    } catch {
+      data = { raw: text };
+    }
+    return { ok: res.ok, status: res.status, data };
+  }
 
-  // Load locations on page load
-  useEffect(() => {
-    (async () => {
-      setErr("");
-      const { data, error } = await supabase
-        .from("locations")
-        .select("id, name")
-        .order("name");
+  async function onSubmitScan() {
+    setBusy(true);
+    setStatusMsg("");
+    setErrorMsg("");
 
-      if (error) {
-        setErr(error.message);
+    try {
+      const payload = {
+        barcode: barcode.trim(),
+        location_id,
+        qty,
+        direction, // "OUT" or "IN"
+      };
+
+      const { ok, status, data } = await callJson("/api/submit-scan", payload);
+
+      if (!ok) {
+        setErrorMsg(data?.error ? `${data.error} (status ${status})` : `Scan failed (status ${status})`);
         return;
       }
 
-      const rows = (data || []) as LocationRow[];
-      setLocations(rows);
-      if (!locationId && rows.length) setLocationId(rows[0].id);
-    })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  async function notifyLowStock(payload: {
-    subject: string;
-    html: string;
-  }) {
-    // This hits your Next.js API route: app/api/notify-low-stock/route.ts
-    const res = await fetch("/api/notify-low-stock", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-
-    if (!res.ok) {
-      // don't crash the scan; just surface it
-      const t = await res.text().catch(() => "");
-      throw new Error(`Notify failed: ${res.status} ${t}`);
+      setStatusMsg(
+        `Scan OK: ${data?.item?.name ?? "Item"} | On hand: ${data?.on_hand_before} → ${data?.on_hand_after}`
+      );
+    } catch (e: any) {
+      setErrorMsg(e?.message ?? String(e));
+    } finally {
+      setBusy(false);
     }
   }
 
-  async function submitScan() {
-    setErr("");
-    setMsg("");
-
-    const cleanBarcode = barcode.trim();
-    if (!locationId) {
-      setErr("Location is required");
-      return;
-    }
-    if (!cleanBarcode) {
-      setErr("Barcode is required");
-      return;
-    }
-
+  async function onSendTestEmail() {
     setBusy(true);
+    setStatusMsg("");
+    setErrorMsg("");
 
     try {
-      // 1) Find inventory row (NO joins so it works regardless of FK naming)
-      const { data: inv, error: invErr } = await supabase
-        .from("inventory")
-        .select(
-          "id, barcode, location_id, item_id, product_id, on_hand, low_stock, status, par_level"
-        )
-        .eq("barcode", cleanBarcode)
-        .eq("location_id", locationId)
-        .single();
+      const { ok, status, data } = await callJson("/api/test-email");
 
-      if (invErr || !inv) {
-        throw new Error("Item not found for this barcode + location");
+      if (!ok) {
+        setErrorMsg(data?.error ? `${data.error} (status ${status})` : `Email test failed (status ${status})`);
+        return;
       }
 
-      const invRow = inv as InventoryRow;
-
-      // 2) Pull par_level + item_name from items table
-      //    Works whether your inventory uses product_id OR item_id
-      const itemLookupId = invRow.product_id ?? invRow.item_id ?? null;
-
-      let itemName = "Item";
-      let par = 0;
-
-      // If you store par_level on inventory, use it as a fallback
-      const invPar = Number(invRow.par_level ?? 0);
-
-      if (itemLookupId) {
-        const { data: item, error: itemErr } = await supabase
-          .from("items")
-          .select("id, item_name, par_level")
-          .eq("id", itemLookupId)
-          .single();
-
-        if (!itemErr && item) {
-          const itemRow = item as ItemRow;
-          itemName = itemRow.item_name || itemName;
-          par = Number(itemRow.par_level ?? 0);
-        } else {
-          // if items lookup fails, fall back to inventory par_level if present
-          par = invPar;
-        }
-      } else {
-        par = invPar;
-      }
-
-      const currentOnHand = Number(invRow.on_hand ?? 0);
-
-      // 3) Calculate new qty
-      const newQty =
-        scanType === "OUT"
-          ? Math.max(0, currentOnHand - amount)
-          : currentOnHand + amount;
-
-      // 4) Decide low_stock
-      // If par is 0/blank, we treat it as "not low" (otherwise everything becomes low)
-      const low = par > 0 ? newQty <= par : false;
-
-      // only notify when it flips false -> true
-      const flippedToLow = !Boolean(invRow.low_stock) && low;
-
-      // 5) Update inventory row
-      const { error: upErr } = await supabase
-        .from("inventory")
-        .update({
-          on_hand: newQty,
-          low_stock: low,
-          status: low ? "LOW" : "OK",
-        })
-        .eq("id", invRow.id);
-
-      if (upErr) throw upErr;
-
-      // 6) Notify (email) ONLY when it flips to low
-      if (flippedToLow) {
-        await notifyLowStock({
-          subject: "Low Stock Alert",
-          html: `
-            <h2>LOW STOCK</h2>
-            <p><b>${itemName}</b></p>
-            <p>Barcode: <b>${cleanBarcode}</b></p>
-            <p>New qty: <b>${newQty}</b></p>
-            <p>Par level: <b>${par}</b></p>
-            <p>Location ID: <b>${locationId}</b></p>
-          `,
-        });
-      }
-
-      setMsg(
-        `${scanType} OK — ${itemName}: ${currentOnHand} → ${newQty} ${
-          low ? "(LOW)" : ""
-        } ${flippedToLow ? " — alert sent" : ""}`
-      );
-
-      // reset fields for faster scanning
-      setBarcode("");
-      setQty("1");
+      setStatusMsg("Test email sent ✅ Check inbox/spam.");
     } catch (e: any) {
-      setErr(e?.message ?? "Scan failed");
+      setErrorMsg(e?.message ?? String(e));
     } finally {
       setBusy(false);
     }
   }
 
   return (
-    <main className="min-h-screen w-full flex items-center justify-center p-6">
-      <div className="w-full max-w-md rounded-xl border p-5 shadow-sm">
-        <h1 className="text-xl font-semibold">ASC Inventory Live</h1>
-        <p className="text-sm opacity-70 mb-4">
+    <main style={{ maxWidth: 520, margin: "0 auto", padding: 16, fontFamily: "system-ui, Arial" }}>
+      <div style={{ border: "1px solid #e5e5e5", borderRadius: 14, padding: 18 }}>
+        <h1 style={{ margin: 0, fontSize: 28 }}>ASC Inventory Live</h1>
+        <p style={{ marginTop: 6, color: "#555" }}>
           Scan IN / OUT updates on-hand. LOW clears when restocked.
         </p>
 
-        <label className="text-sm font-medium">Location</label>
+        <label style={{ display: "block", marginTop: 18, fontWeight: 600 }}>Location</label>
         <select
-          className="w-full mt-1 mb-4 rounded-md border px-3 py-2"
-          value={locationId}
+          value={location_id}
           onChange={(e) => setLocationId(e.target.value)}
-          disabled={busy}
+          style={{ width: "100%", padding: 12, borderRadius: 10, border: "1px solid #ddd", marginTop: 8 }}
         >
-          {locations.map((l) => (
+          {LOCATIONS.map((l) => (
             <option key={l.id} value={l.id}>
               {l.name}
             </option>
           ))}
         </select>
 
-        <label className="text-sm font-medium">Scan Type</label>
-        <div className="mt-1 mb-4 flex gap-2">
+        <label style={{ display: "block", marginTop: 18, fontWeight: 600 }}>Scan Type</label>
+        <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
           <button
-            className={`flex-1 rounded-md border px-3 py-2 ${
-              scanType === "OUT" ? "font-semibold" : "opacity-70"
-            }`}
-            onClick={() => setScanType("OUT")}
-            disabled={busy}
             type="button"
+            onClick={() => setDirection("OUT")}
+            style={{
+              flex: 1,
+              padding: 12,
+              borderRadius: 10,
+              border: "1px solid #ddd",
+              background: direction === "OUT" ? "#111" : "#fff",
+              color: direction === "OUT" ? "#fff" : "#111",
+              fontWeight: 700,
+            }}
+            disabled={busy}
           >
             OUT (use)
           </button>
           <button
-            className={`flex-1 rounded-md border px-3 py-2 ${
-              scanType === "IN" ? "font-semibold" : "opacity-70"
-            }`}
-            onClick={() => setScanType("IN")}
-            disabled={busy}
             type="button"
+            onClick={() => setDirection("IN")}
+            style={{
+              flex: 1,
+              padding: 12,
+              borderRadius: 10,
+              border: "1px solid #ddd",
+              background: direction === "IN" ? "#111" : "#fff",
+              color: direction === "IN" ? "#fff" : "#111",
+              fontWeight: 700,
+            }}
+            disabled={busy}
           >
             IN (restock)
           </button>
         </div>
 
-        <label className="text-sm font-medium">Barcode</label>
+        <label style={{ display: "block", marginTop: 18, fontWeight: 600 }}>Barcode</label>
         <input
-          className="w-full mt-1 mb-4 rounded-md border px-3 py-2"
           value={barcode}
           onChange={(e) => setBarcode(e.target.value)}
           placeholder="Scan or type barcode"
+          style={{ width: "100%", padding: 12, borderRadius: 10, border: "1px solid #ddd", marginTop: 8 }}
           disabled={busy}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") submitScan();
-          }}
         />
 
-        <label className="text-sm font-medium">Qty</label>
+        <label style={{ display: "block", marginTop: 18, fontWeight: 600 }}>Qty</label>
         <input
-          className="w-full mt-1 mb-4 rounded-md border px-3 py-2"
           value={qty}
-          onChange={(e) => setQty(e.target.value)}
-          inputMode="numeric"
+          onChange={(e) => setQty(Number(e.target.value))}
+          type="number"
+          min={1}
+          style={{ width: "100%", padding: 12, borderRadius: 10, border: "1px solid #ddd", marginTop: 8 }}
           disabled={busy}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") submitScan();
-          }}
         />
 
         <button
-          className="w-full rounded-md border px-3 py-2 font-semibold"
-          onClick={submitScan}
-          disabled={busy}
           type="button"
+          onClick={onSubmitScan}
+          style={{
+            width: "100%",
+            padding: 14,
+            borderRadius: 12,
+            border: "1px solid #ddd",
+            marginTop: 18,
+            fontSize: 18,
+            fontWeight: 800,
+          }}
+          disabled={busy}
         >
           {busy ? "Working..." : "Submit Scan"}
         </button>
-<button
-  type="button"
-  onClick={submitScan}
-  disabled={busy}
->
-  {busy ? "Working..." : "Submit Scan"}
-</button>
 
-<button
-  type="button"
-  onClick={async () => {
-    const res = await fetch("/api/notify-low-stock", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        subject: "TEST EMAIL",
-        html: "<h2>✅ Test email sent</h2><p>If you got this, email works.</p>",
-      }),
-    });
+        <div style={{ marginTop: 18 }}>
+          <button
+            type="button"
+            onClick={onSendTestEmail}
+            style={{
+              width: "100%",
+              padding: 14,
+              borderRadius: 12,
+              border: "1px solid #ddd",
+              fontSize: 16,
+              fontWeight: 700,
+              background: "#fff",
+            }}
+            disabled={busy}
+          >
+            Send Test Email
+          </button>
+        </div>
 
-    alert("Email test status: " + res.status);
-  }}
-  style={{
-    marginTop: "10px",
-    width: "100%",
-    padding: "10px",
-    borderRadius: "8px",
-    border: "1px solid #999",
-  }}
->
-  Send Test Email
-</button>
-
-        {err ? (
-          <p className="mt-3 text-sm text-red-600 whitespace-pre-wrap">{err}</p>
+        {errorMsg ? (
+          <p style={{ color: "#c00", marginTop: 14, fontWeight: 700 }}>{errorMsg}</p>
         ) : null}
-        {msg ? (
-          <p className="mt-3 text-sm text-green-700 whitespace-pre-wrap">
-            {msg}
-          </p>
+
+        {statusMsg ? (
+          <p style={{ color: "#0a7", marginTop: 14, fontWeight: 700 }}>{statusMsg}</p>
         ) : null}
       </div>
     </main>
