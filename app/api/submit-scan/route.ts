@@ -27,7 +27,7 @@ export async function POST(req: Request) {
 
     if (itemErr || !item) return Response.json({ error: "Item not found for this barcode" }, { status: 404 });
 
-    // ✅ now selecting par_level too
+    // Find inventory row by composite key
     let { data: inv, error: invErr } = await supabase
       .from("inventory")
       .select("on_hand, par_level, low_stock_notified")
@@ -61,8 +61,11 @@ export async function POST(req: Request) {
     const par = Number(inv.par_level ?? 0);
     const updated = direction === "OUT" ? Math.max(0, current - qty) : current + qty;
 
-    // ✅ LOW when on_hand <= par_level (and par_level > 0)
+    // LOW when on_hand <= par_level (and par_level > 0)
     const isLow = par > 0 && updated <= par;
+
+    // Reset low_stock_notified when restocked above par level
+    const isRestocked = updated > par;
 
     const { error: updErr } = await supabase
       .from("inventory")
@@ -70,7 +73,7 @@ export async function POST(req: Request) {
         on_hand: updated,
         low_stock: isLow,
         status: isLow ? "LOW" : "OK",
-        // reset notified after restock above par
+        // Reset notified when restocked above par
         low_stock_notified: isLow ? inv.low_stock_notified : false,
       })
       .eq("item_id", item.id)
@@ -78,7 +81,10 @@ export async function POST(req: Request) {
 
     if (updErr) throw updErr;
 
-    await fetch(new URL("/api/notify-low-stock", req.url), { method: "POST" });
+    if (isLow && !inv.low_stock_notified) {
+      // Trigger low-stock notifier if it's a first-time low
+      await fetch(new URL("/api/notify-low-stock", req.url), { method: "POST" });
+    }
 
     return Response.json({
       ok: true,
@@ -87,6 +93,7 @@ export async function POST(req: Request) {
       after: updated,
       par_level: par,
       low_stock: isLow,
+      restocked: isRestocked,
     });
   } catch (err: any) {
     console.error("submit-scan error:", err);
