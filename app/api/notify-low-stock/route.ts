@@ -1,48 +1,41 @@
-import { NextResponse } from "next/server";
+import { Resend } from "resend";
+
+export const runtime = "nodejs";
 
 export async function POST(req: Request) {
+  console.log("notify-low-stock: hit POST");
+
   try {
-    // Read JSON ONE time only
-    const body = await req.json();
+    // SAFELY read body (won’t crash if empty)
+    let body: any = null;
+    const text = await req.text();
+    if (text) body = JSON.parse(text);
 
-    const to = process.env.LOW_STOCK_EMAIL_TO;
+    console.log("notify-low-stock: body =", body);
+
     const apiKey = process.env.RESEND_API_KEY;
-    const from =
-      process.env.LOW_STOCK_EMAIL_FROM || "ASC Inventory <onboarding@resend.dev>";
+    const to = process.env.TEST_EMAIL_TO;
 
-    if (!apiKey) {
-      return NextResponse.json({ error: "Missing RESEND_API_KEY" }, { status: 500 });
-    }
-    if (!to) {
-      return NextResponse.json({ error: "Missing LOW_STOCK_EMAIL_TO" }, { status: 500 });
-    }
+    if (!apiKey) throw new Error("Missing RESEND_API_KEY in Vercel env vars");
+    if (!to) throw new Error("Missing TEST_EMAIL_TO in Vercel env vars");
 
-    const subject = body?.subject ?? "Low Stock Alert";
-    const html =
-      body?.html ??
-      `<h2>Low Stock Alert</h2>
-       <pre style="font-size:14px">${JSON.stringify(body, null, 2)}</pre>`;
+    const resend = new Resend(apiKey);
 
-    const resendResp = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ from, to, subject, html }),
+    const result = await resend.emails.send({
+      from: "Inventory Alerts <onboarding@resend.dev>",
+      to,
+      subject: "Low stock test",
+      html: "<p>Test email from /api/notify-low-stock</p>",
     });
 
-    const data = await resendResp.json();
+    console.log("notify-low-stock: resend result =", result);
 
-    if (!resendResp.ok) {
-      return NextResponse.json(
-        { error: "Resend error", status: resendResp.status, details: data },
-        { status: 500 }
-      );
-    }
-
-    return NextResponse.json({ ok: true, data });
-  } catch (e: any) {
-    return NextResponse.json({ error: e?.message || "Unknown error" }, { status: 500 });
+    return Response.json({ ok: true, result });
+  } catch (err: any) {
+    console.error("notify-low-stock ERROR:", err?.message, err?.stack);
+    return new Response(
+      JSON.stringify({ ok: false, error: err?.message ?? String(err) }),
+      { status: 500, headers: { "content-type": "application/json" } }
+    );
   }
 }
