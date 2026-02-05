@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
 
 export async function POST(req: Request) {
+  console.log("✅ notify-low-stock HIT");
+
+const body = await req.json();
+console.log("📦 body:", body);
+
   try {
     const body = await req.json();
 
