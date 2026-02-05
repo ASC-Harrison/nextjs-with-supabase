@@ -3,29 +3,28 @@ import { createClient } from "@supabase/supabase-js";
 
 export async function POST() {
   try {
+    const resend = new Resend(process.env.RESEND_API_KEY!);
+
     const supabase = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY!,
       { auth: { persistSession: false } }
     );
 
-    const resend = new Resend(process.env.RESEND_API_KEY!);
-
-    // 1) Find rows that are low AND not notified yet
-    const { data: lowRows, error } = await supabase
+    const { data: rows, error } = await supabase
       .from("inventory")
-      .select("item_id, location_id, on_hand, product_id")
+      .select("item_id, location_id, on_hand")
       .eq("low_stock", true)
       .eq("low_stock_notified", false);
 
     if (error) throw error;
 
-    if (!lowRows || lowRows.length === 0) {
-      return Response.json({ ok: true, message: "No new low stock." });
+    if (!rows || rows.length === 0) {
+      return Response.json({ ok: true, message: "No new low stock rows." });
     }
 
-    // Optional: pull item names/barcodes for the email
-    const itemIds = lowRows.map(r => r.item_id);
+    // Pull item details for nicer email
+    const itemIds = rows.map((r) => r.item_id);
     const { data: items } = await supabase
       .from("items")
       .select("id, name, barcode")
@@ -35,32 +34,35 @@ export async function POST() {
 
     const html = `
       <h2>Low Stock Alert</h2>
-      <p>These items are low:</p>
+      <p>${rows.length} item(s) are low:</p>
       <table border="1" cellpadding="6" cellspacing="0">
-        <tr>
-          <th>Item</th><th>Barcode</th><th>Location ID</th><th>On Hand</th>
-        </tr>
-        ${lowRows.map((r: any) => {
-          const it = itemMap.get(r.item_id);
-          return `<tr>
-            <td>${it?.name ?? r.item_id}</td>
-            <td>${it?.barcode ?? ""}</td>
-            <td>${r.location_id}</td>
-            <td>${r.on_hand}</td>
-          </tr>`;
-        }).join("")}
+        <tr><th>Item</th><th>Barcode</th><th>Location</th><th>On Hand</th></tr>
+        ${rows
+          .map((r: any) => {
+            const it = itemMap.get(r.item_id);
+            return `<tr>
+              <td>${it?.name ?? r.item_id}</td>
+              <td>${it?.barcode ?? ""}</td>
+              <td>${r.location_id}</td>
+              <td>${r.on_hand}</td>
+            </tr>`;
+          })
+          .join("")}
       </table>
+      <p style="margin-top:12px;color:#666;font-size:12px">
+        Note: location shown is the UUID. We can replace that with the location name if you want.
+      </p>
     `;
 
     await resend.emails.send({
       from: process.env.LOW_STOCK_EMAIL_FROM!,
       to: process.env.LOW_STOCK_EMAIL_TO!,
-      subject: `Low Stock Alert (${lowRows.length})`,
+      subject: `ASC Low Stock (${rows.length})`,
       html,
     });
 
-    // 2) Mark them notified (update by composite key)
-    for (const r of lowRows) {
+    // Mark notified (composite key update)
+    for (const r of rows) {
       await supabase
         .from("inventory")
         .update({ low_stock_notified: true })
@@ -68,9 +70,9 @@ export async function POST() {
         .eq("location_id", r.location_id);
     }
 
-    return Response.json({ ok: true, emailed: lowRows.length });
+    return Response.json({ ok: true, emailed: rows.length });
   } catch (err: any) {
     console.error("notify-low-stock error:", err);
-    return Response.json({ ok: false, error: err.message }, { status: 500 });
+    return Response.json({ error: err.message }, { status: 500 });
   }
 }
