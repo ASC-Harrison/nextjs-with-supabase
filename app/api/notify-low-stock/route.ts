@@ -33,11 +33,18 @@ export async function POST() {
     });
 
     // Pull rows that are low and NOT notified yet
-    const { data: rows, error } = await supabase
-      .from("inventory")
-      .select("item_id, location_id, on_hand")
-      .eq("low_stock", true)
-      .eq("low_stock_notified", false);
+  const { data: rows, error } = await supabase
+  .from("inventory")
+  .select(`
+    item_id,
+    location_id,
+    on_hand,
+    locations:locations (
+      name
+    )
+  `)
+  .eq("low_stock", true)
+  .eq("low_stock_notified", false);
 
     if (error) throw error;
 
