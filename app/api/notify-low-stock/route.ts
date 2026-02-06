@@ -73,13 +73,18 @@ export async function POST() {
     `;
 
     console.log("LOW STOCK EMAIL → from:", from, "to:", to, "count:", rows.length);
+const recipients = (process.env.LOW_STOCK_EMAIL_TO || "")
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean);
 
     const sendResult = await resend.emails.send({
-      from,
-      to, // ✅ ARRAY
-      subject: `ASC Low Stock (${rows.length})`,
-      html,
-    });
+  from: process.env.LOW_STOCK_EMAIL_FROM!,
+  to: recipients,
+  subject: `ASC Low Stock (${rows.length})`,
+  html,
+});
+
 
     console.log("Resend send result:", sendResult);
 
