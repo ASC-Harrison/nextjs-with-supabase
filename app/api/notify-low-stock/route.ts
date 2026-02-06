@@ -80,10 +80,11 @@ const recipients = (process.env.LOW_STOCK_EMAIL_TO || "")
 
     const sendResult = await resend.emails.send({
   from: process.env.LOW_STOCK_EMAIL_FROM!,
-  to: recipients,
+  to: process.env.LOW_STOCK_EMAIL_TO!,
   subject: `ASC Low Stock (${rows.length})`,
   html,
 });
+
 
 
     console.log("Resend send result:", sendResult);
