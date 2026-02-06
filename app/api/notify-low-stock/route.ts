@@ -81,12 +81,17 @@ export async function POST() {
     `;
 
     // ✅ Send email to multiple recipients
-    const sendResult = await resend.emails.send({
-      from,
-      to, // ✅ ARRAY
-      subject: `ASC Low Stock (${rows.length})`,
-      html,
-    });
+   const to = (process.env.LOW_STOCK_EMAIL_TO || "")
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean);
+
+await resend.emails.send({
+  from: process.env.LOW_STOCK_EMAIL_FROM!,
+  to,
+  subject: `ASC Low Stock (${rows.length})`,
+  html,
+});
 
     console.log("resend result:", sendResult);
 
