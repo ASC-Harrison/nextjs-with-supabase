@@ -72,7 +72,7 @@ export async function POST() {
           return `<tr>
             <td>${it?.name ?? r.item_id}</td>
             <td>${it?.barcode ?? ""}</td>
-            <td>${r.location_id}</td>
+            <td>${r.locations?.name ?? r.location_id}</td>
             <td>${r.on_hand}</td>
           </tr>`;
         }).join("")}
