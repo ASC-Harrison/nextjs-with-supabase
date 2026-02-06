@@ -9,7 +9,6 @@ export async function POST(req: Request) {
     );
 
     const body = await req.json();
-
     const barcode = String(body.barcode ?? "").trim();
     const location_id = String(body.location_id ?? "").trim();
     const qty = Number(body.qty ?? 0);
@@ -19,84 +18,71 @@ export async function POST(req: Request) {
     if (!location_id) return Response.json({ error: "Missing location_id" }, { status: 400 });
     if (!Number.isFinite(qty) || qty <= 0) return Response.json({ error: "Qty must be > 0" }, { status: 400 });
 
-    const { data: item, error: itemErr } = await supabase
+    const { data: item } = await supabase
       .from("items")
-      .select("id, name, barcode")
+      .select("id, name")
       .eq("barcode", barcode)
       .single();
 
-    if (itemErr || !item) return Response.json({ error: "Item not found for this barcode" }, { status: 404 });
+    if (!item) return Response.json({ error: "Item not found for this barcode" }, { status: 404 });
 
-    // Find inventory row by composite key
-    let { data: inv, error: invErr } = await supabase
+    // Read current inventory state
+    const { data: inv } = await supabase
       .from("inventory")
-      .select("on_hand, par_level, low_stock_notified")
+      .select("on_hand, par_level, low_stock, low_stock_notified")
       .eq("item_id", item.id)
       .eq("location_id", location_id)
-      .maybeSingle();
+      .single();
 
-    if (invErr) throw invErr;
+    if (!inv) return Response.json({ error: "Inventory row missing for this item/location" }, { status: 404 });
 
-    // auto-create if missing
-    if (!inv) {
-      const { data: created, error: createErr } = await supabase
-        .from("inventory")
-        .insert({
-          item_id: item.id,
-          location_id,
-          on_hand: 0,
-          par_level: 0,
-          status: "OK",
-          low_stock: false,
-          low_stock_notified: false,
-        })
-        .select("on_hand, par_level, low_stock_notified")
-        .single();
+    const beforeOnHand = Number(inv.on_hand ?? 0);
+    const par = Number(inv.par_level ?? 0);
 
-      if (createErr) throw createErr;
-      inv = created;
+    const afterOnHand =
+      direction === "OUT"
+        ? Math.max(0, beforeOnHand - qty)
+        : beforeOnHand + qty;
+
+    const wasLow = !!inv.low_stock;
+    const isLow = par > 0 && afterOnHand <= par; // LOW rule
+
+    // Update inventory. IMPORTANT:
+    // - do NOT set notified=true here
+    // - re-arm when NOT low
+    const updatePayload: any = {
+      on_hand: afterOnHand,
+      low_stock: isLow,
+      status: isLow ? "LOW" : "OK",
+    };
+
+    if (!isLow) {
+      updatePayload.low_stock_notified = false; // ✅ re-arm when restocked above par
     }
 
-    const current = Number(inv.on_hand ?? 0);
-    const par = Number(inv.par_level ?? 0);
-    const updated = direction === "OUT" ? Math.max(0, current - qty) : current + qty;
-
-    // LOW when on_hand <= par_level (and par_level > 0)
-    const isLow = par > 0 && updated <= par;
-
-    const isRestocked = updated > par; // check if we are restocking above par
-
-    const { error: updErr } = await supabase
+    await supabase
       .from("inventory")
-      .update({
-        on_hand: updated,
-        low_stock: isLow,
-        status: isLow ? "LOW" : "OK",
-        // Reset low_stock_notified if restocked above par
-        low_stock_notified: isLow ? inv.low_stock_notified : false,
-      })
+      .update(updatePayload)
       .eq("item_id", item.id)
       .eq("location_id", location_id);
 
-    if (updErr) throw updErr;
-
-    // Trigger low-stock notifier only if it's the first time low (and not notified yet)
-    if (isLow && !inv.low_stock_notified) {
-      // Send the email
+    // ✅ Only trigger notify on transition OK -> LOW
+    if (!wasLow && isLow) {
       await fetch(new URL("/api/notify-low-stock", req.url), { method: "POST" });
     }
 
     return Response.json({
       ok: true,
       item: item.name,
-      before: current,
-      after: updated,
+      before: beforeOnHand,
+      after: afterOnHand,
       par_level: par,
-      low_stock: isLow,
-      restocked: isRestocked,
+      wasLow,
+      isLow,
+      low_stock_notified_before: inv.low_stock_notified,
     });
   } catch (err: any) {
     console.error("submit-scan error:", err);
-    return Response.json({ error: err.message }, { status: 500 });
+    return Response.json({ error: err?.message ?? String(err) }, { status: 500 });
   }
 }
