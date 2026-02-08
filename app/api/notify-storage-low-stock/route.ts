@@ -14,15 +14,13 @@ function moneySafeText(v: unknown) {
   return String(v ?? "").replace(/[<>]/g, "");
 }
 
-type LowRow = {
-  id: string | number;
-  item_name: string | null;
-  cabinet_name: string | null;
-  on_hand: number | null;
-  par: number | null;
-  is_low: boolean | null;
-  low_email_sent: boolean | null;
-};
+for (const pair of emailedPairs) {
+  await supabase
+    .from(TABLE)
+    .update({ low_notified: true })
+    .eq("storage_area_id", pair.storage_area_id)
+    .eq("item_id", pair.item_id);
+}
 
 export async function POST(req: Request) {
   try {
