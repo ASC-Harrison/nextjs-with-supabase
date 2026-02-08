@@ -1,0 +1,5 @@
+{
+  "crons": [
+    { "path": "/api/notify-storage-low-stock", "schedule": "0 8 * * *" }
+  ]
+}
