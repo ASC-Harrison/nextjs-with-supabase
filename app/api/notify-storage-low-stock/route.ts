@@ -1,110 +1,56 @@
-// app/api/notify-storage-low-stock/route.ts
 import { NextResponse } from "next/server";
 import { Resend } from "resend";
 import { createClient } from "@supabase/supabase-js";
 
-/**
- * ✅ This version is wired for YOUR setup:
- * - You are using a VIEW called: storage_inventory_named
- *   that exposes:
- *     storage_area_id, item_id, on_hand, par_level, low, low_notified,
- *     item_name, cabinet_name
- *
- * It DOES NOT reference storage_area_name at all.
- *
- * Make sure you set Vercel env var:
- *   STORAGE_LOW_TABLE=storage_inventory_named
- */
-
-type InventoryRow = {
-  storage_area_id: string;
-  item_id: string;
-  on_hand: number | null;
-  par_level: number | null;
-  low: boolean | null;
-  low_notified: boolean | null;
-  item_name: string | null;
-  cabinet_name: string | null;
-};
-
-function parseRecipients(raw: string | undefined) {
-  return (raw ?? "")
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);
-}
-
-function safe(v: unknown) {
-  return String(v ?? "").replace(/[<>]/g, "");
-}
-
 export async function POST() {
   try {
-    // ---- ENV ----
-    const apiKey = process.env.RESEND_API_KEY;
+    const resendApiKey = process.env.RESEND_API_KEY;
     const toRaw = process.env.LOW_STOCK_EMAIL_TO;
-    const supabaseUrl = process.env.SUPABASE_URL;
-    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-    const TABLE = process.env.STORAGE_LOW_TABLE ?? "storage_inventory_named";
-    const FROM =
+    const from =
       process.env.LOW_STOCK_EMAIL_FROM ??
       "Inventory Alerts <onboarding@resend.dev>";
 
-    if (!apiKey || !toRaw || !supabaseUrl || !supabaseServiceKey) {
+    const supabaseUrl = process.env.SUPABASE_URL;
+    const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+    if (!resendApiKey || !toRaw || !supabaseUrl || !serviceKey) {
       return NextResponse.json(
-        { ok: false, error: "Missing required environment variables" },
+        { error: "Missing environment variables" },
         { status: 500 }
       );
     }
 
-    const recipients = parseRecipients(toRaw);
-    if (recipients.length === 0) {
-      return NextResponse.json(
-        { ok: false, error: "LOW_STOCK_EMAIL_TO is empty" },
-        { status: 500 }
-      );
-    }
+    const recipients = toRaw
+      .split(",")
+      .map((e) => e.trim())
+      .filter(Boolean);
 
-    const resend = new Resend(apiKey);
-    const supabase = createClient(supabaseUrl, supabaseServiceKey, {
-      auth: { persistSession: false },
-    });
+    const resend = new Resend(resendApiKey);
+    const supabase = createClient(supabaseUrl, serviceKey);
 
-    // ---- 1) Fetch low items that haven't been notified ----
+    // 1️⃣ READ from the VIEW (safe)
     const { data, error } = await supabase
-      .from(TABLE)
+      .from("storage_inventory_named")
       .select(
         `
         storage_area_id,
         item_id,
+        item_name,
+        cabinet_name,
         on_hand,
         par_level,
         low,
-        low_notified,
-        item_name,
-        cabinet_name
+        low_notified
       `
       )
       .eq("low", true)
       .or("low_notified.is.null,low_notified.eq.false");
 
     if (error) {
-      return NextResponse.json(
-        { ok: false, error: error.message },
-        { status: 500 }
-      );
+      return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    const rows: InventoryRow[] = (data ?? []) as InventoryRow[];
-
-    if (rows.length === 0) {
-      // Reset recovered items so they can alert again next time they go low
-      await supabase
-        .from(TABLE)
-        .update({ low_notified: false })
-        .eq("low", false);
-
+    if (!data || data.length === 0) {
       return NextResponse.json({
         ok: true,
         sent: false,
@@ -112,68 +58,60 @@ export async function POST() {
       });
     }
 
-    // ---- 2) Group by cabinet_name (one email per cabinet) ----
-    const byCabinet = new Map<string, InventoryRow[]>();
+    // 2️⃣ Group by cabinet
+    const byCabinet = new Map<string, typeof data>();
 
-    for (const row of rows) {
-      const cabinet = (row.cabinet_name ?? "Unknown Cabinet").trim();
+    for (const row of data) {
+      const cabinet = row.cabinet_name ?? "Unknown Location";
       if (!byCabinet.has(cabinet)) byCabinet.set(cabinet, []);
       byCabinet.get(cabinet)!.push(row);
     }
 
-    const emailedPairs: { storage_area_id: string; item_id: string }[] = [];
-    const sentCabinets: string[] = [];
+    const emailed: { storage_area_id: string; item_id: string }[] = [];
 
-    // ---- 3) Send emails ----
+    // 3️⃣ Send emails
     for (const [cabinet, items] of byCabinet.entries()) {
-      items.sort((a, b) => (a.item_name ?? "").localeCompare(b.item_name ?? ""));
-
-      const subject = `LOW STOCK: ${cabinet} (${items.length} item${
-        items.length === 1 ? "" : "s"
-      })`;
-
+      const subject = `LOW STOCK: ${cabinet}`;
       const body = items
-        .map((i) => {
-          const name = safe(i.item_name ?? i.item_id);
-          return `• ${name} — On hand: ${i.on_hand ?? 0} / Par: ${i.par_level ?? 0}`;
-        })
+        .map(
+          (i) =>
+            `• ${i.item_name} — On hand: ${i.on_hand} / Par: ${i.par_level}`
+        )
         .join("\n");
 
-      const sendRes = await resend.emails.send({
-        from: FROM,
+      const send = await resend.emails.send({
+        from,
         to: recipients,
         subject,
         text: `Low stock alert for ${cabinet}\n\n${body}`,
       });
 
-      if ((sendRes as any)?.error) {
+      if ((send as any)?.error) {
         return NextResponse.json(
-          { ok: false, error: (sendRes as any).error },
+          { error: (send as any).error },
           { status: 500 }
         );
       }
 
-      sentCabinets.push(cabinet);
-
       for (const i of items) {
-        emailedPairs.push({
+        emailed.push({
           storage_area_id: i.storage_area_id,
           item_id: i.item_id,
         });
       }
     }
 
-    // ---- 4) Mark notified (composite key) ----
-    for (const pair of emailedPairs) {
+    // 4️⃣ UPDATE BASE TABLE (THIS IS CRITICAL)
+    for (const row of emailed) {
       const { error: updErr } = await supabase
-        .from(TABLE)
+        .from("storage_inventory")
         .update({ low_notified: true })
-        .eq("storage_area_id", pair.storage_area_id)
-        .eq("item_id", pair.item_id);
+        .eq("storage_area_id", row.storage_area_id)
+        .eq("item_id", row.item_id);
 
       if (updErr) {
         return NextResponse.json(
-          { ok: false, error: `Update error: ${updErr.message}` },
+          { error: updErr.message },
           { status: 500 }
         );
       }
@@ -182,12 +120,11 @@ export async function POST() {
     return NextResponse.json({
       ok: true,
       sent: true,
-      cabinets: sentCabinets,
-      rowsNotified: emailedPairs.length,
+      rowsNotified: emailed.length,
     });
   } catch (err: any) {
     return NextResponse.json(
-      { ok: false, error: err?.message ?? "Unknown error" },
+      { error: err.message ?? "Unknown error" },
       { status: 500 }
     );
   }
