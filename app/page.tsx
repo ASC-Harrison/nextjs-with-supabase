@@ -2,99 +2,107 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 
-type Location = { id: string; name: string };
+type Location = { id: string; name: string; active?: boolean };
 
 const LS_LOCKED = "asc_lock_isLocked";
 const LS_LOCKED_LOC = "asc_lock_locationId";
 const LS_MASTER_PIN = "asc_lock_masterPin";
 
-function getMasterPin(): string {
-  // default pin the very first time
-  const existing =
-    typeof window !== "undefined" ? window.localStorage.getItem(LS_MASTER_PIN) : null;
-  return existing && existing.trim().length > 0 ? existing : "1234";
+function readLS(key: string): string | null {
+  if (typeof window === "undefined") return null;
+  return window.localStorage.getItem(key);
+}
+function writeLS(key: string, value: string) {
+  window.localStorage.setItem(key, value);
+}
+function removeLS(key: string) {
+  window.localStorage.removeItem(key);
 }
 
+function getMasterPin(): string {
+  const pin = readLS(LS_MASTER_PIN);
+  return pin && pin.trim().length > 0 ? pin.trim() : "1234";
+}
 function setMasterPin(pin: string) {
-  window.localStorage.setItem(LS_MASTER_PIN, pin);
+  writeLS(LS_MASTER_PIN, pin);
 }
 
 export default function Page() {
-  // --- SAMPLE locations (replace with your real fetch if you already have one) ---
-  // If you already fetch locations elsewhere in this file, KEEP that code
-  // and delete this sample list.
   const [locations, setLocations] = useState<Location[]>([]);
-  const [loadingLocations, setLoadingLocations] = useState<boolean>(true);
+  const [loadingLocations, setLoadingLocations] = useState(true);
 
-  // --- Your existing main inputs (keep/adjust as needed) ---
+  // Selected location + mode
   const [locationId, setLocationId] = useState<string>("");
   const [mode, setMode] = useState<"USE" | "RESTOCK">("USE");
-  const [query, setQuery] = useState<string>(""); // barcode or search text
+
+  // Inputs
+  const [code, setCode] = useState<string>("");
   const [qty, setQty] = useState<number>(1);
+
+  // UI status
   const [status, setStatus] = useState<string>("");
 
-  // --- Lock state ---
+  // Lock state
   const [isLocked, setIsLocked] = useState<boolean>(false);
   const [lockedLocationId, setLockedLocationId] = useState<string>("");
 
   const selectedLocation = useMemo(
-    () => locations.find((l) => l.id === locationId),
+    () => locations.find((l) => l.id === locationId) || null,
     [locations, locationId]
   );
 
   const lockedLocation = useMemo(
-    () => locations.find((l) => l.id === lockedLocationId),
+    () => locations.find((l) => l.id === lockedLocationId) || null,
     [locations, lockedLocationId]
   );
 
-  // Load locations from your API (recommended)
+  // 1) Load locations from your API
   useEffect(() => {
     (async () => {
       try {
         setLoadingLocations(true);
 
-        // ✅ If you already have /api/storage-areas working, this will use it.
-        // If your route name is different, change it here.
-        const res = await fetch("/api/storage-areas", { method: "GET" });
-        if (!res.ok) throw new Error(`Locations fetch failed: ${res.status}`);
+        // NOTE: Your API should return { ok:true, storage_areas:[{id,name},...] }
+        const res = await fetch("/api/storage-areas", { cache: "no-store" });
+        const json = await res.json();
 
-        const data = await res.json();
+        const list: Location[] =
+          json?.storage_areas ??
+          json?.locations ??
+          json?.data ??
+          (Array.isArray(json) ? json : []);
 
-        // Expecting: { ok: true, locations: [{id,name}, ...] } OR just an array
-        const locs: Location[] = Array.isArray(data)
-          ? data
-          : Array.isArray(data?.locations)
-          ? data.locations
-          : Array.isArray(data?.data)
-          ? data.data
-          : [];
+        setLocations(list);
 
-        setLocations(locs);
+        // If nothing selected yet, pick first active or first item
+        if (!locationId && list.length > 0) {
+          const first = list.find((x) => x.active) ?? list[0];
+          setLocationId(first.id);
+        }
       } catch (e: any) {
-        // Fallback: leave empty, but don’t crash the app
         console.error(e);
+        setStatus(`ERROR: Failed to load locations. ${e?.message ?? ""}`);
         setLocations([]);
       } finally {
         setLoadingLocations(false);
       }
     })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Restore lock from localStorage on first load
+  // 2) Restore lock state on load
   useEffect(() => {
-    if (typeof window === "undefined") return;
-
-    const savedLocked = window.localStorage.getItem(LS_LOCKED) === "true";
-    const savedLoc = window.localStorage.getItem(LS_LOCKED_LOC) || "";
+    const savedLocked = readLS(LS_LOCKED) === "true";
+    const savedLoc = readLS(LS_LOCKED_LOC) || "";
 
     if (savedLocked && savedLoc) {
       setIsLocked(true);
       setLockedLocationId(savedLoc);
-      setLocationId(savedLoc); // force location to locked one
+      setLocationId(savedLoc); // force to locked
     }
   }, []);
 
-  // If locked, force selected location to the locked location
+  // 3) If locked, force selected location to the locked location (hard rule)
   useEffect(() => {
     if (!isLocked) return;
     if (!lockedLocationId) return;
@@ -104,6 +112,25 @@ export default function Page() {
     }
   }, [isLocked, lockedLocationId, locationId]);
 
+  // ✅ 4) AUTO-LOCK BEHAVIOR (recommended ON)
+  // As soon as a location is selected the first time, it locks the device to that location.
+  // You can still unlock with PIN.
+  useEffect(() => {
+    if (!locationId) return;
+
+    // If already locked (from saved state), do nothing
+    if (isLocked) return;
+
+    // Auto-lock to chosen location
+    setIsLocked(true);
+    setLockedLocationId(locationId);
+    writeLS(LS_LOCKED, "true");
+    writeLS(LS_LOCKED_LOC, locationId);
+
+    setStatus(`Locked to location: ${selectedLocation?.name ?? locationId}`);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [locationId]);
+
   function lockToCurrentLocation() {
     if (!locationId) {
       setStatus("ERROR: Pick a location first, then press Lock.");
@@ -112,37 +139,36 @@ export default function Page() {
 
     setIsLocked(true);
     setLockedLocationId(locationId);
-
-    window.localStorage.setItem(LS_LOCKED, "true");
-    window.localStorage.setItem(LS_LOCKED_LOC, locationId);
+    writeLS(LS_LOCKED, "true");
+    writeLS(LS_LOCKED_LOC, locationId);
 
     setStatus(`Locked to location: ${selectedLocation?.name ?? locationId}`);
   }
 
   function unlockWithPin() {
     const pin = window.prompt("Enter master PIN to unlock location:");
-    if (pin === null) return; // cancelled
+    if (pin === null) return;
 
     const master = getMasterPin();
     if (pin.trim() !== master) {
-      setStatus("ERROR: Wrong PIN. Location is still locked.");
+      setStatus("ERROR: Wrong PIN. Still locked.");
       return;
     }
 
     setIsLocked(false);
     setLockedLocationId("");
-    window.localStorage.setItem(LS_LOCKED, "false");
-    window.localStorage.removeItem(LS_LOCKED_LOC);
+    writeLS(LS_LOCKED, "false");
+    removeLS(LS_LOCKED_LOC);
 
     setStatus("Unlocked. You can change locations now.");
   }
 
-  function changeMasterPin() {
+  function changePin() {
     const current = window.prompt("Enter CURRENT master PIN:");
     if (current === null) return;
 
     if (current.trim() !== getMasterPin()) {
-      setStatus("ERROR: Current PIN is wrong. PIN was not changed.");
+      setStatus("ERROR: Current PIN is wrong. PIN not changed.");
       return;
     }
 
@@ -159,6 +185,46 @@ export default function Page() {
     setStatus("Master PIN updated.");
   }
 
+  // HARD GUARD: If user tries to change location while locked, force PIN flow
+  function requestLocationChange(nextId: string) {
+    if (!nextId) return;
+
+    // If not locked, allow
+    if (!isLocked) {
+      setLocationId(nextId);
+      return;
+    }
+
+    // If locked but they picked the same one, allow silently
+    if (nextId === lockedLocationId) return;
+
+    // Locked and trying to change -> require PIN
+    const pin = window.prompt("Location is locked. Enter master PIN to change location:");
+    if (pin === null) return;
+
+    if (pin.trim() !== getMasterPin()) {
+      setStatus("ERROR: Wrong PIN. Location not changed.");
+      return;
+    }
+
+    // Correct PIN -> unlock + change + re-lock to new location
+    setIsLocked(false);
+    setLockedLocationId("");
+    writeLS(LS_LOCKED, "false");
+    removeLS(LS_LOCKED_LOC);
+
+    setLocationId(nextId);
+
+    // Re-lock immediately to new location
+    setIsLocked(true);
+    setLockedLocationId(nextId);
+    writeLS(LS_LOCKED, "true");
+    writeLS(LS_LOCKED_LOC, nextId);
+
+    setStatus("Location changed and locked.");
+  }
+
+  // Basic submit (keeps your existing flow)
   async function submit() {
     try {
       setStatus("");
@@ -167,7 +233,7 @@ export default function Page() {
         setStatus("ERROR: Choose a location first.");
         return;
       }
-      if (!query.trim()) {
+      if (!code.trim()) {
         setStatus("ERROR: Scan or type an item/barcode first.");
         return;
       }
@@ -176,15 +242,15 @@ export default function Page() {
         return;
       }
 
-      // ✅ Change this endpoint to your real “scan/use/restock” route if needed.
-      // If you already have one, set it here and keep the payload shape you expect.
+      // Adjust this to match YOUR API payload if needed
       const res = await fetch("/api/scan", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        cache: "no-store",
         body: JSON.stringify({
           location_id: locationId,
           mode: mode === "USE" ? "OUT" : "IN",
-          code: query.trim(),
+          code: code.trim(),
           qty,
         }),
       });
@@ -196,7 +262,7 @@ export default function Page() {
       }
 
       setStatus("✅ Saved.");
-      setQuery("");
+      setCode("");
       setQty(1);
     } catch (e: any) {
       console.error(e);
@@ -205,12 +271,13 @@ export default function Page() {
   }
 
   return (
-    <div style={{ maxWidth: 520, margin: "0 auto", padding: 16, fontFamily: "system-ui" }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <h1 style={{ margin: 0 }}>ASC Inventory</h1>
+    <div style={{ maxWidth: 560, margin: "0 auto", padding: 16, fontFamily: "system-ui" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+        <h1 style={{ margin: 0, fontSize: 28, fontWeight: 900 }}>ASC Inventory</h1>
 
         <div style={{ display: "flex", gap: 8 }}>
           <button
+            type="button"
             onClick={() => (isLocked ? unlockWithPin() : lockToCurrentLocation())}
             style={{
               padding: "10px 14px",
@@ -218,21 +285,24 @@ export default function Page() {
               border: "1px solid #ccc",
               background: isLocked ? "#111" : "#fff",
               color: isLocked ? "#fff" : "#111",
-              fontWeight: 700,
+              fontWeight: 800,
+              cursor: "pointer",
             }}
           >
             {isLocked ? "Unlock" : "Lock"}
           </button>
 
           <button
-            onClick={changeMasterPin}
+            type="button"
+            onClick={changePin}
             style={{
               padding: "10px 14px",
               borderRadius: 10,
               border: "1px solid #ccc",
               background: "#fff",
               color: "#111",
-              fontWeight: 700,
+              fontWeight: 800,
+              cursor: "pointer",
             }}
           >
             PIN
@@ -240,32 +310,32 @@ export default function Page() {
         </div>
       </div>
 
-      <p style={{ marginTop: 6, color: "#555" }}>
+      <div style={{ marginTop: 6, color: "#555" }}>
         {isLocked ? (
           <>
             🔒 Locked to: <b>{lockedLocation?.name ?? lockedLocationId}</b>
           </>
         ) : (
           <>
-            🔓 Not locked (default PIN is <b>1234</b> until you change it)
+            🔓 Unlocked (default PIN is <b>1234</b> until you change it)
           </>
         )}
-      </p>
+      </div>
 
       <div style={{ marginTop: 18 }}>
-        <label style={{ fontWeight: 700 }}>Location</label>
+        <label style={{ fontWeight: 800 }}>Location</label>
         <select
           value={locationId}
-          onChange={(e) => setLocationId(e.target.value)}
-          disabled={isLocked || loadingLocations}
+          onChange={(e) => requestLocationChange(e.target.value)}
+          disabled={loadingLocations}
           style={{
             width: "100%",
             marginTop: 8,
             padding: 12,
             borderRadius: 12,
             border: "1px solid #ccc",
-            background: isLocked ? "#f3f3f3" : "#fff",
             fontSize: 16,
+            background: loadingLocations ? "#f3f3f3" : "#fff",
           }}
         >
           <option value="">{loadingLocations ? "Loading..." : "-- Select a location --"}</option>
@@ -276,19 +346,19 @@ export default function Page() {
           ))}
         </select>
 
-        {locationId && (
+        {selectedLocation && (
           <div style={{ marginTop: 6, color: "#666" }}>
-            Selected: <b>{selectedLocation?.name ?? locationId}</b>
+            Selected: <b>{selectedLocation.name}</b>
           </div>
         )}
       </div>
 
       <div style={{ marginTop: 18 }}>
-        <label style={{ fontWeight: 700 }}>Mode</label>
+        <label style={{ fontWeight: 800 }}>Mode</label>
         <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
           <button
+            type="button"
             onClick={() => setMode("USE")}
-            disabled={isLocked} // lock also freezes mode (recommended)
             style={{
               flex: 1,
               padding: 12,
@@ -296,14 +366,15 @@ export default function Page() {
               border: "1px solid #ccc",
               background: mode === "USE" ? "#111" : "#fff",
               color: mode === "USE" ? "#fff" : "#111",
-              fontWeight: 800,
+              fontWeight: 900,
+              cursor: "pointer",
             }}
           >
             USE (subtract)
           </button>
           <button
+            type="button"
             onClick={() => setMode("RESTOCK")}
-            disabled={isLocked}
             style={{
               flex: 1,
               padding: 12,
@@ -311,24 +382,20 @@ export default function Page() {
               border: "1px solid #ccc",
               background: mode === "RESTOCK" ? "#111" : "#fff",
               color: mode === "RESTOCK" ? "#fff" : "#111",
-              fontWeight: 800,
+              fontWeight: 900,
+              cursor: "pointer",
             }}
           >
             RESTOCK
           </button>
         </div>
-        {isLocked && (
-          <div style={{ marginTop: 6, color: "#666" }}>
-            Mode is also locked (prevents accidental RESTOCK/USE flips).
-          </div>
-        )}
       </div>
 
       <div style={{ marginTop: 18 }}>
-        <label style={{ fontWeight: 700 }}>Item / Barcode</label>
+        <label style={{ fontWeight: 800 }}>Item / Barcode</label>
         <input
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
+          value={code}
+          onChange={(e) => setCode(e.target.value)}
           placeholder="Scan or type"
           style={{
             width: "100%",
@@ -342,7 +409,7 @@ export default function Page() {
       </div>
 
       <div style={{ marginTop: 18 }}>
-        <label style={{ fontWeight: 700 }}>Qty</label>
+        <label style={{ fontWeight: 800 }}>Qty</label>
         <input
           value={String(qty)}
           onChange={(e) => setQty(Number(e.target.value))}
@@ -360,6 +427,7 @@ export default function Page() {
 
       <div style={{ marginTop: 18 }}>
         <button
+          type="button"
           onClick={submit}
           style={{
             width: "100%",
@@ -370,9 +438,10 @@ export default function Page() {
             color: "#fff",
             fontWeight: 900,
             fontSize: 18,
+            cursor: "pointer",
           }}
         >
-          Submit {mode === "USE" ? "USE" : "RESTOCK"}
+          Submit {mode}
         </button>
       </div>
 
@@ -384,7 +453,7 @@ export default function Page() {
             borderRadius: 12,
             border: "1px solid #ddd",
             background: status.startsWith("ERROR") ? "#fff2f2" : "#f2fff4",
-            fontWeight: 700,
+            fontWeight: 800,
             whiteSpace: "pre-wrap",
           }}
         >
