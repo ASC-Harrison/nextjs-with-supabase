@@ -6,7 +6,7 @@ import CameraScanner from "./CameraScanner";
 type StorageArea = { id: string; name: string; active: boolean };
 type Item = { id: string; name: string; reference_number?: string | null };
 
-export const dynamic = "force-dynamic";
+
 
 export default function AppHome() {
   // Locations
