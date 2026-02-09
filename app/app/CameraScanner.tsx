@@ -30,14 +30,18 @@ export default function CameraScanner({
         const video = videoRef.current;
         if (!video) return;
 
-        await reader.decodeFromVideoDevice(undefined, video, (result) => {
-          if (stopped) return;
-          const text = result?.getText?.()?.trim();
-          if (text) {
-            stopped = true;
-            onDetected(text);
+        await reader.decodeFromVideoDevice(
+          undefined, // default camera (usually rear camera on phones)
+          video,
+          (result) => {
+            if (stopped) return;
+            const text = result?.getText?.()?.trim();
+            if (text) {
+              stopped = true;
+              onDetected(text);
+            }
           }
-        });
+        );
       } catch (e: any) {
         setError(e?.message ?? "Camera error");
       }
@@ -45,9 +49,7 @@ export default function CameraScanner({
 
     return () => {
       stopped = true;
-      try {
-        readerRef.current?.reset();
-      } catch {}
+      // No reset() here — ZXing BrowserMultiFormatReader does not expose it in TS types.
       readerRef.current = null;
     };
   }, [open, onDetected]);
@@ -66,27 +68,68 @@ export default function CameraScanner({
         zIndex: 9999,
       }}
     >
-      <div style={{ width: "100%", maxWidth: 520, background: "#fff", borderRadius: 14, padding: 14 }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
+      <div
+        style={{
+          width: "100%",
+          maxWidth: 520,
+          background: "#fff",
+          borderRadius: 14,
+          padding: 14,
+        }}
+      >
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            gap: 10,
+          }}
+        >
           <div style={{ fontWeight: 900, fontSize: 18 }}>Scan Barcode</div>
           <button
             type="button"
             onClick={onClose}
-            style={{ padding: "8px 12px", borderRadius: 10, border: "1px solid #ccc", cursor: "pointer", fontWeight: 800 }}
+            style={{
+              padding: "8px 12px",
+              borderRadius: 10,
+              border: "1px solid #ccc",
+              cursor: "pointer",
+              fontWeight: 800,
+            }}
           >
             Close
           </button>
         </div>
 
-        <div style={{ marginTop: 10, borderRadius: 12, overflow: "hidden", border: "1px solid #ddd" }}>
-          <video ref={videoRef} style={{ width: "100%", height: "auto" }} playsInline muted />
+        <div
+          style={{
+            marginTop: 10,
+            borderRadius: 12,
+            overflow: "hidden",
+            border: "1px solid #ddd",
+          }}
+        >
+          <video
+            ref={videoRef}
+            style={{ width: "100%", height: "auto" }}
+            playsInline
+            muted
+          />
         </div>
 
         {error ? (
-          <div style={{ marginTop: 10, padding: 10, borderRadius: 12, border: "1px solid #ccc" }}>
+          <div
+            style={{
+              marginTop: 10,
+              padding: 10,
+              borderRadius: 12,
+              border: "1px solid #ccc",
+            }}
+          >
             <b>Camera error:</b> {error}
             <div style={{ marginTop: 6, fontSize: 12, opacity: 0.8 }}>
-              On iPhone: Settings → Safari → Camera → Allow (or allow when prompted).
+              On iPhone: allow Camera for this site (Safari → aA → Website
+              Settings → Camera → Allow).
             </div>
           </div>
         ) : (
