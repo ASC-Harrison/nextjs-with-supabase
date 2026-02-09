@@ -1,231 +1,232 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import CameraScanner from "./CameraScanner";
 
-type StorageArea = { id: string; name: string; active: boolean };
-type Item = { id: string; name: string; reference_number?: string | null };
+type StorageArea = {
+  id: string;
+  name: string;
+  active: boolean;
+};
 
+type Item = {
+  id: string;
+  name: string;
+  reference_number: string | null;
+};
 
+type Mode = "USE" | "RESTOCK";
 
-export default function AppHome() {
-  // Locations
+export default function AppPage() {
   const [areas, setAreas] = useState<StorageArea[]>([]);
-  const [loadingAreas, setLoadingAreas] = useState(true);
-  const [storageAreaId, setStorageAreaId] = useState("");
+  const [areaId, setAreaId] = useState<string>("");
 
-  // Mode
-  const [mode, setMode] = useState<"use" | "restock">("use");
+  const [mode, setMode] = useState<Mode>("USE");
 
-  // Item selection (scan or manual)
-  const [scannerOpen, setScannerOpen] = useState(false);
-  const [lastScan, setLastScan] = useState("");
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<Item[]>([]);
   const [selectedItem, setSelectedItem] = useState<Item | null>(null);
 
-  // Qty + submit status
   const [qty, setQty] = useState<number>(1);
-  const qtyRef = useRef<HTMLInputElement>(null);
-  const [submitting, setSubmitting] = useState(false);
-  const [status, setStatus] = useState<{ ok: boolean; msg: string } | null>(null);
 
-  // Load locations on page load
+  const [scannerOpen, setScannerOpen] = useState(false);
+
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string>("");
+  const [err, setErr] = useState<string>("");
+
+  // -----------------------------
+  // Load storage areas
+  // -----------------------------
   useEffect(() => {
     (async () => {
-      setLoadingAreas(true);
       try {
+        setErr("");
         const res = await fetch("/api/storage-areas", { cache: "no-store" });
         const json = await res.json();
-        setAreas(json.storage_areas ?? []);
+        if (!json.ok) throw new Error(json.error || "Failed to load locations");
+
+        const list: StorageArea[] = json.storage_areas ?? [];
+        setAreas(list);
+
+        // auto-select first active if none chosen
+        if (!areaId) {
+          const first = list.find((a) => a.active) || list[0];
+          if (first) setAreaId(first.id);
+        }
       } catch (e: any) {
-        setStatus({ ok: false, msg: e?.message ?? "Failed loading locations" });
-      } finally {
-        setLoadingAreas(false);
+        setErr(e?.message ?? "Failed to load locations");
       }
     })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Manual search (type-to-search)
-  useEffect(() => {
-    const q = query.trim();
-    if (q.length < 2) {
-      setResults([]);
-      return;
-    }
+  const selectedArea = useMemo(
+    () => areas.find((a) => a.id === areaId) || null,
+    [areas, areaId]
+  );
 
+  // -----------------------------
+  // Item search by name (manual)
+  // -----------------------------
+  useEffect(() => {
     const t = setTimeout(async () => {
-      try {
-        const res = await fetch(`/api/items/search?q=${encodeURIComponent(q)}`, { cache: "no-store" });
-        const json = await res.json();
-        if (json.ok) setResults(json.items ?? []);
-        else setResults([]);
-      } catch {
+      const q = query.trim();
+      if (!q) {
         setResults([]);
+        return;
+      }
+      try {
+        setErr("");
+        const res = await fetch(`/api/items?query=${encodeURIComponent(q)}`, {
+          cache: "no-store",
+        });
+        const json = await res.json();
+        if (!json.ok) throw new Error(json.error || "Search failed");
+        setResults(json.items ?? []);
+      } catch (e: any) {
+        setErr(e?.message ?? "Search failed");
       }
     }, 250);
 
     return () => clearTimeout(t);
   }, [query]);
 
-  const selectedLocationName = useMemo(
-    () => areas.find((a) => a.id === storageAreaId)?.name ?? "",
-    [areas, storageAreaId]
-  );
-
-  async function handleDetectedBarcode(code: string) {
-    setScannerOpen(false);
-    setLastScan(code);
-    setStatus(null);
-
+  // -----------------------------
+  // Barcode scan handler
+  // -----------------------------
+  async function onBarcode(barcode: string) {
     try {
-      const res = await fetch(`/api/items/lookup?code=${encodeURIComponent(code)}`, { cache: "no-store" });
-      const json = await res.json();
+      setErr("");
+      setMsg("");
+      setScannerOpen(false);
 
-      if (!json.ok) {
-        setStatus({ ok: false, msg: json.error ?? "Lookup failed" });
+      const clean = (barcode || "").trim();
+      if (!clean) return;
+
+      // Lookup item by barcode in DB
+      const res = await fetch(`/api/items?barcode=${encodeURIComponent(clean)}`, {
+        cache: "no-store",
+      });
+      const json = await res.json();
+      if (!json.ok) throw new Error(json.error || "Barcode lookup failed");
+
+      const item: Item | null = json.item ?? null;
+      if (!item) {
+        setErr(`No item found for barcode: ${clean}`);
         return;
       }
 
-      if (json.found) {
-        setSelectedItem(json.item);
-        setQuery("");
-        setResults([]);
-        setStatus({ ok: true, msg: `Scanned & matched: ${json.item.name}` });
-        setTimeout(() => {
-          qtyRef.current?.focus();
-          qtyRef.current?.select();
-        }, 50);
-      } else {
-        setSelectedItem(null);
-        setStatus({ ok: false, msg: `Scanned "${code}" but no match. Use manual search.` });
-      }
+      setSelectedItem(item);
+      setQuery(item.name); // helpful UX
+      setResults([]);
+      setMsg(`Selected: ${item.name}`);
     } catch (e: any) {
-      setStatus({ ok: false, msg: e?.message ?? "Lookup error" });
+      setErr(e?.message ?? "Scan failed");
     }
   }
 
+  // -----------------------------
+  // Submit USE / RESTOCK
+  // -----------------------------
   async function submit() {
-    setStatus(null);
-
-    if (!storageAreaId) {
-      setStatus({ ok: false, msg: "Pick a location first." });
-      return;
-    }
-
-    if (!selectedItem) {
-      setStatus({ ok: false, msg: "Scan or search and select an item first." });
-      return;
-    }
-
-    const q = Number(qty);
-    if (!Number.isFinite(q) || q <= 0) {
-      setStatus({ ok: false, msg: "Qty must be greater than 0." });
-      return;
-    }
-
-    setSubmitting(true);
     try {
-      const res = await fetch("/api/scan", {
+      setErr("");
+      setMsg("");
+
+      if (!areaId) {
+        setErr("Select a location first.");
+        return;
+      }
+      if (!selectedItem?.id) {
+        setErr("Scan or search and select an item first.");
+        return;
+      }
+      const n = Number(qty);
+      if (!Number.isFinite(n) || n <= 0) {
+        setErr("Qty must be greater than 0.");
+        return;
+      }
+
+      setBusy(true);
+
+      // IMPORTANT: relative URL only (prevents Safari URL pattern error)
+      const res = await fetch("/api/submit-scan", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        cache: "no-store",
         body: JSON.stringify({
-          mode,
-          storage_area_id: storageAreaId,
+          storage_area_id: areaId,
           item_id: selectedItem.id,
-          qty: q,
+          qty: n,
+          mode, // "USE" or "RESTOCK"
         }),
       });
 
       const json = await res.json();
+      if (!json.ok) throw new Error(json.error || "Submit failed");
 
-      if (!res.ok || json?.ok === false) {
-        setStatus({ ok: false, msg: json?.error ?? "Failed" });
-      } else {
-        setStatus({ ok: true, msg: "Success." });
-        setSelectedItem(null);
-        setQuery("");
-        setResults([]);
-        setLastScan("");
-        setQty(1);
-      }
+      setMsg(
+        `${mode === "USE" ? "Used" : "Restocked"} ${n} × ${selectedItem.name} (${selectedArea?.name || "Location"})`
+      );
     } catch (e: any) {
-      setStatus({ ok: false, msg: e?.message ?? "Unknown error" });
+      setErr(e?.message ?? "Submit failed");
     } finally {
-      setSubmitting(false);
+      setBusy(false);
     }
   }
 
   return (
-    <div style={{ maxWidth: 980, margin: "20px auto", padding: 16 }}>
-      <CameraScanner open={scannerOpen} onClose={() => setScannerOpen(false)} onDetected={handleDetectedBarcode} />
-
-      <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
-        <h1 style={{ fontSize: 24, fontWeight: 900 }}>ASC Inventory</h1>
-        <form action="/api/logout" method="POST">
-          <button
-            type="submit"
-            style={{ padding: "10px 14px", borderRadius: 10, border: "1px solid #ccc", cursor: "pointer", fontWeight: 800 }}
-          >
-            Lock
-          </button>
-        </form>
+    <div style={{ maxWidth: 520, margin: "24px auto", padding: 16 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <h1 style={{ fontSize: 32, fontWeight: 800, margin: 0 }}>ASC Inventory</h1>
+        <button type="button">Lock</button>
       </div>
 
-      {/* Location */}
-      <div style={{ marginTop: 14 }}>
-        <div style={{ fontWeight: 800, marginBottom: 6 }}>Location</div>
-        {loadingAreas ? (
-          <div>Loading locations…</div>
-        ) : (
-          <select
-            value={storageAreaId}
-            onChange={(e) => setStorageAreaId(e.target.value)}
-            style={{ width: "100%", padding: 12, borderRadius: 10, border: "1px solid #ccc", fontSize: 16 }}
-          >
-            <option value="">— Select a location —</option>
-            {areas.map((a) => (
-              <option key={a.id} value={a.id}>
-                {a.name}
-              </option>
-            ))}
-          </select>
-        )}
-        {selectedLocationName ? (
-          <div style={{ marginTop: 6, fontSize: 13, opacity: 0.8 }}>
-            Selected: <b>{selectedLocationName}</b>
-          </div>
-        ) : null}
+      <div style={{ marginTop: 20 }}>
+        <label style={{ fontWeight: 700 }}>Location</label>
+        <select
+          value={areaId}
+          onChange={(e) => setAreaId(e.target.value)}
+          style={{ width: "100%", padding: 10, marginTop: 6 }}
+        >
+          <option value="">— Select a location —</option>
+          {areas.map((a) => (
+            <option key={a.id} value={a.id}>
+              {a.name}
+            </option>
+          ))}
+        </select>
+        <div style={{ marginTop: 6, opacity: 0.75 }}>
+          Selected: <b>{selectedArea?.name || "—"}</b>
+        </div>
       </div>
 
-      {/* Mode */}
-      <div style={{ marginTop: 14 }}>
-        <div style={{ fontWeight: 800, marginBottom: 6 }}>Mode</div>
-        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+      <div style={{ marginTop: 20 }}>
+        <label style={{ fontWeight: 700 }}>Mode</label>
+        <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
           <button
             type="button"
-            onClick={() => setMode("use")}
+            onClick={() => setMode("USE")}
             style={{
-              padding: "10px 14px",
-              borderRadius: 10,
+              flex: 1,
+              padding: 12,
               border: "1px solid #ccc",
-              cursor: "pointer",
-              fontWeight: 900,
-              opacity: mode === "use" ? 1 : 0.6,
+              background: mode === "USE" ? "#f2f2f2" : "white",
+              fontWeight: 800,
             }}
           >
             USE (subtract)
           </button>
           <button
             type="button"
-            onClick={() => setMode("restock")}
+            onClick={() => setMode("RESTOCK")}
             style={{
-              padding: "10px 14px",
-              borderRadius: 10,
+              flex: 1,
+              padding: 12,
               border: "1px solid #ccc",
-              cursor: "pointer",
-              fontWeight: 900,
-              opacity: mode === "restock" ? 1 : 0.6,
+              background: mode === "RESTOCK" ? "#f2f2f2" : "white",
+              fontWeight: 800,
             }}
           >
             RESTOCK
@@ -233,118 +234,120 @@ export default function AppHome() {
         </div>
       </div>
 
-      {/* Item */}
-      <div style={{ marginTop: 14 }}>
-        <div style={{ fontWeight: 800, marginBottom: 6 }}>Item</div>
+      <div style={{ marginTop: 20 }}>
+        <label style={{ fontWeight: 700 }}>Item</label>
 
         <button
           type="button"
           onClick={() => setScannerOpen(true)}
-          style={{
-            width: "100%",
-            padding: 12,
-            borderRadius: 12,
-            border: "1px solid #ccc",
-            cursor: "pointer",
-            fontWeight: 900,
-          }}
+          style={{ width: "100%", padding: 14, marginTop: 8, fontWeight: 800 }}
         >
           Scan with Camera
         </button>
 
-        {lastScan ? (
-          <div style={{ marginTop: 8, fontSize: 12, opacity: 0.75 }}>
-            Last scan: <b>{lastScan}</b>
+        {scannerOpen && (
+          <div style={{ marginTop: 10 }}>
+            <CameraScanner
+              onDetected={(code: string) => onBarcode(code)}
+              onClose={() => setScannerOpen(false)}
+            />
           </div>
-        ) : null}
+        )}
 
-        <div style={{ marginTop: 10, fontSize: 12, opacity: 0.8 }}>OR type to search:</div>
+        <div style={{ marginTop: 12, opacity: 0.75 }}>OR type to search:</div>
         <input
           value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Type item name…"
-          style={{ width: "100%", padding: 12, borderRadius: 10, border: "1px solid #ccc", fontSize: 16, marginTop: 6 }}
+          onChange={(e) => {
+            setQuery(e.target.value);
+            setSelectedItem(null); // force reselect if user changes text
+          }}
+          placeholder="Type item name..."
+          style={{ width: "100%", padding: 12, marginTop: 8 }}
         />
 
         {selectedItem ? (
-          <div style={{ marginTop: 8, padding: 10, border: "1px solid #ccc", borderRadius: 10 }}>
-            Selected: <b>{selectedItem.name}</b>
+          <div style={{ border: "1px solid #ddd", padding: 12, marginTop: 10, borderRadius: 10 }}>
+            <div>
+              Selected: <b>{selectedItem.name}</b>
+            </div>
             <button
               type="button"
-              onClick={() => setSelectedItem(null)}
-              style={{ marginLeft: 10, padding: "6px 10px", borderRadius: 10, border: "1px solid #ccc", cursor: "pointer", fontWeight: 800 }}
+              onClick={() => {
+                setSelectedItem(null);
+                setResults([]);
+                setQuery("");
+              }}
+              style={{ marginTop: 8 }}
             >
               Change
             </button>
           </div>
         ) : results.length > 0 ? (
-          <div style={{ marginTop: 8, border: "1px solid #ccc", borderRadius: 10, overflow: "hidden" }}>
-            {results.map((it) => (
+          <div style={{ border: "1px solid #ddd", borderRadius: 10, marginTop: 10 }}>
+            {results.slice(0, 8).map((it) => (
               <button
                 key={it.id}
                 type="button"
                 onClick={() => {
                   setSelectedItem(it);
+                  setQuery(it.name);
                   setResults([]);
-                  setTimeout(() => {
-                    qtyRef.current?.focus();
-                    qtyRef.current?.select();
-                  }, 50);
                 }}
                 style={{
+                  display: "block",
                   width: "100%",
-                  textAlign: "left",
                   padding: 12,
+                  textAlign: "left",
                   border: "none",
                   borderBottom: "1px solid #eee",
-                  cursor: "pointer",
-                  fontWeight: 700,
                   background: "white",
                 }}
               >
-                {it.name}
+                <b>{it.name}</b>
+                <div style={{ opacity: 0.7, fontSize: 12 }}>
+                  {it.reference_number ? `Ref: ${it.reference_number}` : "No ref #"}
+                </div>
               </button>
             ))}
           </div>
         ) : null}
       </div>
 
-      {/* Qty */}
-      <div style={{ marginTop: 14 }}>
-        <div style={{ fontWeight: 800, marginBottom: 6 }}>Qty</div>
+      <div style={{ marginTop: 20 }}>
+        <label style={{ fontWeight: 700 }}>Qty</label>
         <input
-          ref={qtyRef}
           type="number"
-          min={1}
           value={qty}
           onChange={(e) => setQty(Number(e.target.value))}
-          style={{ width: "100%", padding: 12, borderRadius: 10, border: "1px solid #ccc", fontSize: 16 }}
+          style={{ width: "100%", padding: 12, marginTop: 8 }}
         />
       </div>
 
-      {/* Submit */}
-      <button
-        type="button"
-        onClick={submit}
-        disabled={submitting}
-        style={{
-          marginTop: 14,
-          width: "100%",
-          padding: 14,
-          borderRadius: 12,
-          border: "none",
-          cursor: "pointer",
-          fontWeight: 900,
-          fontSize: 16,
-        }}
-      >
-        {submitting ? "Submitting…" : mode === "use" ? "Submit USE" : "Submit RESTOCK"}
-      </button>
+      <div style={{ marginTop: 20 }}>
+        <button
+          type="button"
+          onClick={submit}
+          disabled={busy}
+          style={{
+            width: "100%",
+            padding: 14,
+            fontWeight: 900,
+            opacity: busy ? 0.6 : 1,
+          }}
+        >
+          Submit {mode}
+        </button>
+      </div>
 
-      {/* Status */}
-      {status ? (
-        <div style={{ marginTop: 14, padding: 12, borderRadius: 12, border: "1px solid #ccc" }}>
-          <b>{status.ok ? "OK:" : "ERROR:"}</b> {status.msg}
+      {err ? (
+        <div style={{ marginTop: 14, padding: 12, border: "1px solid #f2c7c7", borderRadius: 10 }}>
+          <b>ERROR:</b> {err}
+        </div>
+      ) : null}
+
+      {msg ? (
+        <div style={{ marginTop: 14, padding: 12, border: "1px solid #c7f2cf", borderRadius: 10 }}>
+          {msg}
         </div>
       ) : null}
     </div>
