@@ -1,243 +1,396 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { createClient } from "@supabase/supabase-js";
+import React, { useEffect, useMemo, useState } from "react";
 
-type LocationRow = { id: string; name: string };
-type ScanType = "OUT" | "IN";
+type Location = { id: string; name: string };
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-  { auth: { persistSession: false } }
-);
+const LS_LOCKED = "asc_lock_isLocked";
+const LS_LOCKED_LOC = "asc_lock_locationId";
+const LS_MASTER_PIN = "asc_lock_masterPin";
 
-function classNames(...xs: Array<string | false | null | undefined>) {
-  return xs.filter(Boolean).join(" ");
+function getMasterPin(): string {
+  // default pin the very first time
+  const existing =
+    typeof window !== "undefined" ? window.localStorage.getItem(LS_MASTER_PIN) : null;
+  return existing && existing.trim().length > 0 ? existing : "1234";
+}
+
+function setMasterPin(pin: string) {
+  window.localStorage.setItem(LS_MASTER_PIN, pin);
 }
 
 export default function Page() {
-  const [locations, setLocations] = useState<LocationRow[]>([]);
-  const [locationId, setLocationId] = useState("");
-  const [scanType, setScanType] = useState<ScanType>("OUT");
-  const [barcode, setBarcode] = useState("");
-  const [qty, setQty] = useState<number>(1);
+  // --- SAMPLE locations (replace with your real fetch if you already have one) ---
+  // If you already fetch locations elsewhere in this file, KEEP that code
+  // and delete this sample list.
+  const [locations, setLocations] = useState<Location[]>([]);
+  const [loadingLocations, setLoadingLocations] = useState<boolean>(true);
 
-  const [busy, setBusy] = useState(false);
-  const [toast, setToast] = useState<{ type: "ok" | "err"; msg: string } | null>(null);
+  // --- Your existing main inputs (keep/adjust as needed) ---
+  const [locationId, setLocationId] = useState<string>("");
+  const [mode, setMode] = useState<"USE" | "RESTOCK">("USE");
+  const [query, setQuery] = useState<string>(""); // barcode or search text
+  const [qty, setQty] = useState<number>(1);
+  const [status, setStatus] = useState<string>("");
+
+  // --- Lock state ---
+  const [isLocked, setIsLocked] = useState<boolean>(false);
+  const [lockedLocationId, setLockedLocationId] = useState<string>("");
 
   const selectedLocation = useMemo(
     () => locations.find((l) => l.id === locationId),
     [locations, locationId]
   );
 
+  const lockedLocation = useMemo(
+    () => locations.find((l) => l.id === lockedLocationId),
+    [locations, lockedLocationId]
+  );
+
+  // Load locations from your API (recommended)
   useEffect(() => {
     (async () => {
-      const { data, error } = await supabase
-        .from("locations")
-        .select("id, name")
-        .order("name", { ascending: true });
+      try {
+        setLoadingLocations(true);
 
-      if (error) {
-        setToast({ type: "err", msg: "Could not load locations: " + error.message });
-        return;
+        // ✅ If you already have /api/storage-areas working, this will use it.
+        // If your route name is different, change it here.
+        const res = await fetch("/api/storage-areas", { method: "GET" });
+        if (!res.ok) throw new Error(`Locations fetch failed: ${res.status}`);
+
+        const data = await res.json();
+
+        // Expecting: { ok: true, locations: [{id,name}, ...] } OR just an array
+        const locs: Location[] = Array.isArray(data)
+          ? data
+          : Array.isArray(data?.locations)
+          ? data.locations
+          : Array.isArray(data?.data)
+          ? data.data
+          : [];
+
+        setLocations(locs);
+      } catch (e: any) {
+        // Fallback: leave empty, but don’t crash the app
+        console.error(e);
+        setLocations([]);
+      } finally {
+        setLoadingLocations(false);
       }
-
-      const rows = (data ?? []) as LocationRow[];
-      setLocations(rows);
-      if (rows.length > 0) setLocationId(rows[0].id);
     })();
   }, []);
 
-  async function postJson(url: string, payload?: any) {
-    const res = await fetch(url, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: payload ? JSON.stringify(payload) : undefined,
-    });
-    const data = await res.json().catch(() => ({}));
-    return { ok: res.ok, status: res.status, data };
-  }
+  // Restore lock from localStorage on first load
+  useEffect(() => {
+    if (typeof window === "undefined") return;
 
-  async function sendTestEmail() {
-    setBusy(true);
-    setToast(null);
-    try {
-      const { ok, status, data } = await postJson("/api/test-email");
-      if (!ok) return setToast({ type: "err", msg: `${data?.error ?? "Test email failed"} (status ${status})` });
-      setToast({ type: "ok", msg: "Test email sent ✅ Check your inbox/spam." });
-    } finally {
-      setBusy(false);
+    const savedLocked = window.localStorage.getItem(LS_LOCKED) === "true";
+    const savedLoc = window.localStorage.getItem(LS_LOCKED_LOC) || "";
+
+    if (savedLocked && savedLoc) {
+      setIsLocked(true);
+      setLockedLocationId(savedLoc);
+      setLocationId(savedLoc); // force location to locked one
     }
+  }, []);
+
+  // If locked, force selected location to the locked location
+  useEffect(() => {
+    if (!isLocked) return;
+    if (!lockedLocationId) return;
+
+    if (locationId !== lockedLocationId) {
+      setLocationId(lockedLocationId);
+    }
+  }, [isLocked, lockedLocationId, locationId]);
+
+  function lockToCurrentLocation() {
+    if (!locationId) {
+      setStatus("ERROR: Pick a location first, then press Lock.");
+      return;
+    }
+
+    setIsLocked(true);
+    setLockedLocationId(locationId);
+
+    window.localStorage.setItem(LS_LOCKED, "true");
+    window.localStorage.setItem(LS_LOCKED_LOC, locationId);
+
+    setStatus(`Locked to location: ${selectedLocation?.name ?? locationId}`);
   }
 
-  async function submitScan() {
-    setBusy(true);
-    setToast(null);
+  function unlockWithPin() {
+    const pin = window.prompt("Enter master PIN to unlock location:");
+    if (pin === null) return; // cancelled
 
-    const cleanBarcode = barcode.trim();
-    const cleanQty = Number(qty);
+    const master = getMasterPin();
+    if (pin.trim() !== master) {
+      setStatus("ERROR: Wrong PIN. Location is still locked.");
+      return;
+    }
 
+    setIsLocked(false);
+    setLockedLocationId("");
+    window.localStorage.setItem(LS_LOCKED, "false");
+    window.localStorage.removeItem(LS_LOCKED_LOC);
+
+    setStatus("Unlocked. You can change locations now.");
+  }
+
+  function changeMasterPin() {
+    const current = window.prompt("Enter CURRENT master PIN:");
+    if (current === null) return;
+
+    if (current.trim() !== getMasterPin()) {
+      setStatus("ERROR: Current PIN is wrong. PIN was not changed.");
+      return;
+    }
+
+    const next = window.prompt("Enter NEW master PIN (4+ digits recommended):");
+    if (next === null) return;
+
+    const cleaned = next.trim();
+    if (cleaned.length < 4) {
+      setStatus("ERROR: PIN too short. Use at least 4 digits.");
+      return;
+    }
+
+    setMasterPin(cleaned);
+    setStatus("Master PIN updated.");
+  }
+
+  async function submit() {
     try {
-      if (!locationId) return setToast({ type: "err", msg: "Pick a location first." });
-      if (!cleanBarcode) return setToast({ type: "err", msg: "Enter a barcode." });
-      if (!Number.isFinite(cleanQty) || cleanQty <= 0) return setToast({ type: "err", msg: "Qty must be > 0." });
+      setStatus("");
 
-      const payload = {
-        barcode: cleanBarcode,
-        location_id: locationId, // ✅ UUID from locations table
-        qty: cleanQty,
-        direction: scanType, // "OUT" or "IN"
-      };
+      if (!locationId) {
+        setStatus("ERROR: Choose a location first.");
+        return;
+      }
+      if (!query.trim()) {
+        setStatus("ERROR: Scan or type an item/barcode first.");
+        return;
+      }
+      if (!Number.isFinite(qty) || qty <= 0) {
+        setStatus("ERROR: Qty must be 1 or more.");
+        return;
+      }
 
-      const { ok, status, data } = await postJson("/api/submit-scan", payload);
-      if (!ok) return setToast({ type: "err", msg: `${data?.error ?? "Scan failed"} (status ${status})` });
-
-      setToast({
-        type: "ok",
-        msg: `✅ ${data.item}: ${data.before} → ${data.after}${data.low_stock ? " (LOW)" : ""}`,
+      // ✅ Change this endpoint to your real “scan/use/restock” route if needed.
+      // If you already have one, set it here and keep the payload shape you expect.
+      const res = await fetch("/api/scan", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          location_id: locationId,
+          mode: mode === "USE" ? "OUT" : "IN",
+          code: query.trim(),
+          qty,
+        }),
       });
 
-      setBarcode("");
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data?.ok === false) {
+        setStatus(`ERROR: ${data?.error ?? `Request failed (${res.status})`}`);
+        return;
+      }
+
+      setStatus("✅ Saved.");
+      setQuery("");
       setQty(1);
-    } finally {
-      setBusy(false);
+    } catch (e: any) {
+      console.error(e);
+      setStatus(`ERROR: ${e?.message ?? "Unknown error"}`);
     }
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-slate-950 to-slate-900 text-slate-100">
-      <div className="mx-auto max-w-xl px-4 py-10">
-        <div className="rounded-3xl border border-slate-800 bg-slate-950/40 p-6 shadow-xl backdrop-blur">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <h1 className="text-2xl font-semibold tracking-tight">ASC Inventory Live</h1>
-              <p className="mt-1 text-sm text-slate-300">
-                Scan IN / OUT updates on-hand. Low stock alerts email you automatically.
-              </p>
-            </div>
-            <span className="rounded-full border border-slate-700 bg-slate-900 px-3 py-1 text-xs text-slate-300">
-              v1
-            </span>
-          </div>
+    <div style={{ maxWidth: 520, margin: "0 auto", padding: 16, fontFamily: "system-ui" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <h1 style={{ margin: 0 }}>ASC Inventory</h1>
 
-          <div className="mt-6 space-y-5">
-            {/* Location */}
-            <div>
-              <label className="text-sm font-medium text-slate-200">Location</label>
-              <select
-                value={locationId}
-                onChange={(e) => setLocationId(e.target.value)}
-                disabled={busy || locations.length === 0}
-                className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-900 px-4 py-3 text-slate-100 outline-none focus:border-sky-500"
-              >
-                {locations.map((l) => (
-                  <option key={l.id} value={l.id}>
-                    {l.name}
-                  </option>
-                ))}
-              </select>
-              <div className="mt-1 text-xs text-slate-400">
-                Selected: <span className="text-slate-200">{selectedLocation?.name ?? "—"}</span>
-              </div>
-            </div>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button
+            onClick={() => (isLocked ? unlockWithPin() : lockToCurrentLocation())}
+            style={{
+              padding: "10px 14px",
+              borderRadius: 10,
+              border: "1px solid #ccc",
+              background: isLocked ? "#111" : "#fff",
+              color: isLocked ? "#fff" : "#111",
+              fontWeight: 700,
+            }}
+          >
+            {isLocked ? "Unlock" : "Lock"}
+          </button>
 
-            {/* Scan type */}
-            <div>
-              <label className="text-sm font-medium text-slate-200">Scan Type</label>
-              <div className="mt-2 grid grid-cols-2 gap-3">
-                <button
-                  onClick={() => setScanType("OUT")}
-                  disabled={busy}
-                  className={classNames(
-                    "rounded-2xl border px-4 py-3 text-sm font-semibold transition",
-                    scanType === "OUT"
-                      ? "border-sky-500 bg-sky-500/15 text-sky-200"
-                      : "border-slate-700 bg-slate-900 text-slate-200 hover:border-slate-600"
-                  )}
-                >
-                  OUT (use)
-                </button>
-                <button
-                  onClick={() => setScanType("IN")}
-                  disabled={busy}
-                  className={classNames(
-                    "rounded-2xl border px-4 py-3 text-sm font-semibold transition",
-                    scanType === "IN"
-                      ? "border-emerald-500 bg-emerald-500/15 text-emerald-200"
-                      : "border-slate-700 bg-slate-900 text-slate-200 hover:border-slate-600"
-                  )}
-                >
-                  IN (restock)
-                </button>
-              </div>
-            </div>
-
-            {/* Barcode + Qty */}
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <div>
-                <label className="text-sm font-medium text-slate-200">Barcode</label>
-                <input
-                  value={barcode}
-                  onChange={(e) => setBarcode(e.target.value)}
-                  placeholder="Scan or type"
-                  disabled={busy}
-                  className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-900 px-4 py-3 text-slate-100 outline-none focus:border-sky-500"
-                />
-              </div>
-
-              <div>
-                <label className="text-sm font-medium text-slate-200">Qty</label>
-                <input
-                  value={qty}
-                  onChange={(e) => setQty(Number(e.target.value))}
-                  type="number"
-                  min={1}
-                  disabled={busy}
-                  className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-900 px-4 py-3 text-slate-100 outline-none focus:border-sky-500"
-                />
-              </div>
-            </div>
-
-            {/* Actions */}
-            <div className="space-y-3">
-              <button
-                onClick={submitScan}
-                disabled={busy}
-                className="w-full rounded-2xl bg-white/10 px-4 py-4 text-base font-semibold text-white hover:bg-white/15 disabled:opacity-60"
-              >
-                {busy ? "Working…" : "Submit Scan"}
-              </button>
-
-              <button
-                onClick={sendTestEmail}
-                disabled={busy}
-                className="w-full rounded-2xl border border-slate-700 bg-slate-900 px-4 py-4 text-base font-semibold text-slate-200 hover:border-slate-600 disabled:opacity-60"
-              >
-                Send Test Email
-              </button>
-            </div>
-
-            {/* Toast */}
-            {toast ? (
-              <div
-                className={classNames(
-                  "rounded-2xl border px-4 py-3 text-sm",
-                  toast.type === "ok"
-                    ? "border-emerald-500/50 bg-emerald-500/10 text-emerald-200"
-                    : "border-rose-500/50 bg-rose-500/10 text-rose-200"
-                )}
-              >
-                {toast.msg}
-              </div>
-            ) : null}
-          </div>
+          <button
+            onClick={changeMasterPin}
+            style={{
+              padding: "10px 14px",
+              borderRadius: 10,
+              border: "1px solid #ccc",
+              background: "#fff",
+              color: "#111",
+              fontWeight: 700,
+            }}
+          >
+            PIN
+          </button>
         </div>
-
-        <p className="mt-6 text-center text-xs text-slate-500">
-          Tip: if a barcode doesn’t exist in inventory for that location, the API will auto-create it.
-        </p>
       </div>
+
+      <p style={{ marginTop: 6, color: "#555" }}>
+        {isLocked ? (
+          <>
+            🔒 Locked to: <b>{lockedLocation?.name ?? lockedLocationId}</b>
+          </>
+        ) : (
+          <>
+            🔓 Not locked (default PIN is <b>1234</b> until you change it)
+          </>
+        )}
+      </p>
+
+      <div style={{ marginTop: 18 }}>
+        <label style={{ fontWeight: 700 }}>Location</label>
+        <select
+          value={locationId}
+          onChange={(e) => setLocationId(e.target.value)}
+          disabled={isLocked || loadingLocations}
+          style={{
+            width: "100%",
+            marginTop: 8,
+            padding: 12,
+            borderRadius: 12,
+            border: "1px solid #ccc",
+            background: isLocked ? "#f3f3f3" : "#fff",
+            fontSize: 16,
+          }}
+        >
+          <option value="">{loadingLocations ? "Loading..." : "-- Select a location --"}</option>
+          {locations.map((l) => (
+            <option key={l.id} value={l.id}>
+              {l.name}
+            </option>
+          ))}
+        </select>
+
+        {locationId && (
+          <div style={{ marginTop: 6, color: "#666" }}>
+            Selected: <b>{selectedLocation?.name ?? locationId}</b>
+          </div>
+        )}
+      </div>
+
+      <div style={{ marginTop: 18 }}>
+        <label style={{ fontWeight: 700 }}>Mode</label>
+        <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
+          <button
+            onClick={() => setMode("USE")}
+            disabled={isLocked} // lock also freezes mode (recommended)
+            style={{
+              flex: 1,
+              padding: 12,
+              borderRadius: 12,
+              border: "1px solid #ccc",
+              background: mode === "USE" ? "#111" : "#fff",
+              color: mode === "USE" ? "#fff" : "#111",
+              fontWeight: 800,
+            }}
+          >
+            USE (subtract)
+          </button>
+          <button
+            onClick={() => setMode("RESTOCK")}
+            disabled={isLocked}
+            style={{
+              flex: 1,
+              padding: 12,
+              borderRadius: 12,
+              border: "1px solid #ccc",
+              background: mode === "RESTOCK" ? "#111" : "#fff",
+              color: mode === "RESTOCK" ? "#fff" : "#111",
+              fontWeight: 800,
+            }}
+          >
+            RESTOCK
+          </button>
+        </div>
+        {isLocked && (
+          <div style={{ marginTop: 6, color: "#666" }}>
+            Mode is also locked (prevents accidental RESTOCK/USE flips).
+          </div>
+        )}
+      </div>
+
+      <div style={{ marginTop: 18 }}>
+        <label style={{ fontWeight: 700 }}>Item / Barcode</label>
+        <input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Scan or type"
+          style={{
+            width: "100%",
+            marginTop: 8,
+            padding: 12,
+            borderRadius: 12,
+            border: "1px solid #ccc",
+            fontSize: 16,
+          }}
+        />
+      </div>
+
+      <div style={{ marginTop: 18 }}>
+        <label style={{ fontWeight: 700 }}>Qty</label>
+        <input
+          value={String(qty)}
+          onChange={(e) => setQty(Number(e.target.value))}
+          inputMode="numeric"
+          style={{
+            width: "100%",
+            marginTop: 8,
+            padding: 12,
+            borderRadius: 12,
+            border: "1px solid #ccc",
+            fontSize: 16,
+          }}
+        />
+      </div>
+
+      <div style={{ marginTop: 18 }}>
+        <button
+          onClick={submit}
+          style={{
+            width: "100%",
+            padding: 14,
+            borderRadius: 14,
+            border: "none",
+            background: "#111",
+            color: "#fff",
+            fontWeight: 900,
+            fontSize: 18,
+          }}
+        >
+          Submit {mode === "USE" ? "USE" : "RESTOCK"}
+        </button>
+      </div>
+
+      {status && (
+        <div
+          style={{
+            marginTop: 16,
+            padding: 12,
+            borderRadius: 12,
+            border: "1px solid #ddd",
+            background: status.startsWith("ERROR") ? "#fff2f2" : "#f2fff4",
+            fontWeight: 700,
+            whiteSpace: "pre-wrap",
+          }}
+        >
+          {status}
+        </div>
+      )}
     </div>
   );
 }
