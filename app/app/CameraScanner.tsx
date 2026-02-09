@@ -1,143 +1,54 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import { BrowserMultiFormatReader } from "@zxing/browser";
 
-export default function CameraScanner({
-  open,
-  onClose,
-  onDetected,
-}: {
-  open: boolean;
-  onClose: () => void;
+type Props = {
   onDetected: (code: string) => void;
-}) {
-  const videoRef = useRef<HTMLVideoElement>(null);
+  onClose: () => void;
+};
+
+export default function CameraScanner({ onDetected, onClose }: Props) {
+  const videoRef = useRef<HTMLVideoElement | null>(null);
   const readerRef = useRef<BrowserMultiFormatReader | null>(null);
-  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!open) return;
+    readerRef.current = new BrowserMultiFormatReader();
 
-    setError(null);
-    const reader = new BrowserMultiFormatReader();
-    readerRef.current = reader;
-
-    let stopped = false;
-
-    (async () => {
-      try {
-        const video = videoRef.current;
-        if (!video) return;
-
-        await reader.decodeFromVideoDevice(
-          undefined, // default camera (usually rear camera on phones)
-          video,
-          (result) => {
-            if (stopped) return;
-            const text = result?.getText?.()?.trim();
-            if (text) {
-              stopped = true;
-              onDetected(text);
-            }
-          }
-        );
-      } catch (e: any) {
-        setError(e?.message ?? "Camera error");
+    readerRef.current.decodeFromVideoDevice(
+      undefined,
+      videoRef.current!,
+      (result, error) => {
+        if (result) {
+          onDetected(result.getText());
+          onClose();
+        }
       }
-    })();
+    );
 
     return () => {
-      stopped = true;
-      // No reset() here — ZXing BrowserMultiFormatReader does not expose it in TS types.
-      readerRef.current = null;
+      readerRef.current?.reset();
     };
-  }, [open, onDetected]);
-
-  if (!open) return null;
+  }, [onDetected, onClose]);
 
   return (
-    <div
-      style={{
-        position: "fixed",
-        inset: 0,
-        background: "rgba(0,0,0,0.65)",
-        display: "grid",
-        placeItems: "center",
-        padding: 16,
-        zIndex: 9999,
-      }}
-    >
-      <div
+    <div style={{ marginTop: 10 }}>
+      <video
+        ref={videoRef}
         style={{
           width: "100%",
-          maxWidth: 520,
-          background: "#fff",
-          borderRadius: 14,
-          padding: 14,
+          borderRadius: 12,
+          border: "1px solid #ccc",
         }}
+      />
+
+      <button
+        type="button"
+        onClick={onClose}
+        style={{ marginTop: 10, width: "100%" }}
       >
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            gap: 10,
-          }}
-        >
-          <div style={{ fontWeight: 900, fontSize: 18 }}>Scan Barcode</div>
-          <button
-            type="button"
-            onClick={onClose}
-            style={{
-              padding: "8px 12px",
-              borderRadius: 10,
-              border: "1px solid #ccc",
-              cursor: "pointer",
-              fontWeight: 800,
-            }}
-          >
-            Close
-          </button>
-        </div>
-
-        <div
-          style={{
-            marginTop: 10,
-            borderRadius: 12,
-            overflow: "hidden",
-            border: "1px solid #ddd",
-          }}
-        >
-          <video
-            ref={videoRef}
-            style={{ width: "100%", height: "auto" }}
-            playsInline
-            muted
-          />
-        </div>
-
-        {error ? (
-          <div
-            style={{
-              marginTop: 10,
-              padding: 10,
-              borderRadius: 12,
-              border: "1px solid #ccc",
-            }}
-          >
-            <b>Camera error:</b> {error}
-            <div style={{ marginTop: 6, fontSize: 12, opacity: 0.8 }}>
-              On iPhone: allow Camera for this site (Safari → aA → Website
-              Settings → Camera → Allow).
-            </div>
-          </div>
-        ) : (
-          <div style={{ marginTop: 10, fontSize: 13, opacity: 0.8 }}>
-            Hold the barcode steady. It will auto-detect.
-          </div>
-        )}
-      </div>
+        Cancel Scan
+      </button>
     </div>
   );
 }
