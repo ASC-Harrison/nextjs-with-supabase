@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import CameraScanner from "./CameraScanner";
+import CameraScanner from "../app/CameraScanner";
 
 export default function TestScanPage() {
   const [open, setOpen] = useState(false);
