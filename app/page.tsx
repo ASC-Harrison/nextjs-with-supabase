@@ -4,11 +4,14 @@ import React, { useEffect, useMemo, useState } from "react";
 
 type Location = { id: string; name: string; active?: boolean };
 
-const VERSION = "LOCK-PIN v3 (should prompt on location change)";
+const VERSION = "LOCK-PIN v4 + One-time Main Supply Override";
 
 const LS_LOCKED = "asc_lock_isLocked";
 const LS_LOCKED_LOC = "asc_lock_locationId";
 const LS_MASTER_PIN = "asc_lock_masterPin";
+
+// ✅ CHANGE THIS to match EXACTLY what your location is named in Supabase
+const MAIN_SUPPLY_NAME = "Main Sterile Supply";
 
 function lsGet(key: string): string | null {
   if (typeof window === "undefined") return null;
@@ -34,11 +37,13 @@ export default function Page() {
   const [mode, setMode] = useState<"USE" | "RESTOCK">("USE");
   const [code, setCode] = useState<string>("");
   const [qty, setQty] = useState<number>(1);
-
   const [status, setStatus] = useState<string>("");
 
   const [isLocked, setIsLocked] = useState<boolean>(false);
   const [lockedLocationId, setLockedLocationId] = useState<string>("");
+
+  // ✅ One-time override
+  const [useMainSupplyOnce, setUseMainSupplyOnce] = useState<boolean>(false);
 
   const selectedLocation = useMemo(
     () => locations.find((l) => l.id === locationId) || null,
@@ -49,6 +54,11 @@ export default function Page() {
     () => locations.find((l) => l.id === lockedLocationId) || null,
     [locations, lockedLocationId]
   );
+
+  const mainSupplyLocation = useMemo(() => {
+    const target = MAIN_SUPPLY_NAME.trim().toLowerCase();
+    return locations.find((l) => l.name.trim().toLowerCase() === target) || null;
+  }, [locations]);
 
   // Load locations
   useEffect(() => {
@@ -138,34 +148,48 @@ export default function Page() {
     setStatus("Master PIN updated.");
   }
 
-  // ✅ The guard that MUST run when you try to change locations
+  // Location change guard
   function requestLocationChange(nextId: string) {
-    // If unlocked, allow
     if (!isLocked) {
       setLocationId(nextId);
       return;
     }
-
-    // If locked and same location, ignore
     if (nextId === lockedLocationId) return;
 
-    // If locked and trying to change, require PIN
     const pin = window.prompt("Location is LOCKED. Enter master PIN to change location:");
     if (pin === null) return;
 
     if (pin.trim() !== getMasterPin()) {
       setStatus("ERROR: Wrong PIN. Location not changed.");
-      // Force UI back to locked location
       setLocationId(lockedLocationId);
       return;
     }
 
-    // Correct PIN: switch & keep locked to the new location
+    // Correct PIN: change locked location to the new one
     setLocationId(nextId);
     setLockedLocationId(nextId);
     lsSet(LS_LOCKED, "true");
     lsSet(LS_LOCKED_LOC, nextId);
     setStatus("Location changed (PIN accepted) and still locked.");
+  }
+
+  // ✅ One-time Main Supply override button
+  function requestMainSupplyOnce() {
+    if (!mainSupplyLocation) {
+      setStatus(`ERROR: Main supply location "${MAIN_SUPPLY_NAME}" not found.`);
+      return;
+    }
+
+    const pin = window.prompt(`Enter PIN to pull from "${mainSupplyLocation.name}" (ONE TIME):`);
+    if (pin === null) return;
+
+    if (pin.trim() !== getMasterPin()) {
+      setStatus("ERROR: Wrong PIN. Main supply override not enabled.");
+      return;
+    }
+
+    setUseMainSupplyOnce(true);
+    setStatus(`✅ Next transaction will pull from: ${mainSupplyLocation.name} (one time only)`);
   }
 
   async function submit() {
@@ -176,12 +200,20 @@ export default function Page() {
       if (!code.trim()) return setStatus("ERROR: Scan or type an item/barcode first.");
       if (!Number.isFinite(qty) || qty <= 0) return setStatus("ERROR: Qty must be 1+.");
 
+      // ✅ Decide which source location this transaction uses
+      const sourceLocationId =
+        useMainSupplyOnce && mainSupplyLocation ? mainSupplyLocation.id : locationId;
+
+      // We also send the locked location so your backend can log "used in OR1"
+      const lockedForDisplay = lockedLocationId || locationId;
+
       const res = await fetch("/api/scan", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         cache: "no-store",
         body: JSON.stringify({
-          location_id: locationId,
+          location_id: sourceLocationId, // where it subtracts/adds
+          used_in_location_id: lockedForDisplay, // optional: where it was used (audit)
           mode: mode === "USE" ? "OUT" : "IN",
           code: code.trim(),
           qty,
@@ -193,12 +225,22 @@ export default function Page() {
         return setStatus(`ERROR: ${data?.error ?? `Request failed (${res.status})`}`);
       }
 
-      setStatus("✅ Saved.");
+      setStatus(
+        `✅ Saved. ${mode} ${qty} from ${
+          sourceLocationId === locationId ? (selectedLocation?.name ?? "Location") : mainSupplyLocation?.name
+        }`
+      );
+
+      // ✅ CRITICAL SAFETY: always auto-reset back to cabinet after submit
+      setUseMainSupplyOnce(false);
+
       setCode("");
       setQty(1);
     } catch (e: any) {
       console.error(e);
       setStatus(`ERROR: ${e?.message ?? "Unknown error"}`);
+      // also reset one-time override on failure (prevents “stuck”)
+      setUseMainSupplyOnce(false);
     }
   }
 
@@ -236,7 +278,7 @@ export default function Page() {
         <label style={{ fontWeight: 900 }}>Location</label>
         <select
           value={locationId}
-          onChange={(e) => requestLocationChange(e.target.value)} // ✅ PIN guard is here
+          onChange={(e) => requestLocationChange(e.target.value)}
           disabled={loadingLocations}
           style={{ width: "100%", marginTop: 8, padding: 12, borderRadius: 12, fontSize: 16 }}
         >
@@ -249,6 +291,32 @@ export default function Page() {
         </select>
         <div style={{ marginTop: 6, color: "#666" }}>
           Selected: <b>{selectedLocation?.name ?? "—"}</b>
+        </div>
+      </div>
+
+      {/* ✅ One-time Main Supply Override */}
+      <div style={{ marginTop: 14 }}>
+        <button
+          type="button"
+          onClick={requestMainSupplyOnce}
+          style={{
+            width: "100%",
+            padding: 12,
+            borderRadius: 12,
+            border: "1px solid #ccc",
+            fontWeight: 900,
+          }}
+        >
+          Pull from Main Supply (ONE TIME)
+        </button>
+
+        <div style={{ marginTop: 6, color: useMainSupplyOnce ? "#0a7a2a" : "#666", fontWeight: 800 }}>
+          Source for next submit:{" "}
+          {useMainSupplyOnce && mainSupplyLocation ? (
+            <span>{mainSupplyLocation.name} (one time)</span>
+          ) : (
+            <span>{selectedLocation?.name ?? "—"}</span>
+          )}
         </div>
       </div>
 
@@ -288,3 +356,4 @@ export default function Page() {
     </div>
   );
 }
+
