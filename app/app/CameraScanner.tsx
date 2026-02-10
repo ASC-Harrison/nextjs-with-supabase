@@ -1,7 +1,10 @@
 "use client";
 
-import { useEffect, useRef } from "react";
-import { BrowserMultiFormatReader } from "@zxing/browser";
+import { useEffect, useRef, useState } from "react";
+import {
+  BrowserMultiFormatReader,
+  type IScannerControls,
+} from "@zxing/browser";
 
 type Props = {
   onDetected: (code: string) => void;
@@ -10,68 +13,86 @@ type Props = {
 
 export default function CameraScanner({ onDetected, onClose }: Props) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
-  const readerRef = useRef<BrowserMultiFormatReader | null>(null);
-  const controlsRef = useRef<{ stop: () => void } | null>(null);
-  const didScanRef = useRef(false);
+  const controlsRef = useRef<IScannerControls | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
 
     async function start() {
       try {
-        readerRef.current = new BrowserMultiFormatReader();
+        const reader = new BrowserMultiFormatReader();
 
-        const controls = await readerRef.current.decodeFromVideoDevice(
+        // Start decoding from the default camera. iOS will prompt for camera access.
+        const controls = await reader.decodeFromVideoDevice(
           undefined,
           videoRef.current!,
           (result) => {
             if (!result) return;
-            if (didScanRef.current) return; // prevent double scans
+            const text = result.getText?.() ?? "";
+            if (!text) return;
 
-            didScanRef.current = true;
-            onDetected(result.getText());
+            // Stop scanning immediately after detecting
+            controlsRef.current?.stop();
+            controlsRef.current = null;
+
+            onDetected(text);
             onClose();
           }
         );
 
+        if (cancelled) {
+          controls.stop();
+          return;
+        }
+
         controlsRef.current = controls;
-      } catch (e) {
-        // If camera fails/permission denied, just close the scanner UI
-        if (!cancelled) onClose();
+      } catch (e: any) {
+        setError(e?.message ?? "Camera error");
       }
     }
 
-    start();
+    // Must have video element present
+    if (videoRef.current) start();
 
     return () => {
       cancelled = true;
-      // ✅ This is the safe cross-version way to stop the camera stream
       try {
         controlsRef.current?.stop();
       } catch {}
       controlsRef.current = null;
-      readerRef.current = null;
     };
-  }, [onDetected, onClose]);
+  }, [onClose, onDetected]);
 
   return (
-    <div style={{ marginTop: 10 }}>
-      <video
-        ref={videoRef}
-        style={{
-          width: "100%",
-          borderRadius: 12,
-          border: "1px solid #ccc",
-        }}
-      />
+    <div style={{ marginTop: 12 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+        <strong>Camera Scanner</strong>
+        <button onClick={onClose} style={{ padding: "6px 10px" }}>
+          Close
+        </button>
+      </div>
 
-      <button
-        type="button"
-        onClick={onClose}
-        style={{ marginTop: 10, width: "100%" }}
-      >
-        Cancel Scan
-      </button>
+      {error ? (
+        <div style={{ marginTop: 10, color: "crimson" }}>{error}</div>
+      ) : (
+        <video
+          ref={videoRef}
+          style={{
+            width: "100%",
+            marginTop: 10,
+            borderRadius: 12,
+            background: "#000",
+          }}
+          muted
+          playsInline
+        />
+      )}
+
+      <div style={{ marginTop: 10, fontSize: 12, opacity: 0.7 }}>
+        Tip: hold the barcode steady for 1–2 seconds.
+      </div>
     </div>
   );
 }
+
