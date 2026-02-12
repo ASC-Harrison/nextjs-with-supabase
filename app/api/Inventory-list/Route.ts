@@ -6,7 +6,6 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
-// GET /api/inventory-list?location=Main%20Sterile%20Supply
 export async function GET(req: Request) {
   try {
     const { searchParams } = new URL(req.url);
@@ -16,14 +15,10 @@ export async function GET(req: Request) {
       .from("inventory")
       .select("item_id, location_id, on_hand, status");
 
-    if (invErr) {
-      return NextResponse.json({ ok: false, error: invErr.message }, { status: 500 });
-    }
+    if (invErr) return NextResponse.json({ ok: false, error: invErr.message }, { status: 500 });
 
     const invRows = inv ?? [];
-    if (invRows.length === 0) {
-      return NextResponse.json({ ok: true, rows: [] });
-    }
+    if (invRows.length === 0) return NextResponse.json({ ok: true, rows: [] });
 
     const itemIds = Array.from(new Set(invRows.map((r) => r.item_id)));
     const locIds = Array.from(new Set(invRows.map((r) => r.location_id)));
@@ -58,4 +53,9 @@ export async function GET(req: Request) {
   } catch (err: any) {
     return NextResponse.json({ ok: false, error: err?.message ?? "Server error" }, { status: 500 });
   }
+}
+
+// Optional: this prevents 405 if something POSTs by accident
+export async function POST() {
+  return NextResponse.json({ ok: true, note: "Use GET for /api/inventory-list" });
 }
