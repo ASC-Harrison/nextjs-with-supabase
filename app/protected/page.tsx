@@ -4,14 +4,11 @@ import { useEffect, useMemo, useState } from "react";
 
 const UNLOCK_MINUTES = 30;
 
-type InvRow = {
+type TotalRow = {
   item_id: string;
-  location_id: string;
-  on_hand: number;
-  status: string | null;
   item_name: string;
   barcode: string | null;
-  location_name: string;
+  total_on_hand: number;
 };
 
 export default function ProtectedPage() {
@@ -20,19 +17,23 @@ export default function ProtectedPage() {
   const [itemOrBarcode, setItemOrBarcode] = useState("");
   const [qty, setQty] = useState(1);
 
+  // PIN lock
   const [pin, setPin] = useState("");
   const [isUnlocked, setIsUnlocked] = useState(false);
   const [unlockStatus, setUnlockStatus] = useState("");
 
+  // submit + list status
   const [submitStatus, setSubmitStatus] = useState("Ready");
-  const [rows, setRows] = useState<InvRow[]>([]);
-  const [listStatus, setListStatus] = useState("Loading inventory...");
+  const [rows, setRows] = useState<TotalRow[]>([]);
+  const [listStatus, setListStatus] = useState("Loading inventory totals...");
 
+  // load unlock state
   useEffect(() => {
     const until = Number(localStorage.getItem("unlockedUntil") || "0");
     setIsUnlocked(Date.now() < until);
   }, []);
 
+  // auto re-lock timer
   useEffect(() => {
     const t = setInterval(() => {
       const until = Number(localStorage.getItem("unlockedUntil") || "0");
@@ -45,9 +46,10 @@ export default function ProtectedPage() {
     return location.trim() && itemOrBarcode.trim() && qty >= 1;
   }, [location, itemOrBarcode, qty]);
 
-  async function loadInventory() {
-    setListStatus("Loading inventory...");
-    const res = await fetch(`/api/items?location=${encodeURIComponent(location)}`);
+  // ✅ TOTALS LOADER (ONE ROW PER PRODUCT)
+  async function loadInventoryTotals() {
+    setListStatus("Loading inventory totals...");
+    const res = await fetch(`/api/items`); // <-- totals endpoint
     const data = await res.json().catch(() => ({}));
 
     if (!res.ok || !data.ok) {
@@ -60,10 +62,10 @@ export default function ProtectedPage() {
     setListStatus("");
   }
 
+  // Load totals on page load
   useEffect(() => {
-    loadInventory();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [location]);
+    loadInventoryTotals();
+  }, []);
 
   async function handleUnlock() {
     setUnlockStatus("Unlocking...");
@@ -103,7 +105,7 @@ export default function ProtectedPage() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        location,
+        location,         // still needed so we know which location to take from/add to
         mode,
         itemOrBarcode,
         qty,
@@ -124,13 +126,15 @@ export default function ProtectedPage() {
     setItemOrBarcode("");
     setQty(1);
 
-    await loadInventory();
+    // ✅ Refresh totals after any transaction
+    await loadInventoryTotals();
   }
 
   return (
     <div style={{ maxWidth: 560, margin: "20px auto", padding: 16, fontFamily: "system-ui" }}>
       <h2>Inventory</h2>
 
+      {/* PIN LOCK */}
       <div style={{ border: "1px solid #ddd", borderRadius: 12, padding: 12, marginBottom: 14 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <strong>{isUnlocked ? "🔓 Location Unlocked" : "🔒 Location Locked"}</strong>
@@ -155,6 +159,7 @@ export default function ProtectedPage() {
         <div style={{ marginTop: 8 }}>{unlockStatus || "Enter PIN to unlock location changes."}</div>
       </div>
 
+      {/* LOCATION (still used for transactions) */}
       <label style={{ display: "block" }}>Location</label>
       <select
         value={location}
@@ -169,6 +174,7 @@ export default function ProtectedPage() {
         <option>PACU</option>
       </select>
 
+      {/* MODE */}
       <label style={{ display: "block", marginTop: 12 }}>Mode</label>
       <div style={{ display: "flex", gap: 10 }}>
         <button
@@ -185,6 +191,7 @@ export default function ProtectedPage() {
         </button>
       </div>
 
+      {/* ITEM */}
       <label style={{ display: "block", marginTop: 12 }}>Item / Barcode</label>
       <input
         value={itemOrBarcode}
@@ -193,6 +200,7 @@ export default function ProtectedPage() {
         style={{ width: "100%", padding: 10 }}
       />
 
+      {/* QTY */}
       <label style={{ display: "block", marginTop: 12 }}>Qty</label>
       <input
         value={qty}
@@ -214,35 +222,7 @@ export default function ProtectedPage() {
         {submitStatus}
       </div>
 
+      {/* TOTAL INVENTORY LIST */}
       <div style={{ marginTop: 16, padding: 12, border: "1px solid #ddd", borderRadius: 12 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <strong>Inventory for {location}</strong>
-          <button onClick={loadInventory} style={{ padding: "6px 10px", fontWeight: 800 }}>
-            Refresh
-          </button>
-        </div>
-
-        <div style={{ marginTop: 10 }}>
-          {listStatus ? (
-            <div style={{ opacity: 0.75 }}>{listStatus}</div>
-          ) : rows.length === 0 ? (
-            <div style={{ opacity: 0.75 }}>No items found for this location.</div>
-          ) : (
-            rows.map((r) => (
-              <div
-                key={`${r.item_id}-${r.location_id}`}
-                style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", borderBottom: "1px solid #eee" }}
-              >
-                <div>
-                  <div style={{ fontWeight: 700 }}>{r.item_name}</div>
-                  <div style={{ fontSize: 12, opacity: 0.7 }}>{r.barcode ?? ""}</div>
-                </div>
-                <div style={{ fontWeight: 900 }}>{r.on_hand}</div>
-              </div>
-            ))
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
+          <stron
