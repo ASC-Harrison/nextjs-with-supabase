@@ -1,8 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-
-const UNLOCK_MINUTES = 30;
+import { useEffect, useState } from "react";
 
 type TotalRow = {
   item_id: string;
@@ -17,59 +15,41 @@ export default function ProtectedPage() {
   const [itemOrBarcode, setItemOrBarcode] = useState("");
   const [qty, setQty] = useState(1);
 
-  // PIN lock
   const [pin, setPin] = useState("");
   const [isUnlocked, setIsUnlocked] = useState(false);
   const [unlockStatus, setUnlockStatus] = useState("");
 
-  // submit + list status
   const [submitStatus, setSubmitStatus] = useState("Ready");
   const [rows, setRows] = useState<TotalRow[]>([]);
-  const [listStatus, setListStatus] = useState("Loading inventory totals...");
+  const [listStatus, setListStatus] = useState("Loading inventory...");
 
-  // load unlock state
+  // Load unlock state
   useEffect(() => {
     const until = Number(localStorage.getItem("unlockedUntil") || "0");
     setIsUnlocked(Date.now() < until);
   }, []);
 
-  // auto re-lock timer
+  // Load totals
   useEffect(() => {
-    const t = setInterval(() => {
-      const until = Number(localStorage.getItem("unlockedUntil") || "0");
-      setIsUnlocked(Date.now() < until);
-    }, 1000);
-    return () => clearInterval(t);
+    loadTotals();
   }, []);
 
-  const canSubmit = useMemo(() => {
-    return location.trim() && itemOrBarcode.trim() && qty >= 1;
-  }, [location, itemOrBarcode, qty]);
-
-  // ✅ TOTALS LOADER (ONE ROW PER PRODUCT)
-  async function loadInventoryTotals() {
-    setListStatus("Loading inventory totals...");
-    const res = await fetch(`/api/items`); // <-- totals endpoint
+  async function loadTotals() {
+    setListStatus("Loading inventory...");
+    const res = await fetch("/api/items");
     const data = await res.json().catch(() => ({}));
 
     if (!res.ok || !data.ok) {
       setRows([]);
-      setListStatus(`❌ ${data?.error ?? `Failed (${res.status})`}`);
+      setListStatus("Failed to load inventory");
       return;
     }
 
-    setRows(data.rows ?? []);
+    setRows(data.rows || []);
     setListStatus("");
   }
 
-  // Load totals on page load
-  useEffect(() => {
-    loadInventoryTotals();
-  }, []);
-
   async function handleUnlock() {
-    setUnlockStatus("Unlocking...");
-
     const res = await fetch("/api/unlock", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -79,33 +59,31 @@ export default function ProtectedPage() {
     const data = await res.json().catch(() => ({}));
 
     if (!res.ok || !data.ok) {
-      setUnlockStatus(`❌ ${data?.error ?? `Unlock failed (${res.status})`}`);
+      setUnlockStatus("Invalid PIN");
       return;
     }
 
-    const until = Date.now() + UNLOCK_MINUTES * 60 * 1000;
+    const until = Date.now() + 30 * 60 * 1000;
     localStorage.setItem("unlockedUntil", String(until));
     setIsUnlocked(true);
     setPin("");
-    setUnlockStatus(`✅ Unlocked for ${UNLOCK_MINUTES} minutes`);
+    setUnlockStatus("Unlocked");
   }
 
   function handleLock() {
     localStorage.removeItem("unlockedUntil");
     setIsUnlocked(false);
-    setUnlockStatus("🔒 Locked");
+    setUnlockStatus("Locked");
   }
 
   async function handleSubmit() {
-    if (!canSubmit) return;
-
     setSubmitStatus("Submitting...");
 
     const res = await fetch("/api/transaction", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        location,         // still needed so we know which location to take from/add to
+        location,
         mode,
         itemOrBarcode,
         qty,
@@ -115,114 +93,111 @@ export default function ProtectedPage() {
     const data = await res.json().catch(() => ({}));
 
     if (!res.ok || !data.ok) {
-      setSubmitStatus(`❌ ${data?.error ?? `Request failed (${res.status})`}`);
+      setSubmitStatus("Transaction failed");
       return;
     }
 
-    setSubmitStatus(
-      `✅ ${data.mode} ${data.qty} — ${data.item?.name ?? "Item"} @ ${data.location?.name ?? location} | ${data.old_on_hand} → ${data.new_on_hand}`
-    );
-
+    setSubmitStatus("Success");
     setItemOrBarcode("");
     setQty(1);
-
-    // ✅ Refresh totals after any transaction
-    await loadInventoryTotals();
+    await loadTotals();
   }
 
   return (
-    <div style={{ maxWidth: 560, margin: "20px auto", padding: 16, fontFamily: "system-ui" }}>
+    <div style={{ maxWidth: 600, margin: "20px auto", padding: 20 }}>
       <h2>Inventory</h2>
 
-      {/* PIN LOCK */}
-      <div style={{ border: "1px solid #ddd", borderRadius: 12, padding: 12, marginBottom: 14 }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <strong>{isUnlocked ? "🔓 Location Unlocked" : "🔒 Location Locked"}</strong>
-          <button onClick={handleLock} style={{ padding: "6px 10px", fontWeight: 800 }}>
-            Lock
-          </button>
-        </div>
-
-        <div style={{ display: "flex", gap: 10, marginTop: 10 }}>
+      <div style={{ border: "1px solid #ddd", padding: 10, marginBottom: 15 }}>
+        <strong>{isUnlocked ? "Unlocked" : "Locked"}</strong>
+        <div style={{ marginTop: 10 }}>
           <input
             value={pin}
             onChange={(e) => setPin(e.target.value)}
             placeholder="Enter PIN"
-            inputMode="numeric"
-            style={{ flex: 1, padding: 10 }}
+            style={{ padding: 8, marginRight: 8 }}
           />
-          <button onClick={handleUnlock} style={{ padding: "10px 12px", fontWeight: 900 }}>
-            Unlock
+          <button onClick={handleUnlock}>Unlock</button>
+          <button onClick={handleLock} style={{ marginLeft: 8 }}>
+            Lock
           </button>
         </div>
-
-        <div style={{ marginTop: 8 }}>{unlockStatus || "Enter PIN to unlock location changes."}</div>
+        <div>{unlockStatus}</div>
       </div>
 
-      {/* LOCATION (still used for transactions) */}
-      <label style={{ display: "block" }}>Location</label>
-      <select
-        value={location}
-        onChange={(e) => setLocation(e.target.value)}
-        disabled={!isUnlocked}
-        style={{ width: "100%", padding: 10, opacity: isUnlocked ? 1 : 0.6 }}
-      >
-        <option>Main Sterile Supply</option>
-        <option>OR 1 - Cabinet A</option>
-        <option>OR 2 - Cabinet A</option>
-        <option>Pre-Op</option>
-        <option>PACU</option>
-      </select>
+      <div>
+        <label>Location</label>
+        <select
+          value={location}
+          onChange={(e) => setLocation(e.target.value)}
+          disabled={!isUnlocked}
+          style={{ width: "100%", padding: 8 }}
+        >
+          <option>Main Sterile Supply</option>
+          <option>OR 1 - Cabinet A</option>
+          <option>OR 2 - Cabinet A</option>
+          <option>Pre-Op</option>
+          <option>PACU</option>
+        </select>
+      </div>
 
-      {/* MODE */}
-      <label style={{ display: "block", marginTop: 12 }}>Mode</label>
-      <div style={{ display: "flex", gap: 10 }}>
-        <button
-          onClick={() => setMode("USE")}
-          style={{ flex: 1, padding: 10, fontWeight: 900, opacity: mode === "USE" ? 1 : 0.5 }}
-        >
-          USE
-        </button>
-        <button
-          onClick={() => setMode("RESTOCK")}
-          style={{ flex: 1, padding: 10, fontWeight: 900, opacity: mode === "RESTOCK" ? 1 : 0.5 }}
-        >
+      <div style={{ marginTop: 10 }}>
+        <button onClick={() => setMode("USE")}>USE</button>
+        <button onClick={() => setMode("RESTOCK")} style={{ marginLeft: 8 }}>
           RESTOCK
         </button>
       </div>
 
-      {/* ITEM */}
-      <label style={{ display: "block", marginTop: 12 }}>Item / Barcode</label>
-      <input
-        value={itemOrBarcode}
-        onChange={(e) => setItemOrBarcode(e.target.value)}
-        placeholder="Type item name or exact barcode"
-        style={{ width: "100%", padding: 10 }}
-      />
+      <div style={{ marginTop: 10 }}>
+        <input
+          value={itemOrBarcode}
+          onChange={(e) => setItemOrBarcode(e.target.value)}
+          placeholder="Item name or barcode"
+          style={{ width: "100%", padding: 8 }}
+        />
+      </div>
 
-      {/* QTY */}
-      <label style={{ display: "block", marginTop: 12 }}>Qty</label>
-      <input
-        value={qty}
-        onChange={(e) => setQty(Math.max(1, Number(e.target.value) || 1))}
-        type="number"
-        min={1}
-        style={{ width: "100%", padding: 10 }}
-      />
+      <div style={{ marginTop: 10 }}>
+        <input
+          type="number"
+          min={1}
+          value={qty}
+          onChange={(e) => setQty(Number(e.target.value))}
+          style={{ width: "100%", padding: 8 }}
+        />
+      </div>
 
       <button
         onClick={handleSubmit}
-        disabled={!canSubmit}
-        style={{ width: "100%", marginTop: 16, padding: 12, fontWeight: 950 }}
+        style={{ marginTop: 15, width: "100%", padding: 10 }}
       >
         Submit {mode}
       </button>
 
-      <div style={{ marginTop: 16, padding: 12, border: "1px solid #ddd", borderRadius: 12 }}>
-        {submitStatus}
-      </div>
+      <div style={{ marginTop: 15 }}>{submitStatus}</div>
 
-      {/* TOTAL INVENTORY LIST */}
-      <div style={{ marginTop: 16, padding: 12, border: "1px solid #ddd", borderRadius: 12 }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <stron
+      <div style={{ marginTop: 30 }}>
+        <h3>Total Inventory</h3>
+
+        {listStatus && <div>{listStatus}</div>}
+
+        {rows.map((r) => (
+          <div
+            key={r.item_id}
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              borderBottom: "1px solid #eee",
+              padding: "6px 0",
+            }}
+          >
+            <div>
+              <strong>{r.item_name}</strong>
+              <div style={{ fontSize: 12 }}>{r.barcode}</div>
+            </div>
+            <div>{r.total_on_hand}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
