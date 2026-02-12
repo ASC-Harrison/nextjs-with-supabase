@@ -12,17 +12,19 @@ export async function GET(req: Request) {
     const { searchParams } = new URL(req.url);
     const locationName = String(searchParams.get("location") ?? "").trim();
 
-    // inventory rows
     const { data: inv, error: invErr } = await supabase
       .from("inventory")
       .select("item_id, location_id, on_hand, status");
 
-    if (invErr) return NextResponse.json({ ok: false, error: invErr.message }, { status: 500 });
+    if (invErr) {
+      return NextResponse.json({ ok: false, error: invErr.message }, { status: 500 });
+    }
 
     const invRows = inv ?? [];
-    if (invRows.length === 0) return NextResponse.json({ ok: true, rows: [] });
+    if (invRows.length === 0) {
+      return NextResponse.json({ ok: true, rows: [] });
+    }
 
-    // fetch items + locations to convert ids -> names
     const itemIds = Array.from(new Set(invRows.map((r) => r.item_id)));
     const locIds = Array.from(new Set(invRows.map((r) => r.location_id)));
 
@@ -48,9 +50,7 @@ export async function GET(req: Request) {
     }));
 
     if (locationName) {
-      rows = rows.filter(
-        (r) => r.location_name.toLowerCase() === locationName.toLowerCase()
-      );
+      rows = rows.filter((r) => r.location_name.toLowerCase() === locationName.toLowerCase());
     }
 
     rows.sort((a, b) => a.item_name.localeCompare(b.item_name));
