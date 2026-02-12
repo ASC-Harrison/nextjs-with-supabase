@@ -1,305 +1,187 @@
 "use client";
 
-import React, { useEffect, useRef, useState } from "react";
-import { createClient } from "@supabase/supabase-js";
+import { useEffect, useMemo, useState } from "react";
 
-type LocationRow = { id: string; name: string };
-type ItemRow = {
-  id: string;
-  name: string;
-  barcode: string;
-};
+const UNLOCK_MINUTES = 30;
 
-type ScanType = "IN" | "OUT";
+export default function ProtectedPage() {
+  const [location, setLocation] = useState("Main Sterile Supply");
+  const [mode, setMode] = useState<"USE" | "RESTOCK">("USE");
+  const [itemOrBarcode, setItemOrBarcode] = useState("");
+  const [qty, setQty] = useState(1);
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL ?? "",
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? ""
-);
+  const [pin, setPin] = useState("");
+  const [isUnlocked, setIsUnlocked] = useState(false);
+  const [unlockStatus, setUnlockStatus] = useState("");
 
-export default function ProtectedInventoryPage() {
-  // --- State ---
-  const [locations, setLocations] = useState<LocationRow[]>([]);
-  const [locationId, setLocationId] = useState<string>("");
+  const [submitStatus, setSubmitStatus] = useState("");
 
-  const [scanType, setScanType] = useState<ScanType>("OUT");
-  const [barcode, setBarcode] = useState<string>("");
-
-  // IMPORTANT: qty is a string (input value). Convert only at submit.
-  const [qty, setQty] = useState<string>("");
-
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState<string>("");
-  const [msg, setMsg] = useState<string>("");
-
-  // HARD SUBMIT LOCK (prevents double submit on iPhone / lag taps)
-  const submitLockRef = useRef(false);
-
-  // --- Load locations ---
   useEffect(() => {
-    (async () => {
-      setErr("");
-      const { data, error } = await supabase
-        .from("locations")
-        .select("id,name,barcode")
-        .order("name", { ascending: true });
-
-      if (error) {
-        setErr(`Failed to load locations: ${error.message}`);
-        return;
-      }
-
-      const rows = (data ?? []) as LocationRow[];
-      setLocations(rows);
-      if (rows.length && !locationId) setLocationId(rows[0].id);
-    })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    const until = Number(localStorage.getItem("unlockedUntil") || "0");
+    setIsUnlocked(Date.now() < until);
   }, []);
 
-  async function handleSubmit(e?: React.FormEvent) {
-    e?.preventDefault();
-    setErr("");
-    setMsg("");
+  useEffect(() => {
+    const timer = setInterval(() => {
+      const until = Number(localStorage.getItem("unlockedUntil") || "0");
+      const unlocked = Date.now() < until;
+      setIsUnlocked(unlocked);
+      if (!unlocked && unlockStatus.startsWith("✅")) setUnlockStatus("🔒 Locked");
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [unlockStatus]);
 
-    // HARD LOCK first (stops duplicates even if state lags)
-    if (submitLockRef.current) return;
-    submitLockRef.current = true;
+  const canSubmit = useMemo(() => {
+    return location.trim() && itemOrBarcode.trim() && qty >= 1;
+  }, [location, itemOrBarcode, qty]);
 
-    setBusy(true);
-    try {
-      const cleanedBarcode = barcode.trim();
-      if (!cleanedBarcode) {
-        setErr("Barcode is required.");
-        return;
-      }
-      if (!locationId) {
-        setErr("Location is required.");
-        return;
-      }
+  async function handleUnlock() {
+    setUnlockStatus("Unlocking...");
 
-      // Convert qty ONLY here (never default to 10)
-      const qtyNum = Number(qty);
-      if (!Number.isInteger(qtyNum) || qtyNum <= 0) {
-        setErr("Qty must be a whole number greater than 0.");
-        return;
-      }
+    const res = await fetch("/api/unlock", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ pin }),
+    });
 
-      // Find item by barcode
-      const { data: item, error: itemErr } = await supabase
-        .from("items")
-.select("id,name,barcode")
+    const data = await res.json().catch(() => ({}));
 
-        .eq("barcode", cleanedBarcode)
-        .single();
-
-      if (itemErr || !item) {
-        setErr(itemErr?.message ?? "Item not found for that barcode.");
-        return;
-      }
-
-      const itemRow = item as ItemRow;
-
-      const clientTxId = crypto.randomUUID();
-
-const { data, error: rpcErr } = await supabase.rpc("apply_transaction", {
-  p_client_tx_id: clientTxId,
-  p_item_id: itemRow.id,
-  p_location_id: locationId,
-  p_qty: qtyNum,
-  p_type: scanType,
-});
-
-if (rpcErr) {
-  setErr(rpcErr.message);
-  return;
-}
-
-setMsg(
-  `${scanType} ${qtyNum} saved. On hand now: ${data?.[0]?.on_hand}`
-);
-
-
-      
-
-      setMsg(`${scanType} saved: ${itemRow.name} (${qtyNum}).`);
-      setBarcode("");
-      // keep qty if you want speed, or clear it:
-      // setQty("");
-    } finally {
-      setBusy(false);
-      submitLockRef.current = false; // release lock
+    if (!res.ok || !data.ok) {
+      setUnlockStatus(`❌ ${data?.error ?? `Unlock failed (${res.status})`}`);
+      return;
     }
+
+    const until = Date.now() + UNLOCK_MINUTES * 60 * 1000;
+    localStorage.setItem("unlockedUntil", String(until));
+
+    setIsUnlocked(true);
+    setPin("");
+    setUnlockStatus(`✅ Unlocked for ${UNLOCK_MINUTES} minutes`);
+  }
+
+  function handleLock() {
+    localStorage.removeItem("unlockedUntil");
+    setIsUnlocked(false);
+    setUnlockStatus("🔒 Locked");
+  }
+
+  async function handleSubmit() {
+    if (!canSubmit) return;
+
+    setSubmitStatus("Submitting...");
+
+    const res = await fetch("/api/transaction", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        location,
+        mode,
+        itemOrBarcode,
+        qty,
+      }),
+    });
+
+    const data = await res.json().catch(() => ({}));
+
+    if (!res.ok || !data.ok) {
+      setSubmitStatus(`❌ ${data?.error ?? `Request failed (${res.status})`}`);
+      return;
+    }
+
+    setSubmitStatus(
+      `✅ ${data.mode} ${data.qty} — ${data.item?.name ?? "Item"} @ ${data.location?.name ?? location} | ${data.old_on_hand} → ${data.new_on_hand}`
+    );
+
+    setItemOrBarcode("");
+    setQty(1);
   }
 
   return (
-    <main style={{ maxWidth: 560, margin: "28px auto", padding: 16 }}>
-      <h1 style={{ fontSize: 26, fontWeight: 900, marginBottom: 6 }}>
-        ASC Inventory Live
-      </h1>
-      <p style={{ opacity: 0.75, marginTop: 0 }}>
-        Scan IN/OUT updates on-hand instantly.
-      </p>
+    <div style={{ maxWidth: 560, margin: "20px auto", padding: 16, fontFamily: "system-ui" }}>
+      <h2>Inventory</h2>
 
-      <div
-        style={{
-          border: "1px solid #e5e5e5",
-          borderRadius: 12,
-          padding: 16,
-        }}
-      >
-        {/* Location */}
-        <div style={{ marginBottom: 12 }}>
-          <label style={{ fontWeight: 800, display: "block", marginBottom: 6 }}>
-            Location
-          </label>
-          <select
-            value={locationId}
-            onChange={(e) => setLocationId(e.target.value)}
-            style={{
-              width: "100%",
-              padding: 12,
-              borderRadius: 10,
-              border: "1px solid #ccc",
-            }}
-          >
-            {locations.map((l) => (
-              <option key={l.id} value={l.id}>
-                {l.name}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        {/* Scan Type */}
-        <div style={{ marginBottom: 12 }}>
-          <label style={{ fontWeight: 800, display: "block", marginBottom: 6 }}>
-            Scan Type
-          </label>
-          <div style={{ display: "flex", gap: 10 }}>
-            <button
-              type="button"
-              onClick={() => setScanType("OUT")}
-              style={{
-                flex: 1,
-                padding: 12,
-                borderRadius: 10,
-                border: "1px solid #ccc",
-                background: scanType === "OUT" ? "#111" : "#fff",
-                color: scanType === "OUT" ? "#fff" : "#111",
-                fontWeight: 900,
-              }}
-            >
-              OUT (use)
-            </button>
-            <button
-              type="button"
-              onClick={() => setScanType("IN")}
-              style={{
-                flex: 1,
-                padding: 12,
-                borderRadius: 10,
-                border: "1px solid #ccc",
-                background: scanType === "IN" ? "#111" : "#fff",
-                color: scanType === "IN" ? "#fff" : "#111",
-                fontWeight: 900,
-              }}
-            >
-              IN (restock)
-            </button>
-          </div>
-        </div>
-
-        {/* Form */}
-        <form onSubmit={handleSubmit}>
-          {/* Barcode */}
-          <div style={{ marginBottom: 12 }}>
-            <label style={{ fontWeight: 800, display: "block", marginBottom: 6 }}>
-              Barcode
-            </label>
-            <input
-              value={barcode}
-              onChange={(e) => setBarcode(e.target.value)}
-              placeholder="Scan or type barcode"
-              style={{
-                width: "100%",
-                padding: 12,
-                borderRadius: 10,
-                border: "1px solid #ccc",
-              }}
-              autoCapitalize="none"
-              autoCorrect="off"
-            />
-          </div>
-
-          {/* Qty */}
-          <div style={{ marginBottom: 14 }}>
-            <label style={{ fontWeight: 800, display: "block", marginBottom: 6 }}>
-              Qty
-            </label>
-            <input
-              type="number"
-              min="1"
-              step="1"
-              value={qty}
-              onChange={(e) => setQty(e.target.value)}
-              placeholder="e.g. 5"
-              style={{
-                width: "100%",
-                padding: 12,
-                borderRadius: 10,
-                border: "1px solid #ccc",
-              }}
-            />
-          </div>
-
-          {/* Submit */}
-          <button
-            type="submit"
-            disabled={busy}
-            style={{
-              width: "100%",
-              padding: 14,
-              borderRadius: 12,
-              border: "none",
-              background: "#111",
-              color: "#fff",
-              fontWeight: 900,
-              fontSize: 16,
-              opacity: busy ? 0.7 : 1,
-            }}
-          >
-            {busy ? "Submitting…" : "Submit Scan"}
+      <div style={{ border: "1px solid #ddd", borderRadius: 12, padding: 12, marginBottom: 14 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <strong>{isUnlocked ? "🔓 Location Unlocked" : "🔒 Location Locked"}</strong>
+          <button onClick={handleLock} style={{ padding: "6px 10px", fontWeight: 800 }}>
+            Lock
           </button>
-        </form>
+        </div>
 
-        {err && (
-          <div
-            style={{
-              marginTop: 14,
-              background: "#ffe8e8",
-              border: "1px solid #ffb4b4",
-              padding: 12,
-              borderRadius: 12,
-            }}
-          >
-            <strong>Error:</strong> {err}
-          </div>
-        )}
+        <div style={{ display: "flex", gap: 10, marginTop: 10 }}>
+          <input
+            value={pin}
+            onChange={(e) => setPin(e.target.value)}
+            placeholder="Enter PIN"
+            inputMode="numeric"
+            style={{ flex: 1, padding: 10 }}
+          />
+          <button onClick={handleUnlock} style={{ padding: "10px 12px", fontWeight: 900 }}>
+            Unlock
+          </button>
+        </div>
 
-        {msg && (
-          <div
-            style={{
-              marginTop: 14,
-              background: "#e8fff0",
-              border: "1px solid #9ae6b4",
-              padding: 12,
-              borderRadius: 12,
-            }}
-          >
-            {msg}
-          </div>
-        )}
+        <div style={{ marginTop: 8 }}>{unlockStatus || "Enter PIN to unlock location changes."}</div>
       </div>
-    </main>
+
+      <label style={{ display: "block" }}>Location</label>
+      <select
+        value={location}
+        onChange={(e) => setLocation(e.target.value)}
+        disabled={!isUnlocked}
+        style={{ width: "100%", padding: 10, opacity: isUnlocked ? 1 : 0.6 }}
+      >
+        <option>Main Sterile Supply</option>
+        <option>OR 1 - Cabinet A</option>
+        <option>OR 2 - Cabinet A</option>
+        <option>Pre-Op</option>
+        <option>PACU</option>
+      </select>
+
+      <label style={{ display: "block", marginTop: 12 }}>Mode</label>
+      <div style={{ display: "flex", gap: 10 }}>
+        <button
+          onClick={() => setMode("USE")}
+          style={{ flex: 1, padding: 10, fontWeight: 900, opacity: mode === "USE" ? 1 : 0.5 }}
+        >
+          USE
+        </button>
+        <button
+          onClick={() => setMode("RESTOCK")}
+          style={{ flex: 1, padding: 10, fontWeight: 900, opacity: mode === "RESTOCK" ? 1 : 0.5 }}
+        >
+          RESTOCK
+        </button>
+      </div>
+
+      <label style={{ display: "block", marginTop: 12 }}>Item / Barcode</label>
+      <input
+        value={itemOrBarcode}
+        onChange={(e) => setItemOrBarcode(e.target.value)}
+        placeholder="Scan barcode or type item name"
+        style={{ width: "100%", padding: 10 }}
+      />
+
+      <label style={{ display: "block", marginTop: 12 }}>Qty</label>
+      <input
+        value={qty}
+        onChange={(e) => setQty(Math.max(1, Number(e.target.value) || 1))}
+        type="number"
+        min={1}
+        style={{ width: "100%", padding: 10 }}
+      />
+
+      <button
+        onClick={handleSubmit}
+        disabled={!canSubmit}
+        style={{ width: "100%", marginTop: 16, padding: 12, fontWeight: 950 }}
+      >
+        Submit {mode}
+      </button>
+
+      <div style={{ marginTop: 16, padding: 12, border: "1px solid #ddd", borderRadius: 12 }}>
+        {submitStatus || "Ready"}
+      </div>
+    </div>
   );
 }
