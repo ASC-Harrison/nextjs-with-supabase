@@ -11,69 +11,104 @@ function toInt(value: unknown, fallback = 1) {
   return Number.isFinite(n) ? Math.trunc(n) : fallback;
 }
 
+// Helpful for testing (prevents 405 if you open /api/transaction in browser)
 export async function GET() {
   return NextResponse.json({ ok: true, route: "/api/transaction" });
 }
 
+// POST /api/transaction
+// body: { location: "Main Sterile Supply", mode: "USE"|"RESTOCK", itemOrBarcode: "text", qty: number }
 export async function POST(req: Request) {
   try {
     const body = await req.json();
 
-    const mode = String(body.mode ?? "USE").toUpperCase();
-    const qty = Math.max(1, toInt(body.qty, 1));
-    const itemOrBarcode = String(body.itemOrBarcode ?? "").trim();
     const locationName = String(body.location ?? "").trim();
+    const mode = String(body.mode ?? "USE").toUpperCase();
+    const itemOrBarcode = String(body.itemOrBarcode ?? "").trim();
+    const qty = Math.max(1, toInt(body.qty, 1));
 
-    if (!locationName)
+    if (!locationName) {
       return NextResponse.json({ ok: false, error: "Missing location" }, { status: 400 });
-
-    if (!itemOrBarcode)
+    }
+    if (!itemOrBarcode) {
       return NextResponse.json({ ok: false, error: "Missing itemOrBarcode" }, { status: 400 });
+    }
+    if (mode !== "USE" && mode !== "RESTOCK") {
+      return NextResponse.json({ ok: false, error: "Mode must be USE or RESTOCK" }, { status: 400 });
+    }
 
-    const { data: loc } = await supabase
+    // 1) Find location_id by locations.name
+    const { data: loc, error: locErr } = await supabase
       .from("locations")
       .select("id, name")
       .ilike("name", locationName)
       .limit(1)
       .maybeSingle();
 
-    if (!loc?.id)
-      return NextResponse.json({ ok: false, error: "Location not found" }, { status: 404 });
+    if (locErr) {
+      return NextResponse.json({ ok: false, error: `Location lookup error: ${locErr.message}` }, { status: 500 });
+    }
+    if (!loc?.id) {
+      return NextResponse.json({ ok: false, error: `Location not found: ${locationName}` }, { status: 404 });
+    }
 
-    const { data: item } = await supabase
+    // 2) Find item_id by items.barcode exact OR items.name contains
+    const { data: item, error: itemErr } = await supabase
       .from("items")
       .select("id, name, barcode")
       .or(`barcode.eq.${itemOrBarcode},name.ilike.%${itemOrBarcode}%`)
       .limit(1)
       .maybeSingle();
 
-    if (!item?.id)
-      return NextResponse.json({ ok: false, error: "Item not found" }, { status: 404 });
+    if (itemErr) {
+      return NextResponse.json({ ok: false, error: `Item lookup error: ${itemErr.message}` }, { status: 500 });
+    }
+    if (!item?.id) {
+      return NextResponse.json({ ok: false, error: `Item not found: ${itemOrBarcode}` }, { status: 404 });
+    }
 
-    const { data: invRow } = await supabase
+    const item_id = item.id;
+    const location_id = loc.id;
+
+    // 3) Get current on_hand
+    const { data: invRow, error: invErr } = await supabase
       .from("inventory")
       .select("on_hand")
-      .eq("item_id", item.id)
-      .eq("location_id", loc.id)
+      .eq("item_id", item_id)
+      .eq("location_id", location_id)
       .maybeSingle();
+
+    if (invErr) {
+      return NextResponse.json({ ok: false, error: `Inventory read error: ${invErr.message}` }, { status: 500 });
+    }
 
     const current = Number(invRow?.on_hand ?? 0);
     const delta = mode === "USE" ? -qty : qty;
     const next = Math.max(0, current + delta);
 
-    const { data: updated } = await supabase
+    // 4) Upsert updated on_hand
+    const { data: updated, error: updErr } = await supabase
       .from("inventory")
       .upsert(
-        {
-          item_id: item.id,
-          location_id: loc.id,
-          on_hand: next,
-          status: "OK",
-        },
+        { item_id, location_id, on_hand: next, status: "OK" },
         { onConflict: "item_id,location_id" }
       )
-      .select("on_hand")
+      .select("on_hand, status")
       .single();
+
+    if (updErr) {
+      return NextResponse.json({ ok: false, error: `Inventory update error: ${updErr.message}` }, { status: 500 });
+    }
+
+    // 5) OPTIONAL: log transaction (won’t break if table/cols differ; ignore failures)
+    try {
+      await supabase.from("transactions").insert({
+        item_id,
+        location_id,
+        qty,
+        mode,
+      });
+    } catch {}
 
     return NextResponse.json({
       ok: true,
@@ -83,11 +118,10 @@ export async function POST(req: Request) {
       location: loc,
       old_on_hand: current,
       new_on_hand: updated?.on_hand ?? next,
+      status: updated?.status ?? "OK",
     });
   } catch (err: any) {
-    return NextResponse.json(
-      { ok: false, error: err?.message ?? "Server error" },
-      { status: 500 }
-    );
+    return NextResponse.json({ ok: false, error: err?.message ?? "Server error" }, { status: 500 });
   }
 }
+
