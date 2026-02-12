@@ -1,35 +1,28 @@
 import { NextResponse } from "next/server";
 
+// ✅ POST /api/unlock  { pin: "1234" }
 export async function POST(req: Request) {
-  const form = await req.formData();
-  const pin = String(form.get("pin") ?? "");
-  const next = String(form.get("next") ?? "/app");
+  try {
+    const body = await req.json().catch(() => ({}));
+    const pin = String(body?.pin ?? "").trim();
 
-  const masterPin = process.env.MASTER_PIN;
+    const correctPin = String(process.env.LOCATION_PIN ?? "1234").trim();
 
-  if (!masterPin) {
-    return NextResponse.json(
-      { ok: false, error: "MASTER_PIN is not set" },
-      { status: 500 }
-    );
+    if (!pin) {
+      return NextResponse.json({ ok: false, error: "PIN required" }, { status: 400 });
+    }
+
+    if (pin !== correctPin) {
+      return NextResponse.json({ ok: false, error: "Invalid PIN" }, { status: 401 });
+    }
+
+    return NextResponse.json({ ok: true });
+  } catch (err: any) {
+    return NextResponse.json({ ok: false, error: err?.message ?? "Server error" }, { status: 500 });
   }
+}
 
-  if (pin !== masterPin) {
-    // Redirect back with a simple failure (no fancy error needed)
-    const url = new URL("/lock", req.url);
-    url.searchParams.set("next", next);
-    url.searchParams.set("error", "1");
-    return NextResponse.redirect(url, 302);
-  }
-
-  const res = NextResponse.redirect(new URL(next, req.url), 302);
-  res.cookies.set("inventory_unlocked", "1", {
-    httpOnly: true,
-    secure: true,
-    sameSite: "lax",
-    path: "/",
-    maxAge: 60 * 60 * 12, // 12 hours
-  });
-
-  return res;
+// Optional: avoids 405 if something hits GET
+export async function GET() {
+  return NextResponse.json({ ok: true });
 }
