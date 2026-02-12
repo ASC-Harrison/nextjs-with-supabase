@@ -4,17 +4,33 @@ import { useEffect, useMemo, useState } from "react";
 
 const UNLOCK_MINUTES = 30;
 
+type InvRow = {
+  item_id: string;
+  location_id: string;
+  on_hand: number;
+  status: string | null;
+  item_name: string;
+  barcode: string | null;
+  location_name: string;
+};
+
 export default function ProtectedPage() {
   const [location, setLocation] = useState("Main Sterile Supply");
   const [mode, setMode] = useState<"USE" | "RESTOCK">("USE");
   const [itemOrBarcode, setItemOrBarcode] = useState("");
   const [qty, setQty] = useState(1);
 
+  // lock/unlock
   const [pin, setPin] = useState("");
   const [isUnlocked, setIsUnlocked] = useState(false);
   const [unlockStatus, setUnlockStatus] = useState("");
 
+  // submit status
   const [submitStatus, setSubmitStatus] = useState("");
+
+  // inventory list
+  const [rows, setRows] = useState<InvRow[]>([]);
+  const [listStatus, setListStatus] = useState("Loading inventory...");
 
   useEffect(() => {
     const until = Number(localStorage.getItem("unlockedUntil") || "0");
@@ -34,6 +50,24 @@ export default function ProtectedPage() {
   const canSubmit = useMemo(() => {
     return location.trim() && itemOrBarcode.trim() && qty >= 1;
   }, [location, itemOrBarcode, qty]);
+
+  async function loadInventory() {
+    setListStatus("Loading inventory...");
+    const res = await fetch(`/api/inventory-list?location=${encodeURIComponent(location)}`);
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.ok) {
+      setRows([]);
+      setListStatus(`❌ ${data?.error ?? `Failed (${res.status})`}`);
+      return;
+    }
+    setRows(data.rows ?? []);
+    setListStatus("");
+  }
+
+  useEffect(() => {
+    loadInventory();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location]);
 
   async function handleUnlock() {
     setUnlockStatus("Unlocking...");
@@ -94,6 +128,9 @@ export default function ProtectedPage() {
 
     setItemOrBarcode("");
     setQty(1);
+
+    // ✅ refresh list so your item shows immediately
+    await loadInventory();
   }
 
   return (
@@ -182,6 +219,37 @@ export default function ProtectedPage() {
       <div style={{ marginTop: 16, padding: 12, border: "1px solid #ddd", borderRadius: 12 }}>
         {submitStatus || "Ready"}
       </div>
+
+      {/* ✅ Inventory list display */}
+      <div style={{ marginTop: 16, padding: 12, border: "1px solid #ddd", borderRadius: 12 }}>
+        <strong>Inventory for {location}</strong>
+        <div style={{ marginTop: 10 }}>
+          {listStatus ? (
+            <div style={{ opacity: 0.75 }}>{listStatus}</div>
+          ) : rows.length === 0 ? (
+            <div style={{ opacity: 0.75 }}>No items found for this location.</div>
+          ) : (
+            rows.map((r) => (
+              <div
+                key={`${r.item_id}-${r.location_id}`}
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  padding: "8px 0",
+                  borderBottom: "1px solid #eee",
+                }}
+              >
+                <div>
+                  <div style={{ fontWeight: 700 }}>{r.item_name}</div>
+                  <div style={{ fontSize: 12, opacity: 0.7 }}>{r.barcode ?? ""}</div>
+                </div>
+                <div style={{ fontWeight: 900 }}>{r.on_hand}</div>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
     </div>
   );
 }
+
