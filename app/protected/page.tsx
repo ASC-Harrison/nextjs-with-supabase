@@ -20,32 +20,30 @@ export default function ProtectedPage() {
   const [itemOrBarcode, setItemOrBarcode] = useState("");
   const [qty, setQty] = useState(1);
 
-  // lock/unlock
+  // PIN lock
   const [pin, setPin] = useState("");
   const [isUnlocked, setIsUnlocked] = useState(false);
   const [unlockStatus, setUnlockStatus] = useState("");
 
-  // submit status
-  const [submitStatus, setSubmitStatus] = useState("");
-
-  // inventory list
+  // submit + list status
+  const [submitStatus, setSubmitStatus] = useState("Ready");
   const [rows, setRows] = useState<InvRow[]>([]);
   const [listStatus, setListStatus] = useState("Loading inventory...");
 
+  // load unlock state
   useEffect(() => {
     const until = Number(localStorage.getItem("unlockedUntil") || "0");
     setIsUnlocked(Date.now() < until);
   }, []);
 
+  // auto re-lock
   useEffect(() => {
-    const timer = setInterval(() => {
+    const t = setInterval(() => {
       const until = Number(localStorage.getItem("unlockedUntil") || "0");
-      const unlocked = Date.now() < until;
-      setIsUnlocked(unlocked);
-      if (!unlocked && unlockStatus.startsWith("✅")) setUnlockStatus("🔒 Locked");
+      setIsUnlocked(Date.now() < until);
     }, 1000);
-    return () => clearInterval(timer);
-  }, [unlockStatus]);
+    return () => clearInterval(t);
+  }, []);
 
   const canSubmit = useMemo(() => {
     return location.trim() && itemOrBarcode.trim() && qty >= 1;
@@ -55,11 +53,13 @@ export default function ProtectedPage() {
     setListStatus("Loading inventory...");
     const res = await fetch(`/api/inventory-list?location=${encodeURIComponent(location)}`);
     const data = await res.json().catch(() => ({}));
+
     if (!res.ok || !data.ok) {
       setRows([]);
       setListStatus(`❌ ${data?.error ?? `Failed (${res.status})`}`);
       return;
     }
+
     setRows(data.rows ?? []);
     setListStatus("");
   }
@@ -87,7 +87,6 @@ export default function ProtectedPage() {
 
     const until = Date.now() + UNLOCK_MINUTES * 60 * 1000;
     localStorage.setItem("unlockedUntil", String(until));
-
     setIsUnlocked(true);
     setPin("");
     setUnlockStatus(`✅ Unlocked for ${UNLOCK_MINUTES} minutes`);
@@ -129,7 +128,6 @@ export default function ProtectedPage() {
     setItemOrBarcode("");
     setQty(1);
 
-    // ✅ refresh list so your item shows immediately
     await loadInventory();
   }
 
@@ -137,6 +135,7 @@ export default function ProtectedPage() {
     <div style={{ maxWidth: 560, margin: "20px auto", padding: 16, fontFamily: "system-ui" }}>
       <h2>Inventory</h2>
 
+      {/* PIN LOCK */}
       <div style={{ border: "1px solid #ddd", borderRadius: 12, padding: 12, marginBottom: 14 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <strong>{isUnlocked ? "🔓 Location Unlocked" : "🔒 Location Locked"}</strong>
@@ -161,6 +160,7 @@ export default function ProtectedPage() {
         <div style={{ marginTop: 8 }}>{unlockStatus || "Enter PIN to unlock location changes."}</div>
       </div>
 
+      {/* LOCATION */}
       <label style={{ display: "block" }}>Location</label>
       <select
         value={location}
@@ -175,6 +175,7 @@ export default function ProtectedPage() {
         <option>PACU</option>
       </select>
 
+      {/* MODE */}
       <label style={{ display: "block", marginTop: 12 }}>Mode</label>
       <div style={{ display: "flex", gap: 10 }}>
         <button
@@ -191,6 +192,7 @@ export default function ProtectedPage() {
         </button>
       </div>
 
+      {/* ITEM */}
       <label style={{ display: "block", marginTop: 12 }}>Item / Barcode</label>
       <input
         value={itemOrBarcode}
@@ -199,6 +201,7 @@ export default function ProtectedPage() {
         style={{ width: "100%", padding: 10 }}
       />
 
+      {/* QTY */}
       <label style={{ display: "block", marginTop: 12 }}>Qty</label>
       <input
         value={qty}
@@ -217,12 +220,18 @@ export default function ProtectedPage() {
       </button>
 
       <div style={{ marginTop: 16, padding: 12, border: "1px solid #ddd", borderRadius: 12 }}>
-        {submitStatus || "Ready"}
+        {submitStatus}
       </div>
 
-      {/* ✅ Inventory list display */}
+      {/* INVENTORY LIST */}
       <div style={{ marginTop: 16, padding: 12, border: "1px solid #ddd", borderRadius: 12 }}>
-        <strong>Inventory for {location}</strong>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <strong>Inventory for {location}</strong>
+          <button onClick={loadInventory} style={{ padding: "6px 10px", fontWeight: 800 }}>
+            Refresh
+          </button>
+        </div>
+
         <div style={{ marginTop: 10 }}>
           {listStatus ? (
             <div style={{ opacity: 0.75 }}>{listStatus}</div>
@@ -252,4 +261,3 @@ export default function ProtectedPage() {
     </div>
   );
 }
-
