@@ -23,7 +23,6 @@ export default function ProtectedPage() {
   const [rows, setRows] = useState<TotalRow[]>([]);
   const [listStatus, setListStatus] = useState("Loading inventory...");
 
-  // ---- Lock persistence ----
   useEffect(() => {
     const until = Number(localStorage.getItem("unlockedUntil") || "0");
     setIsUnlocked(Date.now() < until);
@@ -35,19 +34,16 @@ export default function ProtectedPage() {
     setUnlockStatus("🔒 Locked");
   }
 
-  // ---- Inventory totals loader ----
   async function loadTotals() {
+    setListStatus("Loading inventory...");
     try {
-      setListStatus("Loading inventory...");
       const res = await fetch("/api/items", { cache: "no-store" });
       const data = await res.json().catch(() => ({}));
-
       if (!res.ok || !data.ok) {
         setRows([]);
         setListStatus(`❌ ${data?.error ?? `Failed (${res.status})`}`);
         return;
       }
-
       setRows(Array.isArray(data.rows) ? data.rows : []);
       setListStatus("");
     } catch (e: any) {
@@ -60,7 +56,6 @@ export default function ProtectedPage() {
     loadTotals();
   }, []);
 
-  // ---- Unlock ----
   async function handleUnlock() {
     try {
       setUnlockStatus("Unlocking...");
@@ -69,14 +64,11 @@ export default function ProtectedPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ pin }),
       });
-
       const data = await res.json().catch(() => ({}));
-
       if (!res.ok || !data.ok) {
         setUnlockStatus(`❌ ${data?.error ?? "Invalid PIN"}`);
         return;
       }
-
       const until = Date.now() + 30 * 60 * 1000;
       localStorage.setItem("unlockedUntil", String(until));
       setIsUnlocked(true);
@@ -87,16 +79,7 @@ export default function ProtectedPage() {
     }
   }
 
-  // ---- Submit transaction ----
   async function handleSubmit() {
-    if (!location.trim()) {
-      setSubmitStatus("❌ Select a location");
-      return;
-    }
-    if (!itemOrBarcode.trim()) {
-      setSubmitStatus("❌ Enter an item name or barcode");
-      return;
-    }
     const safeQty = Math.max(1, Number(qty) || 1);
 
     try {
@@ -115,25 +98,18 @@ export default function ProtectedPage() {
 
       const data = await res.json().catch(() => ({}));
 
+      // ✅ THIS IS THE IMPORTANT PART: ALWAYS SHOW REAL ERROR
       if (!res.ok || !data.ok) {
         setSubmitStatus(`❌ ${data?.error ?? `Failed (${res.status})`}`);
         return;
       }
 
-      const name = data?.item?.name ?? itemOrBarcode.trim();
-      const locName = data?.location?.name ?? location;
-      const oldVal = data?.old_on_hand;
-      const newVal = data?.new_on_hand;
-
-      if (typeof oldVal === "number" && typeof newVal === "number") {
-        setSubmitStatus(`✅ ${mode} ${safeQty} — ${name} @ ${locName} | ${oldVal} → ${newVal}`);
-      } else {
-        setSubmitStatus(`✅ ${mode} ${safeQty} — ${name} @ ${locName}`);
-      }
+      setSubmitStatus(
+        `✅ ${mode} ${safeQty} — ${data?.item?.name ?? itemOrBarcode} @ ${data?.location?.name ?? location} | ${data?.old_on_hand} → ${data?.new_on_hand}`
+      );
 
       setItemOrBarcode("");
       setQty(1);
-
       await loadTotals();
     } catch (e: any) {
       setSubmitStatus(`❌ ${e?.message ?? "Request failed"}`);
@@ -144,10 +120,9 @@ export default function ProtectedPage() {
     <div style={{ maxWidth: 600, margin: "20px auto", padding: 20, fontFamily: "system-ui" }}>
       <h2>Inventory</h2>
 
-      {/* PIN / LOCK */}
       <div style={{ border: "1px solid #ddd", borderRadius: 12, padding: 12, marginBottom: 14 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <strong>{isUnlocked ? "🔓 Location Unlocked" : "🔒 Location Locked"}</strong>
+          <strong>{isUnlocked ? "🔓 Unlocked" : "🔒 Locked"}</strong>
           <button onClick={lockNow} style={{ padding: "6px 10px", fontWeight: 800 }}>
             Lock
           </button>
@@ -171,7 +146,6 @@ export default function ProtectedPage() {
         </div>
       </div>
 
-      {/* LOCATION */}
       <label style={{ display: "block" }}>Location</label>
       <select
         value={location}
@@ -186,7 +160,6 @@ export default function ProtectedPage() {
         <option>PACU</option>
       </select>
 
-      {/* MODE */}
       <label style={{ display: "block", marginTop: 12 }}>Mode</label>
       <div style={{ display: "flex", gap: 10 }}>
         <button
@@ -203,7 +176,6 @@ export default function ProtectedPage() {
         </button>
       </div>
 
-      {/* ITEM */}
       <label style={{ display: "block", marginTop: 12 }}>Item / Barcode</label>
       <input
         value={itemOrBarcode}
@@ -212,7 +184,6 @@ export default function ProtectedPage() {
         style={{ width: "100%", padding: 10 }}
       />
 
-      {/* QTY */}
       <label style={{ display: "block", marginTop: 12 }}>Qty</label>
       <input
         value={qty}
@@ -222,10 +193,7 @@ export default function ProtectedPage() {
         style={{ width: "100%", padding: 10 }}
       />
 
-      <button
-        onClick={handleSubmit}
-        style={{ width: "100%", marginTop: 16, padding: 12, fontWeight: 950 }}
-      >
+      <button onClick={handleSubmit} style={{ width: "100%", marginTop: 16, padding: 12, fontWeight: 950 }}>
         Submit {mode}
       </button>
 
@@ -233,10 +201,9 @@ export default function ProtectedPage() {
         {submitStatus}
       </div>
 
-      {/* TOTAL INVENTORY LIST */}
       <div style={{ marginTop: 16, padding: 12, border: "1px solid #ddd", borderRadius: 12 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <strong>Total Inventory (All Locations)</strong>
+          <strong>Total Inventory</strong>
           <button onClick={loadTotals} style={{ padding: "6px 10px", fontWeight: 800 }}>
             Refresh
           </button>
