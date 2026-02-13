@@ -1,124 +1,95 @@
-import { Resend } from "resend";
+import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { Resend } from "resend";
 
-function parseRecipients(raw: string | undefined) {
-  if (!raw) return [];
-  return raw
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
+);
+
+const resend = new Resend(process.env.RESEND_API_KEY!);
+
+export async function GET() {
+  return NextResponse.json({ ok: true, route: "/api/notify-low-stock" });
 }
 
 export async function POST() {
   try {
-    const resendKey = process.env.RESEND_API_KEY;
-    const from = process.env.LOW_STOCK_EMAIL_FROM;
-    const toRaw = process.env.LOW_STOCK_EMAIL_TO;
-    const to = parseRecipients(toRaw);
+    const to = (process.env.LOW_STOCK_EMAIL_TO || "").trim();
+    const from = (process.env.LOW_STOCK_EMAIL_FROM || "Inventory Alerts <onboarding@resend.dev>").trim();
 
-    if (!resendKey) return Response.json({ ok: false, error: "Missing RESEND_API_KEY" }, { status: 500 });
-    if (!from) return Response.json({ ok: false, error: "Missing LOW_STOCK_EMAIL_FROM" }, { status: 500 });
-    if (to.length === 0) return Response.json({ ok: false, error: "LOW_STOCK_EMAIL_TO is empty" }, { status: 500 });
+    if (!process.env.RESEND_API_KEY) {
+      return NextResponse.json({ ok: false, error: "Missing RESEND_API_KEY" }, { status: 500 });
+    }
+    if (!to) {
+      return NextResponse.json({ ok: false, error: "Missing LOW_STOCK_EMAIL_TO" }, { status: 500 });
+    }
 
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    // 1) Find anything low that has NOT been notified yet
+    const { data: lows, error: lowErr } = await supabase
+      .from("storage_inventory")
+      .select("storage_area_id, item_id, on_hand, par_level, low, low_notified")
+      .eq("low", true)
+      .eq("low_notified", false);
 
-    if (!supabaseUrl) return Response.json({ ok: false, error: "Missing NEXT_PUBLIC_SUPABASE_URL" }, { status: 500 });
-    if (!serviceKey) return Response.json({ ok: false, error: "Missing SUPABASE_SERVICE_ROLE_KEY" }, { status: 500 });
+    if (lowErr) {
+      return NextResponse.json({ ok: false, error: lowErr.message }, { status: 500 });
+    }
 
-    const resend = new Resend(resendKey);
+    if (!lows || lows.length === 0) {
+      return NextResponse.json({ ok: true, sent: 0, message: "No new low stock items" });
+    }
 
-    const supabase = createClient(supabaseUrl, serviceKey, {
-      auth: { persistSession: false },
+    // 2) Load names for items + storage areas
+    const itemIds = Array.from(new Set(lows.map((r) => r.item_id)));
+    const areaIds = Array.from(new Set(lows.map((r) => r.storage_area_id)));
+
+    const [{ data: items, error: itemsErr }, { data: areas, error: areasErr }] = await Promise.all([
+      supabase.from("items").select("id, name, barcode").in("id", itemIds),
+      supabase.from("storage_areas").select("id, name").in("id", areaIds),
+    ]);
+
+    if (itemsErr) return NextResponse.json({ ok: false, error: itemsErr.message }, { status: 500 });
+    if (areasErr) return NextResponse.json({ ok: false, error: areasErr.message }, { status: 500 });
+
+    const itemMap = new Map((items ?? []).map((i) => [i.id, i]));
+    const areaMap = new Map((areas ?? []).map((a) => [a.id, a]));
+
+    // 3) Build email content
+    const lines = lows
+      .map((r) => {
+        const item = itemMap.get(r.item_id);
+        const area = areaMap.get(r.storage_area_id);
+        const name = item?.name ?? "Unknown Item";
+        const barcode = item?.barcode ? ` (barcode: ${item.barcode})` : "";
+        const where = area?.name ?? "Unknown Area";
+        return `• ${name}${barcode} — ${where}: ${r.on_hand} on hand (par ${r.par_level})`;
+      })
+      .join("\n");
+
+    const subject = `LOW STOCK (${lows.length})`;
+    const text = `The following items are below par:\n\n${lines}\n\nThis alert will not repeat until restocked above par.`;
+
+    // 4) Send email
+    await resend.emails.send({
+      from,
+      to,
+      subject,
+      text,
     });
 
-    // Pull rows that are low and NOT notified yet
-  const { data: rows, error } = await supabase
-  .from("inventory")
-  .select(`
-    item_id,
-    location_id,
-    on_hand,
-    locations:locations (
-      name
-    )
-  `)
-  .eq("low_stock", true)
-  .eq("low_stock_notified", false);
-
-    if (error) throw error;
-
-    if (!rows || rows.length === 0) {
-      return Response.json({ ok: true, message: "No new low stock rows.", to });
+    // 5) Mark low_notified = true so you don’t get spammed
+    // We update each row by matching BOTH storage_area_id and item_id
+    for (const r of lows) {
+      await supabase
+        .from("storage_inventory")
+        .update({ low_notified: true })
+        .eq("storage_area_id", r.storage_area_id)
+        .eq("item_id", r.item_id);
     }
 
-    const itemIds = rows.map((r: any) => r.item_id);
-    const { data: items, error: itemsErr } = await supabase
-      .from("items")
-      .select("id, name, barcode")
-      .in("id", itemIds);
-
-    if (itemsErr) throw itemsErr;
-
-    const itemMap = new Map((items ?? []).map((i: any) => [i.id, i]));
-
-    const html = `
-      <h2>Low Stock Alert</h2>
-      <p>${rows.length} item(s) are low:</p>
-      <table border="1" cellpadding="6" cellspacing="0">
-        <tr><th>Item</th><th>Barcode</th><th>Location</th><th>On Hand</th></tr>
-        ${rows.map((r: any) => {
-          const it = itemMap.get(r.item_id);
-          return `<tr>
-            <td>${it?.name ?? r.item_id}</td>
-            <td>${it?.barcode ?? ""}</td>
-            <td>${r.locations?.name ?? r.location_id}</td>
-            <td>${r.on_hand}</td>
-          </tr>`;
-        }).join("")}
-      </table>
-    `;
-
-    console.log("LOW STOCK EMAIL → from:", from, "to:", to, "count:", rows.length);
-const recipients = (process.env.LOW_STOCK_EMAIL_TO || "")
-  .split(",")
-  .map((s) => s.trim())
-  .filter(Boolean);
-
-    const sendResult = await resend.emails.send({
-  from: process.env.LOW_STOCK_EMAIL_FROM!,
-  to: recipients,
-  subject: `ASC Low Stock (${rows.length})`,
-  html,
-});
-
-
-
-    console.log("Resend send result:", sendResult);
-
-    // @ts-ignore
-    if (sendResult?.error) {
-      // @ts-ignore
-      return Response.json({ ok: false, resend_error: sendResult.error, to }, { status: 500 });
-    }
-
-    // Mark notified only AFTER successful send
-    for (const r of rows) {
-      const { error: updErr } = await supabase
-        .from("inventory")
-        .update({ low_stock_notified: true })
-        .eq("item_id", r.item_id)
-        .eq("location_id", r.location_id);
-
-      if (updErr) throw updErr;
-    }
-
-    return Response.json({ ok: true, emailed: rows.length, to });
+    return NextResponse.json({ ok: true, sent: lows.length });
   } catch (err: any) {
-    console.error("notify-low-stock error:", err);
-    return Response.json(
-      { ok: false, error: err?.message ?? String(err) },
-      { status: 500 }
-    );
+    return NextResponse.json({ ok: false, error: err?.message ?? "Server error" }, { status: 500 });
   }
 }
