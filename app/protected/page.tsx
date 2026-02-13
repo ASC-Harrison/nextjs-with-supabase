@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 type TotalRow = {
   item_id: string;
@@ -15,18 +15,18 @@ export default function ProtectedPage() {
   const [location, setLocation] = useState(MAIN);
   const [mode, setMode] = useState<"USE" | "RESTOCK">("USE");
   const [itemOrBarcode, setItemOrBarcode] = useState("");
-  const [qty, setQty] = useState(1);
+  const [qty, setQty] = useState<number>(1);
 
   const [pin, setPin] = useState("");
   const [isUnlocked, setIsUnlocked] = useState(false);
   const [unlockStatus, setUnlockStatus] = useState("");
 
-  const [submitStatus, setSubmitStatus] = useState("Ready");
-  const [rows, setRows] = useState<TotalRow[]>([]);
-  const [listStatus, setListStatus] = useState("Loading inventory...");
-
-  // ✅ One-time override (does NOT change your selected cabinet)
   const [useFromMainOneTime, setUseFromMainOneTime] = useState(false);
+
+  const [submitStatus, setSubmitStatus] = useState<string>("Ready");
+  const [rows, setRows] = useState<TotalRow[]>([]);
+  const [listStatus, setListStatus] = useState<string>("Loading inventory...");
+  const [search, setSearch] = useState("");
 
   // ---- Lock persistence ----
   useEffect(() => {
@@ -65,6 +65,15 @@ export default function ProtectedPage() {
     loadTotals();
   }, []);
 
+  const filteredRows = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return rows;
+    return rows.filter((r) => {
+      const b = (r.barcode ?? "").toLowerCase();
+      return r.item_name.toLowerCase().includes(q) || b.includes(q);
+    });
+  }, [rows, search]);
+
   // ---- Unlock ----
   async function handleUnlock() {
     try {
@@ -94,24 +103,17 @@ export default function ProtectedPage() {
 
   // ---- Submit transaction ----
   async function handleSubmit() {
-    if (!location.trim()) {
-      setSubmitStatus("❌ Select a location");
-      return;
-    }
     if (!itemOrBarcode.trim()) {
-      setSubmitStatus("❌ Enter an item name or barcode");
+      setSubmitStatus("❌ Enter item name or barcode");
       return;
     }
-    const safeQty = Math.max(1, Number(qty) || 1);
 
-    // ✅ Effective location (one-time override)
+    const safeQty = Math.max(1, Number(qty) || 1);
     const effectiveLocation = useFromMainOneTime ? MAIN : location;
 
     try {
       setSubmitStatus(
-        useFromMainOneTime
-          ? `Submitting... (ONE TIME from ${MAIN})`
-          : "Submitting..."
+        useFromMainOneTime ? `Submitting… (ONE TIME from ${MAIN})` : "Submitting…"
       );
 
       const res = await fetch("/api/transaction", {
@@ -148,7 +150,7 @@ export default function ProtectedPage() {
       setItemOrBarcode("");
       setQty(1);
 
-      // ✅ reset one-time override after a successful submit
+      // reset one-time override after successful submit
       setUseFromMainOneTime(false);
 
       await loadTotals();
@@ -157,171 +159,302 @@ export default function ProtectedPage() {
     }
   }
 
+  const modePill =
+    mode === "USE"
+      ? "bg-red-600 text-white"
+      : "bg-emerald-600 text-white";
+
+  const statusTone =
+    submitStatus.startsWith("✅")
+      ? "border-emerald-200 bg-emerald-50 text-emerald-900"
+      : submitStatus.startsWith("❌")
+      ? "border-red-200 bg-red-50 text-red-900"
+      : "border-slate-200 bg-slate-50 text-slate-900";
+
   return (
-    <div style={{ maxWidth: 650, margin: "20px auto", padding: 20, fontFamily: "system-ui" }}>
-      <h2>Inventory</h2>
+    <div className="min-h-screen bg-gradient-to-b from-slate-50 to-white">
+      <div className="mx-auto max-w-5xl p-4 sm:p-6">
+        {/* Header */}
+        <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <div className="inline-flex items-center gap-2 rounded-full bg-slate-900 px-3 py-1 text-xs font-semibold text-white">
+              <span className="h-2 w-2 rounded-full bg-emerald-400" />
+              Live Inventory
+            </div>
+            <h1 className="mt-2 text-2xl font-black tracking-tight text-slate-900 sm:text-3xl">
+              Baxter ASC Inventory
+            </h1>
+            <p className="mt-1 text-sm text-slate-600">
+              Cabinet tracking + building totals + low stock alerts
+            </p>
+          </div>
 
-      {/* PIN / LOCK */}
-      <div style={{ border: "1px solid #ddd", borderRadius: 12, padding: 12, marginBottom: 14 }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <strong>{isUnlocked ? "🔓 Location Unlocked" : "🔒 Location Locked"}</strong>
-          <button onClick={lockNow} style={{ padding: "6px 10px", fontWeight: 800 }}>
-            Lock
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={loadTotals}
+              className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-800 shadow-sm hover:bg-slate-50 active:scale-[0.99]"
+            >
+              ↻ Refresh
+            </button>
+            <div className={`rounded-xl px-3 py-2 text-sm font-extrabold shadow-sm ${modePill}`}>
+              {mode}
+            </div>
+          </div>
         </div>
 
-        <div style={{ display: "flex", gap: 10, marginTop: 10 }}>
-          <input
-            value={pin}
-            onChange={(e) => setPin(e.target.value)}
-            placeholder="Enter PIN"
-            inputMode="numeric"
-            style={{ flex: 1, padding: 10 }}
-          />
-          <button onClick={handleUnlock} style={{ padding: "10px 12px", fontWeight: 900 }}>
-            Unlock
-          </button>
-        </div>
+        <div className="grid gap-4 lg:grid-cols-5">
+          {/* Left: Controls */}
+          <div className="lg:col-span-2 space-y-4">
+            {/* PIN card */}
+            <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+              <div className="flex items-center justify-between">
+                <div className="text-sm font-black text-slate-900">
+                  {isUnlocked ? "🔓 Location Unlocked" : "🔒 Location Locked"}
+                </div>
+                <button
+                  onClick={lockNow}
+                  className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-extrabold text-slate-800 hover:bg-slate-50 active:scale-[0.99]"
+                >
+                  Lock
+                </button>
+              </div>
 
-        <div style={{ marginTop: 8, opacity: 0.85 }}>
-          {unlockStatus || "Enter PIN to unlock location changes."}
-        </div>
-      </div>
+              <div className="mt-3 flex gap-2">
+                <input
+                  value={pin}
+                  onChange={(e) => setPin(e.target.value)}
+                  placeholder="Enter PIN"
+                  inputMode="numeric"
+                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm font-semibold outline-none focus:border-slate-400"
+                />
+                <button
+                  onClick={handleUnlock}
+                  className="rounded-xl bg-slate-900 px-4 py-3 text-sm font-extrabold text-white hover:bg-slate-800 active:scale-[0.99]"
+                >
+                  Unlock
+                </button>
+              </div>
 
-      {/* LOCATION */}
-      <label style={{ display: "block" }}>Location (default)</label>
-      <select
-        value={location}
-        onChange={(e) => setLocation(e.target.value)}
-        disabled={!isUnlocked}
-        style={{ width: "100%", padding: 10, opacity: isUnlocked ? 1 : 0.6 }}
-      >
-        <option>{MAIN}</option>
-        <option>OR 1 - Cabinet A</option>
-        <option>OR 2 - Cabinet A</option>
-        <option>Pre-Op</option>
-        <option>PACU</option>
-      </select>
+              <div className="mt-2 text-xs font-semibold text-slate-600">
+                {unlockStatus || "Unlock lets you change the default location."}
+              </div>
+            </div>
 
-      {/* ONE-TIME MAIN OVERRIDE */}
-      <div style={{ marginTop: 10, padding: 12, border: "1px solid #ddd", borderRadius: 12 }}>
-        <div style={{ display: "flex", gap: 10, alignItems: "center", justifyContent: "space-between" }}>
-          <div style={{ fontWeight: 800 }}>
-            One-time override
-            <div style={{ fontSize: 12, opacity: 0.75 }}>
-              Use this if you had to grab something from Main Sterile Supply while your default is a cabinet.
+            {/* Location + override */}
+            <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+              <div className="flex items-center justify-between">
+                <div className="text-sm font-black text-slate-900">Default location</div>
+                <span className="text-xs font-bold text-slate-500">
+                  (stays set)
+                </span>
+              </div>
+
+              <select
+                value={location}
+                onChange={(e) => setLocation(e.target.value)}
+                disabled={!isUnlocked}
+                className={`mt-3 w-full rounded-xl border border-slate-200 px-3 py-3 text-sm font-bold outline-none ${
+                  isUnlocked ? "bg-white" : "bg-slate-100 text-slate-500"
+                }`}
+              >
+                <option>{MAIN}</option>
+                <option>OR 1 - Cabinet A</option>
+                <option>OR 2 - Cabinet A</option>
+                <option>Pre-Op</option>
+                <option>PACU</option>
+              </select>
+
+              <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <div>
+                    <div className="text-sm font-black text-slate-900">
+                      One-time override
+                    </div>
+                    <div className="text-xs font-semibold text-slate-600">
+                      If you had to grab it from Main supply while your default is a cabinet.
+                    </div>
+                  </div>
+
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => setUseFromMainOneTime(true)}
+                      disabled={useFromMainOneTime || mode !== "USE"}
+                      className={`rounded-xl px-3 py-2 text-xs font-extrabold shadow-sm active:scale-[0.99] ${
+                        useFromMainOneTime || mode !== "USE"
+                          ? "bg-slate-200 text-slate-500"
+                          : "bg-indigo-600 text-white hover:bg-indigo-700"
+                      }`}
+                      title={mode !== "USE" ? "Override is for USE mode" : ""}
+                    >
+                      ⚡ MAIN (1x)
+                    </button>
+                    <button
+                      onClick={() => setUseFromMainOneTime(false)}
+                      disabled={!useFromMainOneTime}
+                      className={`rounded-xl px-3 py-2 text-xs font-extrabold shadow-sm active:scale-[0.99] ${
+                        !useFromMainOneTime
+                          ? "bg-slate-200 text-slate-500"
+                          : "bg-white text-slate-900 border border-slate-200 hover:bg-slate-50"
+                      }`}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+
+                {useFromMainOneTime && (
+                  <div className="mt-3 rounded-xl border border-indigo-200 bg-indigo-50 p-3 text-sm font-bold text-indigo-900">
+                    ✅ Next submit pulls from <span className="underline">{MAIN}</span> only — then reverts automatically.
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Mode + Inputs */}
+            <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+              <div className="text-sm font-black text-slate-900">Transaction</div>
+
+              {/* Segmented mode */}
+              <div className="mt-3 grid grid-cols-2 gap-2">
+                <button
+                  onClick={() => setMode("USE")}
+                  className={`rounded-2xl px-4 py-4 text-base font-black shadow-sm active:scale-[0.99] ${
+                    mode === "USE"
+                      ? "bg-red-600 text-white"
+                      : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+                  }`}
+                >
+                  ⛔ USE
+                </button>
+                <button
+                  onClick={() => {
+                    setMode("RESTOCK");
+                    setUseFromMainOneTime(false);
+                  }}
+                  className={`rounded-2xl px-4 py-4 text-base font-black shadow-sm active:scale-[0.99] ${
+                    mode === "RESTOCK"
+                      ? "bg-emerald-600 text-white"
+                      : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+                  }`}
+                >
+                  ➕ RESTOCK
+                </button>
+              </div>
+
+              <label className="mt-4 block text-xs font-extrabold text-slate-600">
+                Item name or barcode
+              </label>
+              <input
+                value={itemOrBarcode}
+                onChange={(e) => setItemOrBarcode(e.target.value)}
+                placeholder="Type a name or barcode…"
+                className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-4 text-base font-bold outline-none focus:border-slate-400"
+              />
+
+              <label className="mt-4 block text-xs font-extrabold text-slate-600">
+                Quantity
+              </label>
+              <div className="mt-2 flex gap-2">
+                <button
+                  onClick={() => setQty((q) => Math.max(1, (Number(q) || 1) - 1))}
+                  className="w-14 rounded-2xl border border-slate-200 bg-white text-xl font-black text-slate-900 shadow-sm hover:bg-slate-50 active:scale-[0.99]"
+                >
+                  –
+                </button>
+                <input
+                  value={qty}
+                  onChange={(e) => setQty(Math.max(1, Number(e.target.value) || 1))}
+                  type="number"
+                  min={1}
+                  className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-4 text-center text-lg font-black outline-none focus:border-slate-400"
+                />
+                <button
+                  onClick={() => setQty((q) => Math.max(1, (Number(q) || 1) + 1))}
+                  className="w-14 rounded-2xl border border-slate-200 bg-white text-xl font-black text-slate-900 shadow-sm hover:bg-slate-50 active:scale-[0.99]"
+                >
+                  +
+                </button>
+              </div>
+
+              <button
+                onClick={handleSubmit}
+                className="mt-4 w-full rounded-2xl bg-slate-900 px-4 py-4 text-base font-black text-white shadow-sm hover:bg-slate-800 active:scale-[0.99]"
+              >
+                ✅ Submit {mode}
+              </button>
+
+              <div className={`mt-3 rounded-2xl border px-4 py-3 text-sm font-bold ${statusTone}`}>
+                {submitStatus}
+              </div>
             </div>
           </div>
 
-          <div style={{ display: "flex", gap: 8 }}>
-            <button
-              onClick={() => setUseFromMainOneTime(true)}
-              disabled={useFromMainOneTime || mode !== "USE"}
-              style={{ padding: "8px 10px", fontWeight: 900 }}
-              title={mode !== "USE" ? "One-time override is for USE mode" : ""}
-            >
-              Use from Main (ONE TIME)
-            </button>
-            <button
-              onClick={() => setUseFromMainOneTime(false)}
-              disabled={!useFromMainOneTime}
-              style={{ padding: "8px 10px", fontWeight: 900 }}
-            >
-              Cancel
-            </button>
-          </div>
-        </div>
-
-        {useFromMainOneTime && (
-          <div style={{ marginTop: 10, padding: 10, borderRadius: 10, border: "1px solid #f0c36d" }}>
-            ✅ Next submit will pull from <strong>{MAIN}</strong> only (then it will revert to your selected cabinet).
-          </div>
-        )}
-      </div>
-
-      {/* MODE */}
-      <label style={{ display: "block", marginTop: 12 }}>Mode</label>
-      <div style={{ display: "flex", gap: 10 }}>
-        <button
-          onClick={() => {
-            setMode("USE");
-          }}
-          style={{ flex: 1, padding: 10, fontWeight: 900, opacity: mode === "USE" ? 1 : 0.5 }}
-        >
-          USE
-        </button>
-        <button
-          onClick={() => {
-            setMode("RESTOCK");
-            // optional: auto-cancel one-time use override if switching to restock
-            setUseFromMainOneTime(false);
-          }}
-          style={{ flex: 1, padding: 10, fontWeight: 900, opacity: mode === "RESTOCK" ? 1 : 0.5 }}
-        >
-          RESTOCK
-        </button>
-      </div>
-
-      {/* ITEM */}
-      <label style={{ display: "block", marginTop: 12 }}>Item / Barcode</label>
-      <input
-        value={itemOrBarcode}
-        onChange={(e) => setItemOrBarcode(e.target.value)}
-        placeholder="Type item name or exact barcode"
-        style={{ width: "100%", padding: 10 }}
-      />
-
-      {/* QTY */}
-      <label style={{ display: "block", marginTop: 12 }}>Qty</label>
-      <input
-        value={qty}
-        onChange={(e) => setQty(Math.max(1, Number(e.target.value) || 1))}
-        type="number"
-        min={1}
-        style={{ width: "100%", padding: 10 }}
-      />
-
-      <button onClick={handleSubmit} style={{ width: "100%", marginTop: 16, padding: 12, fontWeight: 950 }}>
-        Submit {mode}
-      </button>
-
-      <div style={{ marginTop: 16, padding: 12, border: "1px solid #ddd", borderRadius: 12 }}>
-        {submitStatus}
-      </div>
-
-      {/* TOTAL INVENTORY LIST */}
-      <div style={{ marginTop: 16, padding: 12, border: "1px solid #ddd", borderRadius: 12 }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <strong>Total Inventory (All Locations)</strong>
-          <button onClick={loadTotals} style={{ padding: "6px 10px", fontWeight: 800 }}>
-            Refresh
-          </button>
-        </div>
-
-        <div style={{ marginTop: 10 }}>
-          {listStatus ? (
-            <div style={{ opacity: 0.75 }}>{listStatus}</div>
-          ) : rows.length === 0 ? (
-            <div style={{ opacity: 0.75 }}>No items found.</div>
-          ) : (
-            rows.map((r) => (
-              <div
-                key={r.item_id}
-                style={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  padding: "8px 0",
-                  borderBottom: "1px solid #eee",
-                }}
-              >
+          {/* Right: Inventory list */}
+          <div className="lg:col-span-3 space-y-4">
+            <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
-                  <div style={{ fontWeight: 700 }}>{r.item_name}</div>
-                  <div style={{ fontSize: 12, opacity: 0.7 }}>{r.barcode ?? ""}</div>
+                  <div className="text-sm font-black text-slate-900">
+                    Total Inventory (All Locations)
+                  </div>
+                  <div className="text-xs font-semibold text-slate-600">
+                    Building totals (auto-summed)
+                  </div>
                 </div>
-                <div style={{ fontWeight: 900 }}>{r.total_on_hand}</div>
+
+                <input
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="Search item or barcode…"
+                  className="w-full sm:w-64 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-semibold outline-none focus:border-slate-400"
+                />
               </div>
-            ))
-          )}
+
+              <div className="mt-3">
+                {listStatus ? (
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm font-semibold text-slate-700">
+                    {listStatus}
+                  </div>
+                ) : filteredRows.length === 0 ? (
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm font-semibold text-slate-700">
+                    No items found.
+                  </div>
+                ) : (
+                  <div className="mt-2 divide-y divide-slate-100 overflow-hidden rounded-2xl border border-slate-200">
+                    {filteredRows.map((r) => (
+                      <div
+                        key={r.item_id}
+                        className="flex items-center justify-between gap-4 bg-white px-4 py-3 hover:bg-slate-50"
+                      >
+                        <div className="min-w-0">
+                          <div className="truncate text-sm font-black text-slate-900">
+                            {r.item_name}
+                          </div>
+                          <div className="truncate text-xs font-semibold text-slate-500">
+                            {r.barcode ?? ""}
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <div className="rounded-xl bg-slate-900 px-3 py-2 text-sm font-black text-white">
+                            {r.total_on_hand}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="mt-3 text-xs font-semibold text-slate-500">
+                Tip: keep default on your room cabinet; use ⚡ MAIN (1x) when you grab something from the supply room.
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div className="mt-6 text-center text-xs font-semibold text-slate-500">
+          Built for fast OR use • minimal mistakes • real-time stock + alerts
         </div>
       </div>
     </div>
