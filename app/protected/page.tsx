@@ -10,7 +10,9 @@ type TotalRow = {
 };
 
 export default function ProtectedPage() {
-  const [location, setLocation] = useState("Main Sterile Supply");
+  const MAIN = "Main Sterile Supply";
+
+  const [location, setLocation] = useState(MAIN);
   const [mode, setMode] = useState<"USE" | "RESTOCK">("USE");
   const [itemOrBarcode, setItemOrBarcode] = useState("");
   const [qty, setQty] = useState(1);
@@ -23,6 +25,10 @@ export default function ProtectedPage() {
   const [rows, setRows] = useState<TotalRow[]>([]);
   const [listStatus, setListStatus] = useState("Loading inventory...");
 
+  // ✅ One-time override (does NOT change your selected cabinet)
+  const [useFromMainOneTime, setUseFromMainOneTime] = useState(false);
+
+  // ---- Lock persistence ----
   useEffect(() => {
     const until = Number(localStorage.getItem("unlockedUntil") || "0");
     setIsUnlocked(Date.now() < until);
@@ -34,16 +40,19 @@ export default function ProtectedPage() {
     setUnlockStatus("🔒 Locked");
   }
 
+  // ---- Inventory totals loader ----
   async function loadTotals() {
-    setListStatus("Loading inventory...");
     try {
+      setListStatus("Loading inventory...");
       const res = await fetch("/api/items", { cache: "no-store" });
       const data = await res.json().catch(() => ({}));
+
       if (!res.ok || !data.ok) {
         setRows([]);
         setListStatus(`❌ ${data?.error ?? `Failed (${res.status})`}`);
         return;
       }
+
       setRows(Array.isArray(data.rows) ? data.rows : []);
       setListStatus("");
     } catch (e: any) {
@@ -56,6 +65,7 @@ export default function ProtectedPage() {
     loadTotals();
   }, []);
 
+  // ---- Unlock ----
   async function handleUnlock() {
     try {
       setUnlockStatus("Unlocking...");
@@ -64,11 +74,14 @@ export default function ProtectedPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ pin }),
       });
+
       const data = await res.json().catch(() => ({}));
+
       if (!res.ok || !data.ok) {
         setUnlockStatus(`❌ ${data?.error ?? "Invalid PIN"}`);
         return;
       }
+
       const until = Date.now() + 30 * 60 * 1000;
       localStorage.setItem("unlockedUntil", String(until));
       setIsUnlocked(true);
@@ -79,17 +92,33 @@ export default function ProtectedPage() {
     }
   }
 
+  // ---- Submit transaction ----
   async function handleSubmit() {
+    if (!location.trim()) {
+      setSubmitStatus("❌ Select a location");
+      return;
+    }
+    if (!itemOrBarcode.trim()) {
+      setSubmitStatus("❌ Enter an item name or barcode");
+      return;
+    }
     const safeQty = Math.max(1, Number(qty) || 1);
 
+    // ✅ Effective location (one-time override)
+    const effectiveLocation = useFromMainOneTime ? MAIN : location;
+
     try {
-      setSubmitStatus("Submitting...");
+      setSubmitStatus(
+        useFromMainOneTime
+          ? `Submitting... (ONE TIME from ${MAIN})`
+          : "Submitting..."
+      );
 
       const res = await fetch("/api/transaction", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          location,
+          location: effectiveLocation,
           mode,
           itemOrBarcode: itemOrBarcode.trim(),
           qty: safeQty,
@@ -98,18 +127,30 @@ export default function ProtectedPage() {
 
       const data = await res.json().catch(() => ({}));
 
-      // ✅ THIS IS THE IMPORTANT PART: ALWAYS SHOW REAL ERROR
       if (!res.ok || !data.ok) {
         setSubmitStatus(`❌ ${data?.error ?? `Failed (${res.status})`}`);
         return;
       }
 
-      setSubmitStatus(
-        `✅ ${mode} ${safeQty} — ${data?.item?.name ?? itemOrBarcode} @ ${data?.location?.name ?? location} | ${data?.old_on_hand} → ${data?.new_on_hand}`
-      );
+      const name = data?.item?.name ?? itemOrBarcode.trim();
+      const locName = data?.location?.name ?? effectiveLocation;
+      const oldVal = data?.old_on_hand;
+      const newVal = data?.new_on_hand;
+
+      if (typeof oldVal === "number" && typeof newVal === "number") {
+        setSubmitStatus(
+          `✅ ${mode} ${safeQty} — ${name} @ ${locName} | ${oldVal} → ${newVal}`
+        );
+      } else {
+        setSubmitStatus(`✅ ${mode} ${safeQty} — ${name} @ ${locName}`);
+      }
 
       setItemOrBarcode("");
       setQty(1);
+
+      // ✅ reset one-time override after a successful submit
+      setUseFromMainOneTime(false);
+
       await loadTotals();
     } catch (e: any) {
       setSubmitStatus(`❌ ${e?.message ?? "Request failed"}`);
@@ -117,12 +158,13 @@ export default function ProtectedPage() {
   }
 
   return (
-    <div style={{ maxWidth: 600, margin: "20px auto", padding: 20, fontFamily: "system-ui" }}>
+    <div style={{ maxWidth: 650, margin: "20px auto", padding: 20, fontFamily: "system-ui" }}>
       <h2>Inventory</h2>
 
+      {/* PIN / LOCK */}
       <div style={{ border: "1px solid #ddd", borderRadius: 12, padding: 12, marginBottom: 14 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <strong>{isUnlocked ? "🔓 Unlocked" : "🔒 Locked"}</strong>
+          <strong>{isUnlocked ? "🔓 Location Unlocked" : "🔒 Location Locked"}</strong>
           <button onClick={lockNow} style={{ padding: "6px 10px", fontWeight: 800 }}>
             Lock
           </button>
@@ -146,36 +188,81 @@ export default function ProtectedPage() {
         </div>
       </div>
 
-      <label style={{ display: "block" }}>Location</label>
+      {/* LOCATION */}
+      <label style={{ display: "block" }}>Location (default)</label>
       <select
         value={location}
         onChange={(e) => setLocation(e.target.value)}
         disabled={!isUnlocked}
         style={{ width: "100%", padding: 10, opacity: isUnlocked ? 1 : 0.6 }}
       >
-        <option>Main Sterile Supply</option>
+        <option>{MAIN}</option>
         <option>OR 1 - Cabinet A</option>
         <option>OR 2 - Cabinet A</option>
         <option>Pre-Op</option>
         <option>PACU</option>
       </select>
 
+      {/* ONE-TIME MAIN OVERRIDE */}
+      <div style={{ marginTop: 10, padding: 12, border: "1px solid #ddd", borderRadius: 12 }}>
+        <div style={{ display: "flex", gap: 10, alignItems: "center", justifyContent: "space-between" }}>
+          <div style={{ fontWeight: 800 }}>
+            One-time override
+            <div style={{ fontSize: 12, opacity: 0.75 }}>
+              Use this if you had to grab something from Main Sterile Supply while your default is a cabinet.
+            </div>
+          </div>
+
+          <div style={{ display: "flex", gap: 8 }}>
+            <button
+              onClick={() => setUseFromMainOneTime(true)}
+              disabled={useFromMainOneTime || mode !== "USE"}
+              style={{ padding: "8px 10px", fontWeight: 900 }}
+              title={mode !== "USE" ? "One-time override is for USE mode" : ""}
+            >
+              Use from Main (ONE TIME)
+            </button>
+            <button
+              onClick={() => setUseFromMainOneTime(false)}
+              disabled={!useFromMainOneTime}
+              style={{ padding: "8px 10px", fontWeight: 900 }}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+
+        {useFromMainOneTime && (
+          <div style={{ marginTop: 10, padding: 10, borderRadius: 10, border: "1px solid #f0c36d" }}>
+            ✅ Next submit will pull from <strong>{MAIN}</strong> only (then it will revert to your selected cabinet).
+          </div>
+        )}
+      </div>
+
+      {/* MODE */}
       <label style={{ display: "block", marginTop: 12 }}>Mode</label>
       <div style={{ display: "flex", gap: 10 }}>
         <button
-          onClick={() => setMode("USE")}
+          onClick={() => {
+            setMode("USE");
+          }}
           style={{ flex: 1, padding: 10, fontWeight: 900, opacity: mode === "USE" ? 1 : 0.5 }}
         >
           USE
         </button>
         <button
-          onClick={() => setMode("RESTOCK")}
+          onClick={() => {
+            setMode("RESTOCK");
+            // optional: auto-cancel one-time use override if switching to restock
+            setUseFromMainOneTime(false);
+          }}
           style={{ flex: 1, padding: 10, fontWeight: 900, opacity: mode === "RESTOCK" ? 1 : 0.5 }}
         >
           RESTOCK
         </button>
       </div>
 
+      {/* ITEM */}
       <label style={{ display: "block", marginTop: 12 }}>Item / Barcode</label>
       <input
         value={itemOrBarcode}
@@ -184,6 +271,7 @@ export default function ProtectedPage() {
         style={{ width: "100%", padding: 10 }}
       />
 
+      {/* QTY */}
       <label style={{ display: "block", marginTop: 12 }}>Qty</label>
       <input
         value={qty}
@@ -201,9 +289,10 @@ export default function ProtectedPage() {
         {submitStatus}
       </div>
 
+      {/* TOTAL INVENTORY LIST */}
       <div style={{ marginTop: 16, padding: 12, border: "1px solid #ddd", borderRadius: 12 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <strong>Total Inventory</strong>
+          <strong>Total Inventory (All Locations)</strong>
           <button onClick={loadTotals} style={{ padding: "6px 10px", fontWeight: 800 }}>
             Refresh
           </button>
