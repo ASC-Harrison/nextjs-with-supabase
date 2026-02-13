@@ -13,6 +13,14 @@ function json(status: number, body: any) {
   });
 }
 
+function getBaseUrl(req: Request) {
+  // Works in Vercel + local
+  const host = req.headers.get("host");
+  const proto = req.headers.get("x-forwarded-proto") || "https";
+  if (!host) return null;
+  return `${proto}://${host}`;
+}
+
 export async function GET() {
   return json(200, { ok: true, route: "/api/transaction" });
 }
@@ -20,21 +28,17 @@ export async function GET() {
 export async function POST(req: Request) {
   try {
     const body = await req.json().catch(() => ({}));
-    const { location, mode, itemOrBarcode, qty } = body ?? {};
 
-    if (!location || typeof location !== "string") {
-      return json(400, { ok: false, error: "Missing location" });
-    }
-    if (!mode || (mode !== "USE" && mode !== "RESTOCK")) {
-      return json(400, { ok: false, error: "Mode must be USE or RESTOCK" });
-    }
-    if (!itemOrBarcode || typeof itemOrBarcode !== "string") {
-      return json(400, { ok: false, error: "Missing itemOrBarcode" });
-    }
+    const location = String(body.location ?? "").trim(); // must match storage_areas.name
+    const mode = String(body.mode ?? "").trim().toUpperCase(); // USE | RESTOCK
+    const itemOrBarcode = String(body.itemOrBarcode ?? "").trim();
+    const qty = Math.max(1, Number(body.qty ?? 1) || 1);
 
-    const nQty = Math.max(1, Number(qty) || 1);
+    if (!location) return json(400, { ok: false, error: "Missing location" });
+    if (mode !== "USE" && mode !== "RESTOCK") return json(400, { ok: false, error: "Mode must be USE or RESTOCK" });
+    if (!itemOrBarcode) return json(400, { ok: false, error: "Missing itemOrBarcode" });
 
-    // 1) Find storage area by name (MUST match your dropdown text)
+    // 1) Find storage area by name
     const { data: area, error: areaErr } = await supabase
       .from("storage_areas")
       .select("id, name")
@@ -44,10 +48,9 @@ export async function POST(req: Request) {
     if (areaErr) return json(500, { ok: false, error: `storage_areas lookup failed: ${areaErr.message}` });
     if (!area) return json(404, { ok: false, error: `Storage area not found: ${location}` });
 
-    // 2) Find item by barcode exact OR name fuzzy
-    const needle = itemOrBarcode.trim();
+    // 2) Find item by barcode exact OR name contains
+    const needle = itemOrBarcode;
 
-    // Try barcode exact first
     let { data: item, error: itemErr } = await supabase
       .from("items")
       .select("id, name, barcode")
@@ -56,7 +59,6 @@ export async function POST(req: Request) {
 
     if (itemErr) return json(500, { ok: false, error: `Item lookup failed: ${itemErr.message}` });
 
-    // If not barcode match, try name match
     if (!item) {
       const r = await supabase
         .from("items")
@@ -71,32 +73,34 @@ export async function POST(req: Request) {
 
     if (!item) return json(404, { ok: false, error: `Item not found: ${needle}` });
 
-    // 3) Load current storage_inventory row (area + item)
-    const { data: currentRow, error: curErr } = await supabase
+    // 3) Read current cabinet stock row
+    const { data: row, error: rowErr } = await supabase
       .from("storage_inventory")
       .select("on_hand, par_level, low, low_notified")
       .eq("storage_area_id", area.id)
       .eq("item_id", item.id)
       .maybeSingle();
 
-    if (curErr) return json(500, { ok: false, error: `storage_inventory read failed: ${curErr.message}` });
+    if (rowErr) return json(500, { ok: false, error: `storage_inventory read failed: ${rowErr.message}` });
 
-    const oldOnHand = Number(currentRow?.on_hand ?? 0);
-    const delta = mode === "USE" ? -nQty : +nQty;
-    const newOnHand = oldOnHand + delta;
+    const oldOnHand = Number(row?.on_hand ?? 0);
+    const parLevel = Number(row?.par_level ?? 0);
+
+    const newOnHand = mode === "USE" ? oldOnHand - qty : oldOnHand + qty;
 
     if (newOnHand < 0) {
       return json(400, {
         ok: false,
-        error: `Not enough stock in ${area.name}. On hand ${oldOnHand}, tried to use ${nQty}.`,
+        error: `Not enough stock in ${area.name}. On hand ${oldOnHand}, tried to use ${qty}.`,
       });
     }
 
-    // 4) Upsert the row (requires unique constraint on (storage_area_id, item_id))
-    const parLevel = Number(currentRow?.par_level ?? 0);
     const isLow = parLevel > 0 ? newOnHand < parLevel : false;
 
-    const { data: upserted, error: upErr } = await supabase
+    // If restocked back to par or above, allow future alerts again
+    const shouldResetNotified = parLevel > 0 && newOnHand >= parLevel;
+
+    const { data: saved, error: upErr } = await supabase
       .from("storage_inventory")
       .upsert(
         {
@@ -105,8 +109,7 @@ export async function POST(req: Request) {
           on_hand: newOnHand,
           par_level: parLevel,
           low: isLow,
-          // if we restock above par, clear low_notified so it can alert again later
-          low_notified: isLow ? Boolean(currentRow?.low_notified ?? false) : false,
+          low_notified: shouldResetNotified ? false : Boolean(row?.low_notified ?? false),
           updated_at: new Date().toISOString(),
         },
         { onConflict: "storage_area_id,item_id" }
@@ -116,27 +119,36 @@ export async function POST(req: Request) {
 
     if (upErr) return json(500, { ok: false, error: `storage_inventory upsert failed: ${upErr.message}` });
 
-    // 5) Optional: write transaction log if your table exists (ignore if not)
-    // If your transactions schema differs, we can adjust later.
-    await supabase.from("transactions").insert({
-      item_id: item.id,
-      // some setups use storage_area_id instead of location_id
-      storage_area_id: area.id,
-      mode,
-      qty: nQty,
-      created_at: new Date().toISOString(),
-    });
+    // 4) Trigger email check (best-effort)
+    try {
+      const baseUrl = getBaseUrl(req);
+      if (baseUrl) {
+        await fetch(`${baseUrl}/api/notify-low-stock`, { method: "POST" });
+      }
+    } catch {}
+
+    // 5) Optional transaction log (ignore if your schema differs)
+    try {
+      await supabase.from("transactions").insert({
+        item_id: item.id,
+        storage_area_id: area.id,
+        mode,
+        qty,
+        created_at: new Date().toISOString(),
+      });
+    } catch {}
 
     return json(200, {
       ok: true,
       item,
       location: area,
       old_on_hand: oldOnHand,
-      new_on_hand: upserted.on_hand,
-      low: upserted.low,
-      par_level: upserted.par_level,
+      new_on_hand: saved.on_hand,
+      low: saved.low,
+      par_level: saved.par_level,
+      low_notified: saved.low_notified,
     });
-  } catch (e: any) {
-    return json(500, { ok: false, error: e?.message ?? "Unknown error" });
+  } catch (err: any) {
+    return json(500, { ok: false, error: err?.message ?? "Server error" });
   }
 }
