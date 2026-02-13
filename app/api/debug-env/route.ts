@@ -1,10 +1,22 @@
+import { NextResponse } from "next/server";
+
+function projectRefFromUrl(url?: string) {
+  if (!url) return null;
+  // matches: https://PROJECTREF.supabase.co
+  const m = url.match(/^https?:\/\/([a-z0-9-]+)\.supabase\.co/i);
+  return m?.[1] ?? null;
+}
+
 export async function GET() {
-  // Do NOT print secret values. Just true/false.
-  return Response.json({
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
+  const projectRef = projectRefFromUrl(supabaseUrl);
+
+  return NextResponse.json({
     ok: true,
-    has_RESEND_API_KEY: !!process.env.RESEND_API_KEY,
-    has_LOW_STOCK_EMAIL_TO: !!process.env.LOW_STOCK_EMAIL_TO,
-    has_LOW_STOCK_EMAIL_FROM: !!process.env.LOW_STOCK_EMAIL_FROM,
-    node_env: process.env.NODE_ENV ?? null,
+    supabaseUrl,
+    projectRef,
+    hasServiceRoleKey: Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY),
+    hasResendKey: Boolean(process.env.RESEND_API_KEY),
+    lowStockToSet: Boolean(process.env.LOW_STOCK_EMAIL_TO),
   });
 }
