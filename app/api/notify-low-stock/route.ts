@@ -25,22 +25,20 @@ export async function POST() {
       return NextResponse.json({ ok: false, error: "Missing LOW_STOCK_EMAIL_TO" }, { status: 500 });
     }
 
-    // 1) Find anything low that has NOT been notified yet
+    // 1) Pull low + not notified rows
     const { data: lows, error: lowErr } = await supabase
       .from("storage_inventory")
       .select("storage_area_id, item_id, on_hand, par_level, low, low_notified")
       .eq("low", true)
       .eq("low_notified", false);
 
-    if (lowErr) {
-      return NextResponse.json({ ok: false, error: lowErr.message }, { status: 500 });
-    }
+    if (lowErr) return NextResponse.json({ ok: false, error: lowErr.message }, { status: 500 });
 
     if (!lows || lows.length === 0) {
       return NextResponse.json({ ok: true, sent: 0, message: "No new low stock items" });
     }
 
-    // 2) Load names for items + storage areas
+    // 2) Load item + area names
     const itemIds = Array.from(new Set(lows.map((r) => r.item_id)));
     const areaIds = Array.from(new Set(lows.map((r) => r.storage_area_id)));
 
@@ -55,7 +53,7 @@ export async function POST() {
     const itemMap = new Map((items ?? []).map((i) => [i.id, i]));
     const areaMap = new Map((areas ?? []).map((a) => [a.id, a]));
 
-    // 3) Build email content
+    // 3) Build email
     const lines = lows
       .map((r) => {
         const item = itemMap.get(r.item_id);
@@ -68,9 +66,11 @@ export async function POST() {
       .join("\n");
 
     const subject = `LOW STOCK (${lows.length})`;
-    const text = `The following items are below par:\n\n${lines}\n\nThis alert will not repeat until restocked above par.`;
+    const text =
+      `The following items are below par:\n\n` +
+      `${lines}\n\n` +
+      `This alert will not repeat until the item is restocked to par (or above).`;
 
-    // 4) Send email
     await resend.emails.send({
       from,
       to,
@@ -78,14 +78,18 @@ export async function POST() {
       text,
     });
 
-    // 5) Mark low_notified = true so you don’t get spammed
-    // We update each row by matching BOTH storage_area_id and item_id
+    // 4) Mark notified
     for (const r of lows) {
-      await supabase
+      const { error: updErr } = await supabase
         .from("storage_inventory")
         .update({ low_notified: true })
         .eq("storage_area_id", r.storage_area_id)
         .eq("item_id", r.item_id);
+
+      if (updErr) {
+        // keep going; we already sent email
+        console.error("Failed to set low_notified:", updErr.message);
+      }
     }
 
     return NextResponse.json({ ok: true, sent: lows.length });
