@@ -12,6 +12,9 @@ type TotalRow = {
 export default function ProtectedPage() {
   const MAIN = "Main Sterile Supply";
 
+  // ✅ Change this anytime you deploy so you KNOW you're on the newest build
+  const BUILD_TAG = "BUILD 2026-02-14 8:30PM";
+
   const [location, setLocation] = useState(MAIN);
   const [mode, setMode] = useState<"USE" | "RESTOCK">("USE");
   const [itemOrBarcode, setItemOrBarcode] = useState("");
@@ -21,6 +24,7 @@ export default function ProtectedPage() {
   const [isUnlocked, setIsUnlocked] = useState(false);
   const [unlockStatus, setUnlockStatus] = useState("");
 
+  // ✅ One-time override (does NOT change default cabinet)
   const [useFromMainOneTime, setUseFromMainOneTime] = useState(false);
 
   const [submitStatus, setSubmitStatus] = useState<string>("Ready");
@@ -44,7 +48,9 @@ export default function ProtectedPage() {
   async function loadTotals() {
     try {
       setListStatus("Loading inventory...");
-      const res = await fetch("/api/items", { cache: "no-store" });
+
+      // cache buster so you never see stale totals
+      const res = await fetch("/api/items?ts=" + Date.now(), { cache: "no-store" });
       const data = await res.json().catch(() => ({}));
 
       if (!res.ok || !data.ok) {
@@ -74,8 +80,7 @@ export default function ProtectedPage() {
     });
   }, [rows, search]);
 
-  // ---- Low stock detector ----
-  const anyLow = useMemo(() => rows.some((r) => (r.total_on_hand ?? 0) <= 3), [rows]);
+  const anyLow = useMemo(() => rows.some((r) => (Number(r.total_on_hand) || 0) <= 3), [rows]);
 
   // ---- Unlock ----
   async function handleUnlock() {
@@ -162,7 +167,7 @@ export default function ProtectedPage() {
     }
   }
 
-  // ---- Quick action from list ----
+  // ---- Quick “USE 1” from list ----
   function quickUseOne(itemName: string) {
     setMode("USE");
     setItemOrBarcode(itemName);
@@ -192,12 +197,20 @@ export default function ProtectedPage() {
               <span className="h-2 w-2 rounded-full bg-emerald-400" />
               Live Inventory
             </div>
+
             <h1 className="mt-2 text-2xl font-black tracking-tight text-slate-900 sm:text-3xl">
               Baxter Health ASC – Harrison
             </h1>
+
             <div className="mt-1 text-xs font-semibold text-slate-500">
               Custom Inventory Control System v1.0
             </div>
+
+            {/* ✅ This proves you're on the new deployment */}
+            <div className="mt-1 text-xs font-extrabold text-slate-400">
+              {BUILD_TAG}
+            </div>
+
             <p className="mt-1 text-sm text-slate-600">
               Cabinet tracking + building totals + low stock alerts
             </p>
@@ -320,11 +333,10 @@ export default function ProtectedPage() {
               </div>
             </div>
 
-            {/* Mode + Inputs */}
+            {/* Transaction */}
             <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
               <div className="text-sm font-black text-slate-900">Transaction</div>
 
-              {/* Segmented mode */}
               <div className="mt-3 grid grid-cols-2 gap-2">
                 <button
                   onClick={() => setMode("USE")}
@@ -386,7 +398,6 @@ export default function ProtectedPage() {
                 </button>
               </div>
 
-              {/* BIG touch friendly submit */}
               <button
                 onClick={handleSubmit}
                 className="mt-4 w-full rounded-3xl bg-slate-900 px-6 py-6 text-xl font-black text-white shadow-lg hover:scale-[1.01] active:scale-[0.98]"
@@ -403,7 +414,6 @@ export default function ProtectedPage() {
           {/* Right: Inventory list */}
           <div className="lg:col-span-3 space-y-4">
             <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-              {/* Low Stock Banner */}
               {anyLow && (
                 <div className="mb-4 rounded-2xl border border-red-300 bg-red-50 p-4 text-sm font-bold text-red-900">
                   ⚠️ LOW STOCK ITEMS DETECTED — CHECK INVENTORY
@@ -442,11 +452,7 @@ export default function ProtectedPage() {
                     {filteredRows.map((r) => {
                       const v = Number(r.total_on_hand ?? 0);
                       const pill =
-                        v <= 3
-                          ? "bg-red-600"
-                          : v <= 6
-                          ? "bg-yellow-500"
-                          : "bg-slate-900";
+                        v <= 3 ? "bg-red-600" : v <= 6 ? "bg-yellow-500" : "bg-slate-900";
 
                       return (
                         <div
@@ -463,7 +469,6 @@ export default function ProtectedPage() {
                           </div>
 
                           <div className="flex items-center gap-2">
-                            {/* Quick USE 1 */}
                             <button
                               onClick={() => quickUseOne(r.item_name)}
                               className="rounded-xl bg-indigo-600 px-3 py-2 text-xs font-extrabold text-white shadow-sm hover:bg-indigo-700 active:scale-[0.99]"
@@ -471,7 +476,6 @@ export default function ProtectedPage() {
                               USE 1
                             </button>
 
-                            {/* Colored total */}
                             <div className={`rounded-2xl px-4 py-3 text-lg font-black text-white ${pill}`}>
                               {v}
                             </div>
@@ -490,7 +494,6 @@ export default function ProtectedPage() {
           </div>
         </div>
 
-        {/* Footer */}
         <div className="mt-6 text-center text-xs font-semibold text-slate-500">
           Built for fast OR use • minimal mistakes • real-time stock + alerts
         </div>
