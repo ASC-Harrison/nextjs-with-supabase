@@ -5,8 +5,8 @@ import { useEffect, useMemo, useState } from "react";
 type StorageArea = { id: string; name: string };
 type TotalsRow = {
   item_id: string;
-  item_name?: string; // some APIs use item_name
-  name?: string;      // some APIs use name
+  item_name?: string;
+  name?: string;
   barcode: string | null;
   total_on_hand: number | null;
 };
@@ -18,7 +18,6 @@ function toArray<T>(val: any): T[] {
 }
 
 function pickStorageAreas(json: any): StorageArea[] {
-  // support: { ok:true, storageAreas: [...] } OR { ok:true, areas:[...] } OR direct array
   const raw =
     json?.storageAreas ??
     json?.areas ??
@@ -29,12 +28,7 @@ function pickStorageAreas(json: any): StorageArea[] {
 }
 
 function pickTotals(json: any): TotalsRow[] {
-  // support: { ok:true, items:[...] } OR { ok:true, rows:[...] } OR direct array
-  const raw =
-    json?.items ??
-    json?.rows ??
-    json?.data ??
-    json;
+  const raw = json?.items ?? json?.rows ?? json?.data ?? json;
   return toArray<TotalsRow>(raw).filter((x) => x?.item_id);
 }
 
@@ -80,6 +74,17 @@ export default function ProtectedPage() {
     return main?.id ?? null;
   }, [storageAreas]);
 
+  const defaultLocationName = useMemo(() => {
+    return storageAreas.find((x) => x.id === defaultLocationId)?.name ?? "—";
+  }, [storageAreas, defaultLocationId]);
+
+  const nextSubmitSourceName = useMemo(() => {
+    if (overrideOnce && mainId) {
+      return storageAreas.find((x) => x.id === mainId)?.name ?? "Main (override)";
+    }
+    return defaultLocationName;
+  }, [overrideOnce, mainId, storageAreas, defaultLocationName]);
+
   async function loadStorageAreas() {
     try {
       const res = await fetch("/api/storage-areas", { cache: "no-store" });
@@ -88,16 +93,15 @@ export default function ProtectedPage() {
 
       setStorageAreas(list);
 
-      // ensure a valid default location id
       if (!defaultLocationId && list.length > 0) {
         setDefaultLocationId(list[0].id);
       } else if (defaultLocationId && list.length > 0) {
         const exists = list.some((x) => x.id === defaultLocationId);
         if (!exists) setDefaultLocationId(list[0].id);
       }
-    } catch (e: any) {
+    } catch {
       setStorageAreas([]);
-      setStatus(`Error loading storage areas`);
+      setStatus("Error loading storage areas");
     }
   }
 
@@ -107,9 +111,9 @@ export default function ProtectedPage() {
       const json = await res.json().catch(() => ({}));
       const list = pickTotals(json);
       setTotals(list);
-    } catch (e: any) {
+    } catch {
       setTotals([]);
-      setStatus(`Error loading totals`);
+      setStatus("Error loading totals");
     }
   }
 
@@ -162,7 +166,6 @@ export default function ProtectedPage() {
       return;
     }
 
-    // choose location for this submit
     const submitLocationId = overrideOnce && mainId ? mainId : defaultLocationId;
 
     setBusy(true);
@@ -175,7 +178,7 @@ export default function ProtectedPage() {
         body: JSON.stringify({
           mode,
           qty: cleanQty,
-          itemOrBarcode: cleanItem, // ✅ matches what you used earlier in your working build
+          itemOrBarcode: cleanItem,
           location_id: submitLocationId,
         }),
       });
@@ -190,6 +193,7 @@ export default function ProtectedPage() {
       setItemInput("");
       setQty(1);
 
+      // clear override after use
       if (overrideOnce) setOverrideOnce(false);
 
       await loadTotals();
@@ -241,7 +245,7 @@ export default function ProtectedPage() {
           </div>
         </div>
 
-        {/* DESKTOP: Settings left, Transaction+Totals right */}
+        {/* DESKTOP */}
         <div className="mt-5 hidden gap-4 sm:grid sm:grid-cols-2">
           <SettingsCard
             locked={locked}
@@ -267,11 +271,18 @@ export default function ProtectedPage() {
               setQty={setQty}
               submit={submit}
               busy={busy}
+              // new info header + override toggle
+              locationName={defaultLocationName}
+              sourceName={nextSubmitSourceName}
+              overrideOnce={overrideOnce}
+              setOverrideOnce={setOverrideOnce}
+              canOverride={Boolean(mainId)}
             />
             <TotalsCard
               search={search}
               setSearch={setSearch}
               items={filteredTotals}
+              locationName={defaultLocationName}
             />
           </div>
         </div>
@@ -288,11 +299,21 @@ export default function ProtectedPage() {
               setQty={setQty}
               submit={submit}
               busy={busy}
+              locationName={defaultLocationName}
+              sourceName={nextSubmitSourceName}
+              overrideOnce={overrideOnce}
+              setOverrideOnce={setOverrideOnce}
+              canOverride={Boolean(mainId)}
             />
           )}
 
           {tab === "totals" && (
-            <TotalsCard search={search} setSearch={setSearch} items={filteredTotals} />
+            <TotalsCard
+              search={search}
+              setSearch={setSearch}
+              items={filteredTotals}
+              locationName={defaultLocationName}
+            />
           )}
 
           {tab === "settings" && (
@@ -343,6 +364,15 @@ function Card({ title, children }: { title: string; children: React.ReactNode })
     <div className="rounded-2xl border bg-white p-4 shadow-sm">
       <div className="mb-3 text-sm font-extrabold text-neutral-900">{title}</div>
       {children}
+    </div>
+  );
+}
+
+function InfoBar({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-xl border bg-neutral-50 px-3 py-2 text-xs text-neutral-700">
+      <span className="font-semibold">{label}</span>{" "}
+      <span className="font-bold">{value}</span>
     </div>
   );
 }
@@ -406,7 +436,7 @@ function SettingsCard(props: {
         <div className="mt-3 rounded-xl border bg-neutral-50 p-3">
           <div className="text-sm font-bold">One-time override</div>
           <div className="mt-1 text-xs text-neutral-600">
-            Use Main Supply once (doesn’t change your default).
+            If your default is a cabinet but you grabbed something from Main Supply once.
           </div>
 
           <div className="mt-3 flex gap-2">
@@ -426,12 +456,6 @@ function SettingsCard(props: {
               Cancel
             </button>
           </div>
-
-          {props.overrideOnce && (
-            <div className="mt-2 text-xs font-semibold text-blue-700">
-              Next submit pulls from Main (by name match).
-            </div>
-          )}
         </div>
       </Card>
     </div>
@@ -447,10 +471,22 @@ function TransactionCard(props: {
   setQty: (n: number) => void;
   submit: () => void;
   busy: boolean;
+
+  locationName: string;
+  sourceName: string;
+  overrideOnce: boolean;
+  setOverrideOnce: (v: boolean) => void;
+  canOverride: boolean;
 }) {
   return (
     <Card title="Transaction">
-      <div className="flex gap-2">
+      {/* NEW: location info + override right on this tab */}
+      <div className="mb-3 grid gap-2">
+        <InfoBar label="Default location:" value={props.locationName} />
+        <InfoBar label="Next submit pulls from:" value={props.sourceName} />
+      </div>
+
+      <div className="mb-3 flex gap-2">
         <button
           onClick={() => props.setMode("USE")}
           className={[
@@ -468,6 +504,27 @@ function TransactionCard(props: {
           ].join(" ")}
         >
           ➕ RESTOCK
+        </button>
+      </div>
+
+      <div className="mb-3 flex gap-2">
+        <button
+          onClick={() => props.setOverrideOnce(true)}
+          disabled={!props.canOverride}
+          className={[
+            "flex-1 rounded-xl px-4 py-2 text-sm font-extrabold shadow-sm border",
+            props.overrideOnce ? "bg-blue-600 text-white border-blue-600" : "bg-white",
+            !props.canOverride ? "opacity-50" : "",
+          ].join(" ")}
+        >
+          ⚡ MAIN (1x)
+        </button>
+
+        <button
+          onClick={() => props.setOverrideOnce(false)}
+          className="flex-1 rounded-xl border bg-white px-4 py-2 text-sm font-semibold shadow-sm"
+        >
+          Cancel
         </button>
       </div>
 
@@ -516,9 +573,16 @@ function TotalsCard(props: {
   search: string;
   setSearch: (v: string) => void;
   items: TotalsRow[];
+  locationName: string;
 }) {
   return (
     <Card title="Total Inventory (All Locations)">
+      {/* NEW: small header showing the current default location */}
+      <div className="mb-3 rounded-xl border bg-neutral-50 px-3 py-2 text-xs text-neutral-700">
+        <span className="font-semibold">Default location set to:</span>{" "}
+        <span className="font-bold">{props.locationName}</span>
+      </div>
+
       <input
         value={props.search}
         onChange={(e) => props.setSearch(e.target.value)}
