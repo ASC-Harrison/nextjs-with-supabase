@@ -2,333 +2,327 @@
 
 import { useEffect, useMemo, useState } from "react";
 
-type TotalRow = {
-  item_id: string;
-  item_name: string;
-  barcode: string | null;
-  total_on_hand: number;
-};
+type StorageArea = { id: string; name: string };
 
 export default function ProtectedPage() {
-  const MAIN = "Main Sterile Supply";
-
-  // Change this anytime to prove you're on the latest build
-  const BUILD_TAG = "BUILD 2026-02-14 9:25PM";
-
-  const [location, setLocation] = useState(MAIN);
-  const [mode, setMode] = useState<"USE" | "RESTOCK">("USE");
-  const [itemOrBarcode, setItemOrBarcode] = useState("");
-  const [qty, setQty] = useState<number>(1);
-
+  const [locked, setLocked] = useState(true);
   const [pin, setPin] = useState("");
-  const [isUnlocked, setIsUnlocked] = useState(false);
-  const [unlockStatus, setUnlockStatus] = useState("");
 
-  const [useFromMainOneTime, setUseFromMainOneTime] = useState(false);
+  const [storageAreas, setStorageAreas] = useState<StorageArea[]>([]);
+  const [selectedAreaId, setSelectedAreaId] = useState<string>("");
+  const [oneTimeSourceId, setOneTimeSourceId] = useState<string | null>(null);
 
-  const [submitStatus, setSubmitStatus] = useState<string>("Ready");
-  const [rows, setRows] = useState<TotalRow[]>([]);
-  const [listStatus, setListStatus] = useState<string>("Loading inventory...");
-  const [search, setSearch] = useState("");
+  const [mode, setMode] = useState<"use" | "restock">("use");
+  const [itemText, setItemText] = useState("");
+  const [qty, setQty] = useState(1);
 
-  // ---- Lock persistence ----
-  useEffect(() => {
-    const until = Number(localStorage.getItem("unlockedUntil") || "0");
-    setIsUnlocked(Date.now() < until);
-  }, []);
+  const [status, setStatus] = useState("Ready");
 
-  function lockNow() {
-    localStorage.removeItem("unlockedUntil");
-    setIsUnlocked(false);
-    setUnlockStatus("🔒 Locked");
-  }
+  // Helper: find “Main Sterile Supply” by name (adjust if your exact name differs)
+  const mainSupplyId = useMemo(() => {
+    const match = storageAreas.find((s) =>
+      s.name.toLowerCase().includes("main") &&
+      s.name.toLowerCase().includes("sterile")
+    );
+    return match?.id ?? null;
+  }, [storageAreas]);
 
-  // ---- Load totals ----
-  async function loadTotals() {
-    try {
-      setListStatus("Loading inventory...");
-      const res = await fetch("/api/items?ts=" + Date.now(), {
-        cache: "no-store",
-      });
+  async function loadStorageAreas() {
+    setStatus("Loading storage areas...");
+    const res = await fetch("/api/storage-areas", { cache: "no-store" });
+    const json = await res.json();
 
-      const data = await res.json().catch(() => ({}));
-
-      if (!res.ok || !data.ok) {
-        setRows([]);
-        setListStatus(`❌ ${data?.error ?? `Failed (${res.status})`}`);
-        return;
-      }
-
-      setRows(Array.isArray(data.rows) ? data.rows : []);
-      setListStatus("");
-    } catch (e: any) {
-      setRows([]);
-      setListStatus(`❌ ${e?.message ?? "Failed to load inventory"}`);
-    }
-  }
-
-  useEffect(() => {
-    loadTotals();
-  }, []);
-
-  const filteredRows = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    if (!q) return rows;
-    return rows.filter((r) => {
-      const name = r.item_name.toLowerCase();
-      const bc = (r.barcode ?? "").toLowerCase();
-      return name.includes(q) || bc.includes(q);
-    });
-  }, [rows, search]);
-
-  async function handleUnlock() {
-    try {
-      setUnlockStatus("Unlocking...");
-      const res = await fetch("/api/unlock", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ pin }),
-      });
-
-      const data = await res.json().catch(() => ({}));
-
-      if (!res.ok || !data.ok) {
-        setUnlockStatus(`❌ ${data?.error ?? "Invalid PIN"}`);
-        return;
-      }
-
-      const until = Date.now() + 30 * 60 * 1000;
-      localStorage.setItem("unlockedUntil", String(until));
-      setIsUnlocked(true);
-      setPin("");
-      setUnlockStatus("✅ Unlocked (30 min)");
-    } catch (e: any) {
-      setUnlockStatus(`❌ ${e?.message ?? "Unlock failed"}`);
-    }
-  }
-
-  async function handleSubmit() {
-    if (!itemOrBarcode.trim()) {
-      setSubmitStatus("❌ Enter item name or barcode");
+    if (!res.ok || !json?.ok) {
+      setStatus(`Failed loading storage areas: ${json?.error ?? res.status}`);
       return;
     }
 
-    const safeQty = Math.max(1, Number(qty) || 1);
-    const effectiveLocation = useFromMainOneTime ? MAIN : location;
+    // IMPORTANT: NO FILTERING. Use the master list exactly as returned.
+    const list: StorageArea[] = json.storageAreas ?? [];
+    setStorageAreas(list);
 
-    try {
-      setSubmitStatus("Submitting…");
-
-      const res = await fetch("/api/transaction", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          location: effectiveLocation,
-          mode,
-          itemOrBarcode: itemOrBarcode.trim(),
-          qty: safeQty,
-        }),
-      });
-
-      const data = await res.json().catch(() => ({}));
-
-      if (!res.ok || !data.ok) {
-        setSubmitStatus(`❌ ${data?.error ?? `Failed (${res.status})`}`);
-        return;
-      }
-
-      setSubmitStatus("✅ Success");
-      setItemOrBarcode("");
-      setQty(1);
-      setUseFromMainOneTime(false);
-      await loadTotals();
-    } catch (e: any) {
-      setSubmitStatus(`❌ ${e?.message ?? "Request failed"}`);
+    // Default selection (first item) if none selected
+    if (!selectedAreaId && list.length > 0) {
+      setSelectedAreaId(list[0].id);
     }
+
+    setStatus(`Loaded ${json.count ?? list.length} storage areas`);
   }
 
-  function quickUseOne(name: string) {
-    setMode("USE");
-    setItemOrBarcode(name);
-    setQty(1);
-    window.scrollTo({ top: 0, behavior: "smooth" });
+  useEffect(() => {
+    loadStorageAreas();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function unlock() {
+    setStatus("Unlocking...");
+    const res = await fetch("/api/unlock", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ pin }),
+    });
+    const json = await res.json().catch(() => ({}));
+
+    if (!res.ok || !json?.ok) {
+      setStatus(`Unlock failed: ${json?.error ?? res.status}`);
+      return;
+    }
+    setLocked(false);
+    setPin("");
+    setStatus("Unlocked");
+  }
+
+  async function lock() {
+    setLocked(true);
+    setOneTimeSourceId(null);
+    setStatus("Locked");
+    // If you have an /api/lock route you can call it, but not required for UI lock.
+    try {
+      await fetch("/api/lock", { method: "POST" });
+    } catch {}
+  }
+
+  async function submitTransaction() {
+    setStatus("Submitting...");
+
+    const sourceId = oneTimeSourceId ?? selectedAreaId;
+
+    const res = await fetch("/api/transaction", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        mode,                 // "use" or "restock"
+        qty,
+        item: itemText,       // name or barcode text
+        storage_area_id: selectedAreaId, // your default/current area (cabinet)
+        source_area_id: sourceId,        // where to actually pull from (override or same)
+      }),
+    });
+
+    const json = await res.json().catch(() => ({}));
+
+    if (!res.ok || !json?.ok) {
+      setStatus(`Transaction failed: ${json?.error ?? res.status}`);
+      return;
+    }
+
+    // One-time override resets after one submit
+    setOneTimeSourceId(null);
+    setStatus("Submitted ✅");
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 p-6">
-      <div className="max-w-5xl mx-auto space-y-6">
+    <div style={{ maxWidth: 980, margin: "0 auto", padding: 18, fontFamily: "system-ui" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
         <div>
-          <h1 className="text-3xl font-black">Baxter ASC Inventory</h1>
-          <div className="text-xs font-bold text-slate-400">{BUILD_TAG}</div>
+          <h1 style={{ margin: 0 }}>Baxter ASC Inventory</h1>
+          <div style={{ opacity: 0.7, marginTop: 4 }}>
+            Cabinet tracking + building totals + low stock alerts
+          </div>
         </div>
+        <button
+          onClick={loadStorageAreas}
+          style={{ padding: "10px 14px", borderRadius: 10, border: "1px solid #ccc", cursor: "pointer" }}
+        >
+          Refresh
+        </button>
+      </div>
 
-        {/* Lock / Location */}
-        <div className="bg-white border rounded-2xl p-4 space-y-3">
-          <div className="flex items-center justify-between">
-            <div className="font-bold">
-              {isUnlocked ? "🔓 Location Unlocked" : "🔒 Location Locked"}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginTop: 16 }}>
+        {/* Left: Lock + Location */}
+        <div style={{ border: "1px solid #e5e5e5", borderRadius: 14, padding: 16 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <div style={{ fontWeight: 700 }}>
+              {locked ? "🔒 Location Locked" : "🔓 Location Unlocked"}
             </div>
-
-            {isUnlocked ? (
-              <button
-                onClick={lockNow}
-                className="px-4 py-2 rounded-xl bg-slate-200 font-bold"
-              >
-                Lock
-              </button>
+            {locked ? (
+              <button onClick={unlock} style={btnDark}>Unlock</button>
             ) : (
-              <button
-                onClick={handleUnlock}
-                className="px-4 py-2 rounded-xl bg-black text-white font-bold"
-              >
-                Unlock
-              </button>
+              <button onClick={lock} style={btnLight}>Lock</button>
             )}
           </div>
 
-          {!isUnlocked && (
-            <div className="space-y-2">
-              <input
-                value={pin}
-                onChange={(e) => setPin(e.target.value)}
-                placeholder="Enter PIN"
-                className="w-full p-3 rounded-xl border"
-              />
-              <div className="text-sm font-bold">{unlockStatus}</div>
-            </div>
-          )}
-
-          <div className="space-y-2">
-            <div className="font-bold">Default location</div>
-            <select
-              value={location}
-              onChange={(e) => setLocation(e.target.value)}
-              disabled={!isUnlocked}
-              className="w-full p-3 rounded-xl border bg-white disabled:bg-slate-100"
-            >
-              <option>Main Sterile Supply</option>
-              <option>OR 1 - Cabinet A</option>
-              <option>OR 1 - Cabinet B</option>
-              <option>OR 2 - Cabinet A</option>
-              <option>OR 2 - Cabinet B</option>
-            </select>
+          <div style={{ marginTop: 10, display: "flex", gap: 10 }}>
+            <input
+              value={pin}
+              onChange={(e) => setPin(e.target.value)}
+              placeholder="Enter PIN"
+              type="password"
+              style={inputStyle}
+            />
+            {locked ? (
+              <button onClick={unlock} style={btnDark}>Unlock</button>
+            ) : (
+              <button onClick={lock} style={btnLight}>Lock</button>
+            )}
           </div>
 
-          <div className="flex items-center gap-3">
+          <div style={{ marginTop: 14, fontWeight: 700 }}>Default location</div>
+          <select
+            value={selectedAreaId}
+            onChange={(e) => setSelectedAreaId(e.target.value)}
+            disabled={locked}
+            style={{
+              ...inputStyle,
+              width: "100%",
+              marginTop: 8,
+              opacity: locked ? 0.6 : 1,
+              cursor: locked ? "not-allowed" : "pointer",
+            }}
+          >
+            {/* IMPORTANT: this renders ALL storage areas returned */}
+            {storageAreas.map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.name}
+              </option>
+            ))}
+          </select>
+
+          <div style={{ marginTop: 14, fontWeight: 700 }}>One-time override</div>
+          <div style={{ opacity: 0.7, marginTop: 4 }}>
+            If you had to grab it from Main Sterile Supply while your default is a cabinet.
+          </div>
+
+          <div style={{ marginTop: 10, display: "flex", gap: 10, alignItems: "center" }}>
             <button
-              onClick={() => setUseFromMainOneTime(true)}
-              className={`px-4 py-2 rounded-xl font-bold ${
-                useFromMainOneTime ? "bg-blue-600 text-white" : "bg-slate-200"
-              }`}
+              onClick={() => {
+                if (!mainSupplyId) {
+                  setStatus("Could not find Main Sterile Supply name in storage_areas.");
+                  return;
+                }
+                setOneTimeSourceId(mainSupplyId);
+                setStatus("Next submit will pull from Main Sterile Supply (one-time)");
+              }}
+              style={{
+                padding: "10px 12px",
+                borderRadius: 12,
+                border: "1px solid #ccc",
+                cursor: "pointer",
+                fontWeight: 700,
+              }}
             >
               ⚡ MAIN (1x)
             </button>
 
-            {useFromMainOneTime && (
-              <button
-                onClick={() => setUseFromMainOneTime(false)}
-                className="px-4 py-2 rounded-xl bg-slate-200 font-bold"
-              >
-                Cancel
-              </button>
-            )}
+            <button
+              onClick={() => {
+                setOneTimeSourceId(null);
+                setStatus("Override cleared");
+              }}
+              style={btnLight}
+            >
+              Cancel
+            </button>
+          </div>
+
+          <div style={{ marginTop: 10, fontSize: 14 }}>
+            <b>Source for next submit:</b>{" "}
+            {oneTimeSourceId
+              ? storageAreas.find((s) => s.id === oneTimeSourceId)?.name ?? "Main (override)"
+              : storageAreas.find((s) => s.id === selectedAreaId)?.name ?? "—"}
           </div>
         </div>
 
-        {/* Mode Buttons */}
-        <div className="grid md:grid-cols-2 gap-4">
-          <button
-            onClick={() => setMode("USE")}
-            className={`p-6 rounded-xl font-black text-white ${
-              mode === "USE" ? "bg-red-600" : "bg-slate-400"
-            }`}
-          >
-            USE
-          </button>
+        {/* Right: Transaction */}
+        <div style={{ border: "1px solid #e5e5e5", borderRadius: 14, padding: 16 }}>
+          <div style={{ fontWeight: 700, marginBottom: 10 }}>Transaction</div>
 
-          <button
-            onClick={() => setMode("RESTOCK")}
-            className={`p-6 rounded-xl font-black text-white ${
-              mode === "RESTOCK" ? "bg-green-600" : "bg-slate-400"
-            }`}
-          >
-            RESTOCK
-          </button>
-        </div>
-
-        {/* Transaction Form */}
-        <div className="bg-white border rounded-2xl p-4 space-y-3">
-          <input
-            value={itemOrBarcode}
-            onChange={(e) => setItemOrBarcode(e.target.value)}
-            placeholder="Item name or barcode"
-            className="w-full p-4 rounded-xl border"
-          />
-
-          <input
-            type="number"
-            value={qty}
-            onChange={(e) => setQty(Number(e.target.value))}
-            className="w-full p-4 rounded-xl border"
-          />
-
-          <button
-            onClick={handleSubmit}
-            className="w-full p-6 bg-black text-white rounded-xl font-black text-xl"
-          >
-            Submit {mode}
-          </button>
-
-          <div className="text-sm font-bold">{submitStatus}</div>
-        </div>
-
-        {/* Total Inventory */}
-        <div className="bg-white border rounded-2xl p-4 space-y-3">
-          <div className="flex items-center justify-between gap-3">
-            <div className="font-black text-lg">Total Inventory (All Locations)</div>
+          <div style={{ display: "flex", gap: 10, marginBottom: 10 }}>
             <button
-              onClick={loadTotals}
-              className="px-4 py-2 rounded-xl bg-slate-200 font-bold"
+              onClick={() => setMode("use")}
+              style={{
+                ...btnMode,
+                background: mode === "use" ? "#b00020" : "#f2f2f2",
+                color: mode === "use" ? "white" : "black",
+              }}
             >
-              Refresh
+              ⛔ USE
+            </button>
+            <button
+              onClick={() => setMode("restock")}
+              style={{
+                ...btnMode,
+                background: mode === "restock" ? "#1b5e20" : "#f2f2f2",
+                color: mode === "restock" ? "white" : "black",
+              }}
+            >
+              ➕ RESTOCK
             </button>
           </div>
 
           <input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search item or barcode..."
-            className="w-full p-3 rounded-xl border"
+            value={itemText}
+            onChange={(e) => setItemText(e.target.value)}
+            placeholder="Item name or barcode"
+            style={{ ...inputStyle, width: "100%" }}
           />
 
-          {listStatus && <div className="text-sm font-bold">{listStatus}</div>}
+          <div style={{ marginTop: 10 }}>
+            <div style={{ fontWeight: 700, marginBottom: 6 }}>Quantity</div>
+            <input
+              type="number"
+              value={qty}
+              min={1}
+              onChange={(e) => setQty(Number(e.target.value || 1))}
+              style={{ ...inputStyle, width: "100%" }}
+            />
+          </div>
 
-          {filteredRows.map((r) => (
-            <div
-              key={r.item_id}
-              className="flex justify-between items-center p-4 bg-slate-50 rounded-xl"
-            >
-              <div>
-                <div className="font-bold">{r.item_name}</div>
-                <div className="text-xs text-gray-500">{r.barcode ?? ""}</div>
-              </div>
+          <button
+            onClick={submitTransaction}
+            style={{
+              marginTop: 14,
+              width: "100%",
+              padding: "12px 14px",
+              borderRadius: 12,
+              border: "none",
+              background: "#111",
+              color: "white",
+              fontWeight: 800,
+              cursor: "pointer",
+            }}
+          >
+            Submit {mode.toUpperCase()}
+          </button>
 
-              <div className="flex items-center gap-3">
-                <button
-                  onClick={() => quickUseOne(r.item_name)}
-                  className="bg-indigo-600 text-white px-3 py-2 rounded-xl font-bold"
-                >
-                  USE 1
-                </button>
-
-                <div className="px-4 py-2 rounded-xl bg-black text-white font-black">
-                  {r.total_on_hand}
-                </div>
-              </div>
-            </div>
-          ))}
+          <div style={{ marginTop: 10, opacity: 0.8 }}>{status}</div>
         </div>
       </div>
     </div>
   );
 }
+
+const inputStyle: React.CSSProperties = {
+  padding: "10px 12px",
+  borderRadius: 12,
+  border: "1px solid #ccc",
+  outline: "none",
+};
+
+const btnDark: React.CSSProperties = {
+  padding: "10px 12px",
+  borderRadius: 12,
+  border: "none",
+  background: "#111",
+  color: "white",
+  cursor: "pointer",
+  fontWeight: 700,
+};
+
+const btnLight: React.CSSProperties = {
+  padding: "10px 12px",
+  borderRadius: 12,
+  border: "1px solid #ccc",
+  background: "white",
+  cursor: "pointer",
+  fontWeight: 700,
+};
+
+const btnMode: React.CSSProperties = {
+  padding: "10px 12px",
+  borderRadius: 12,
+  border: "1px solid #ccc",
+  cursor: "pointer",
+  fontWeight: 800,
+  flex: 1,
+};
