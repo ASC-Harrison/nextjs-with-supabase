@@ -3,80 +3,122 @@
 import { useEffect, useMemo, useState } from "react";
 
 type StorageArea = { id: string; name: string };
-type ItemRow = { id: string; name: string; barcode: string | null; total_on_hand?: number };
+type TotalsRow = {
+  item_id: string;
+  item_name?: string; // some APIs use item_name
+  name?: string;      // some APIs use name
+  barcode: string | null;
+  total_on_hand: number | null;
+};
 
 type TabKey = "transaction" | "totals" | "settings";
+
+function toArray<T>(val: any): T[] {
+  return Array.isArray(val) ? (val as T[]) : [];
+}
+
+function pickStorageAreas(json: any): StorageArea[] {
+  // support: { ok:true, storageAreas: [...] } OR { ok:true, areas:[...] } OR direct array
+  const raw =
+    json?.storageAreas ??
+    json?.areas ??
+    json?.rows ??
+    json?.data ??
+    json;
+  return toArray<StorageArea>(raw).filter((x) => x?.id && x?.name);
+}
+
+function pickTotals(json: any): TotalsRow[] {
+  // support: { ok:true, items:[...] } OR { ok:true, rows:[...] } OR direct array
+  const raw =
+    json?.items ??
+    json?.rows ??
+    json?.data ??
+    json;
+  return toArray<TotalsRow>(raw).filter((x) => x?.item_id);
+}
 
 export default function ProtectedPage() {
   const [tab, setTab] = useState<TabKey>("transaction");
 
-  // lock + location
+  // settings / location
   const [locked, setLocked] = useState(true);
   const [pin, setPin] = useState("");
+
   const [storageAreas, setStorageAreas] = useState<StorageArea[]>([]);
   const [defaultLocationId, setDefaultLocationId] = useState<string>("");
 
-  // one-time override (MAIN 1x)
+  // one-time main override
   const [overrideOnce, setOverrideOnce] = useState(false);
 
   // transaction
   const [mode, setMode] = useState<"USE" | "RESTOCK">("USE");
-  const [qty, setQty] = useState<number>(1);
   const [itemInput, setItemInput] = useState("");
-  const [status, setStatus] = useState<string>("Ready");
+  const [qty, setQty] = useState<number>(1);
+  const [status, setStatus] = useState("Ready");
+  const [busy, setBusy] = useState(false);
 
-  // totals list
+  // totals
+  const [totals, setTotals] = useState<TotalsRow[]>([]);
   const [search, setSearch] = useState("");
-  const [totals, setTotals] = useState<ItemRow[]>([]);
-  const filteredTotals = useMemo(() => {
-    const s = search.trim().toLowerCase();
-    if (!s) return totals;
-    return totals.filter((x) => {
-      const n = (x.name ?? "").toLowerCase();
-      const b = (x.barcode ?? "").toLowerCase();
-      return n.includes(s) || b.includes(s);
-    });
-  }, [search, totals]);
 
-  // ---------- load initial ----------
-  useEffect(() => {
-    (async () => {
-      await loadStorageAreas();
-      await loadTotals();
-    })();
-  }, []);
+  const filteredTotals = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return totals;
+    return totals.filter((r) => {
+      const name = (r.item_name ?? r.name ?? "").toLowerCase();
+      const bc = (r.barcode ?? "").toLowerCase();
+      return name.includes(q) || bc.includes(q);
+    });
+  }, [totals, search]);
+
+  // MAIN id (best-effort by name)
+  const mainId = useMemo(() => {
+    const main = storageAreas.find((a) =>
+      a.name.toLowerCase().includes("main")
+    );
+    return main?.id ?? null;
+  }, [storageAreas]);
 
   async function loadStorageAreas() {
     try {
       const res = await fetch("/api/storage-areas", { cache: "no-store" });
-      if (!res.ok) throw new Error(`storage-areas ${res.status}`);
-      const data = await res.json();
-      const list: StorageArea[] = data.storageAreas ?? data ?? [];
+      const json = await res.json().catch(() => ({}));
+      const list = pickStorageAreas(json);
+
       setStorageAreas(list);
 
-      // set first default if none chosen yet
-      if (!defaultLocationId && list?.length) {
+      // ensure a valid default location id
+      if (!defaultLocationId && list.length > 0) {
         setDefaultLocationId(list[0].id);
+      } else if (defaultLocationId && list.length > 0) {
+        const exists = list.some((x) => x.id === defaultLocationId);
+        if (!exists) setDefaultLocationId(list[0].id);
       }
     } catch (e: any) {
-      setStatus(`Error loading locations: ${e.message ?? e}`);
+      setStorageAreas([]);
+      setStatus(`Error loading storage areas`);
     }
   }
 
   async function loadTotals() {
     try {
       const res = await fetch("/api/items?totals=1", { cache: "no-store" });
-      if (!res.ok) throw new Error(`items ${res.status}`);
-      const data = await res.json();
-      // support different shapes
-      const list: ItemRow[] = data.items ?? data ?? [];
+      const json = await res.json().catch(() => ({}));
+      const list = pickTotals(json);
       setTotals(list);
     } catch (e: any) {
-      setStatus(`Error loading totals: ${e.message ?? e}`);
+      setTotals([]);
+      setStatus(`Error loading totals`);
     }
   }
 
-  // ---------- lock/unlock ----------
+  useEffect(() => {
+    loadStorageAreas();
+    loadTotals();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   async function unlock() {
     try {
       setStatus("Unlocking...");
@@ -85,90 +127,82 @@ export default function ProtectedPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ pin }),
       });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok || data?.ok === false) {
-        throw new Error(data?.error ?? `Unlock failed (${res.status})`);
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok || json?.ok === false) {
+        setStatus(`Unlock failed: ${json?.error ?? res.status}`);
+        return;
       }
       setLocked(false);
       setPin("");
       setStatus("Unlocked");
-    } catch (e: any) {
-      setStatus(e.message ?? "Unlock failed");
+    } catch {
+      setStatus("Unlock failed");
     }
   }
 
   async function lock() {
+    setLocked(true);
+    setOverrideOnce(false);
+    setStatus("Locked");
     try {
-      setStatus("Locking...");
-      const res = await fetch("/api/lock", { method: "POST" });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok || data?.ok === false) {
-        throw new Error(data?.error ?? `Lock failed (${res.status})`);
-      }
-      setLocked(true);
-      setOverrideOnce(false);
-      setStatus("Locked");
-    } catch (e: any) {
-      setStatus(e.message ?? "Lock failed");
-    }
+      await fetch("/api/lock", { method: "POST" });
+    } catch {}
   }
 
-  // ---------- submit transaction ----------
   async function submit() {
+    const cleanItem = itemInput.trim();
+    const cleanQty = Math.max(1, Number(qty) || 1);
+
+    if (!defaultLocationId) {
+      setStatus("Transaction failed: Missing location (pick a location first)");
+      return;
+    }
+    if (!cleanItem) {
+      setStatus("Type an item name or barcode");
+      return;
+    }
+
+    // choose location for this submit
+    const submitLocationId = overrideOnce && mainId ? mainId : defaultLocationId;
+
+    setBusy(true);
+    setStatus("Submitting...");
+
     try {
-      setStatus("Submitting...");
-
-      // pick location:
-      // - if overrideOnce: use "Main Sterile Supply" by name if exists, else defaultLocationId
-      // - else: use defaultLocationId
-      let locationId = defaultLocationId;
-
-      if (overrideOnce) {
-        const main = storageAreas.find((x) =>
-          x.name.toLowerCase().includes("main sterile")
-        );
-        if (main?.id) locationId = main.id;
-      }
-
-      if (!locationId) throw new Error("Missing location");
-
       const res = await fetch("/api/transaction", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           mode,
-          location_id: locationId,
-          item: itemInput, // name or barcode
-          qty: Number(qty),
+          qty: cleanQty,
+          itemOrBarcode: cleanItem, // ✅ matches what you used earlier in your working build
+          location_id: submitLocationId,
         }),
       });
 
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok || data?.ok === false) {
-        throw new Error(data?.error ?? `Request failed (${res.status})`);
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok || json?.ok === false) {
+        setStatus(`Transaction failed: ${json?.error ?? res.status}`);
+        return;
       }
 
       setStatus("✅ Submitted");
       setItemInput("");
       setQty(1);
 
-      // reset one-time override after use
       if (overrideOnce) setOverrideOnce(false);
 
-      // refresh totals so you see updates immediately
       await loadTotals();
-    } catch (e: any) {
-      setStatus(`Transaction failed: ${e.message ?? e}`);
+    } catch {
+      setStatus("Transaction failed (network)");
+    } finally {
+      setBusy(false);
     }
   }
-
-  // ---------- UI helpers ----------
-  const canChangeLocation = !locked;
 
   return (
     <div className="min-h-screen bg-neutral-50">
       <div className="mx-auto max-w-6xl p-4 sm:p-6">
-        {/* Header */}
         <div className="flex items-start justify-between gap-3">
           <div>
             <div className="inline-flex items-center gap-2 rounded-full bg-black px-3 py-1 text-xs font-semibold text-white">
@@ -181,19 +215,18 @@ export default function ProtectedPage() {
             <p className="mt-1 text-sm text-neutral-600">
               Cabinet tracking + building totals + low stock alerts
             </p>
+            <p className="mt-1 text-xs text-neutral-500">{status}</p>
           </div>
 
-          <div className="flex gap-2">
-            <button
-              onClick={loadTotals}
-              className="rounded-xl border bg-white px-4 py-2 text-sm font-semibold shadow-sm active:scale-[0.99]"
-            >
-              Refresh
-            </button>
-          </div>
+          <button
+            onClick={loadTotals}
+            className="rounded-xl border bg-white px-4 py-2 text-sm font-semibold shadow-sm active:scale-[0.99]"
+          >
+            Refresh
+          </button>
         </div>
 
-        {/* PHONE TABS (this is the “tab option”) */}
+        {/* MOBILE TABS */}
         <div className="mt-5 sm:hidden">
           <div className="grid grid-cols-3 overflow-hidden rounded-2xl border bg-white shadow-sm">
             <TabButton active={tab === "transaction"} onClick={() => setTab("transaction")}>
@@ -208,7 +241,7 @@ export default function ProtectedPage() {
           </div>
         </div>
 
-        {/* DESKTOP LAYOUT */}
+        {/* DESKTOP: Settings left, Transaction+Totals right */}
         <div className="mt-5 hidden gap-4 sm:grid sm:grid-cols-2">
           <SettingsCard
             locked={locked}
@@ -216,11 +249,10 @@ export default function ProtectedPage() {
             setPin={setPin}
             unlock={unlock}
             lock={lock}
-            status={status}
             storageAreas={storageAreas}
             defaultLocationId={defaultLocationId}
             setDefaultLocationId={setDefaultLocationId}
-            canChangeLocation={canChangeLocation}
+            canChangeLocation={!locked}
             overrideOnce={overrideOnce}
             setOverrideOnce={setOverrideOnce}
           />
@@ -234,7 +266,7 @@ export default function ProtectedPage() {
               qty={qty}
               setQty={setQty}
               submit={submit}
-              status={status}
+              busy={busy}
             />
             <TotalsCard
               search={search}
@@ -244,7 +276,7 @@ export default function ProtectedPage() {
           </div>
         </div>
 
-        {/* MOBILE TABBED PANELS */}
+        {/* MOBILE TAB PANELS */}
         <div className="mt-4 space-y-4 sm:hidden">
           {tab === "transaction" && (
             <TransactionCard
@@ -255,7 +287,7 @@ export default function ProtectedPage() {
               qty={qty}
               setQty={setQty}
               submit={submit}
-              status={status}
+              busy={busy}
             />
           )}
 
@@ -270,11 +302,10 @@ export default function ProtectedPage() {
               setPin={setPin}
               unlock={unlock}
               lock={lock}
-              status={status}
               storageAreas={storageAreas}
               defaultLocationId={defaultLocationId}
               setDefaultLocationId={setDefaultLocationId}
-              canChangeLocation={canChangeLocation}
+              canChangeLocation={!locked}
               overrideOnce={overrideOnce}
               setOverrideOnce={setOverrideOnce}
             />
@@ -322,7 +353,6 @@ function SettingsCard(props: {
   setPin: (v: string) => void;
   unlock: () => void;
   lock: () => void;
-  status: string;
   storageAreas: StorageArea[];
   defaultLocationId: string;
   setDefaultLocationId: (v: string) => void;
@@ -376,7 +406,7 @@ function SettingsCard(props: {
         <div className="mt-3 rounded-xl border bg-neutral-50 p-3">
           <div className="text-sm font-bold">One-time override</div>
           <div className="mt-1 text-xs text-neutral-600">
-            If your default is a cabinet but you grabbed something from Main Supply once.
+            Use Main Supply once (doesn’t change your default).
           </div>
 
           <div className="mt-3 flex gap-2">
@@ -399,12 +429,10 @@ function SettingsCard(props: {
 
           {props.overrideOnce && (
             <div className="mt-2 text-xs font-semibold text-blue-700">
-              Source for next submit: Main Sterile Supply
+              Next submit pulls from Main (by name match).
             </div>
           )}
         </div>
-
-        <div className="mt-3 text-xs text-neutral-600">Status: {props.status}</div>
       </Card>
     </div>
   );
@@ -418,7 +446,7 @@ function TransactionCard(props: {
   qty: number;
   setQty: (n: number) => void;
   submit: () => void;
-  status: string;
+  busy: boolean;
 }) {
   return (
     <Card title="Transaction">
@@ -474,12 +502,11 @@ function TransactionCard(props: {
 
         <button
           onClick={props.submit}
-          className="w-full rounded-2xl bg-black px-4 py-4 text-sm font-extrabold text-white shadow-sm"
+          disabled={props.busy}
+          className="w-full rounded-2xl bg-black px-4 py-4 text-sm font-extrabold text-white shadow-sm disabled:opacity-60"
         >
           ✅ Submit {props.mode}
         </button>
-
-        <div className="text-xs text-neutral-600">{props.status}</div>
       </div>
     </Card>
   );
@@ -488,7 +515,7 @@ function TransactionCard(props: {
 function TotalsCard(props: {
   search: string;
   setSearch: (v: string) => void;
-  items: ItemRow[];
+  items: TotalsRow[];
 }) {
   return (
     <Card title="Total Inventory (All Locations)">
@@ -500,24 +527,33 @@ function TotalsCard(props: {
       />
 
       <div className="mt-3 space-y-2">
-        {props.items.slice(0, 30).map((it) => (
-          <div
-            key={it.id}
-            className="flex items-center justify-between rounded-xl border bg-white px-3 py-3"
-          >
-            <div>
-              <div className="text-sm font-extrabold">{it.name}</div>
-              <div className="text-xs text-neutral-600">{it.barcode ?? ""}</div>
+        {props.items.slice(0, 30).map((it) => {
+          const displayName = it.item_name ?? it.name ?? "Unnamed Item";
+          const count = typeof it.total_on_hand === "number" ? it.total_on_hand : 0;
+
+          return (
+            <div
+              key={it.item_id}
+              className="flex items-center justify-between rounded-xl border bg-white px-3 py-3"
+            >
+              <div>
+                <div className="text-sm font-extrabold">{displayName}</div>
+                <div className="text-xs text-neutral-600">{it.barcode ?? ""}</div>
+              </div>
+              <div className="rounded-full bg-black px-3 py-1 text-sm font-extrabold text-white">
+                {count}
+              </div>
             </div>
-            <div className="rounded-full bg-black px-3 py-1 text-sm font-extrabold text-white">
-              {typeof it.total_on_hand === "number" ? it.total_on_hand : "—"}
-            </div>
-          </div>
-        ))}
+          );
+        })}
+
+        {props.items.length === 0 && (
+          <div className="text-sm text-neutral-600">No totals returned yet.</div>
+        )}
 
         {props.items.length > 30 && (
           <div className="text-xs text-neutral-500">
-            Showing first 30 results. Use search to narrow down.
+            Showing first 30. Use search to narrow.
           </div>
         )}
       </div>
