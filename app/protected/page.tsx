@@ -1,7 +1,5 @@
 "use client";
 
-export const dynamic = "force-dynamic";
-
 import { useEffect, useMemo, useState } from "react";
 
 type TotalRow = {
@@ -14,8 +12,8 @@ type TotalRow = {
 export default function ProtectedPage() {
   const MAIN = "Main Sterile Supply";
 
-  // 🔥 Change this anytime you deploy to verify you're on newest build
-  const BUILD_TAG = "BUILD 2026-02-14 9:15PM";
+  // Change this anytime to prove you're on the latest build
+  const BUILD_TAG = "BUILD 2026-02-14 9:25PM";
 
   const [location, setLocation] = useState(MAIN);
   const [mode, setMode] = useState<"USE" | "RESTOCK">("USE");
@@ -76,16 +74,12 @@ export default function ProtectedPage() {
   const filteredRows = useMemo(() => {
     const q = search.trim().toLowerCase();
     if (!q) return rows;
-    return rows.filter((r) =>
-      r.item_name.toLowerCase().includes(q) ||
-      (r.barcode ?? "").toLowerCase().includes(q)
-    );
+    return rows.filter((r) => {
+      const name = r.item_name.toLowerCase();
+      const bc = (r.barcode ?? "").toLowerCase();
+      return name.includes(q) || bc.includes(q);
+    });
   }, [rows, search]);
-
-  const anyLow = useMemo(
-    () => rows.some((r) => Number(r.total_on_hand) <= 3),
-    [rows]
-  );
 
   async function handleUnlock() {
     try {
@@ -163,22 +157,85 @@ export default function ProtectedPage() {
   return (
     <div className="min-h-screen bg-slate-50 p-6">
       <div className="max-w-5xl mx-auto space-y-6">
-
         <div>
-          <h1 className="text-3xl font-black">
-            Baxter Health ASC – Harrison
-          </h1>
-          <div className="text-xs font-bold text-slate-400">
-            {BUILD_TAG}
+          <h1 className="text-3xl font-black">Baxter ASC Inventory</h1>
+          <div className="text-xs font-bold text-slate-400">{BUILD_TAG}</div>
+        </div>
+
+        {/* Lock / Location */}
+        <div className="bg-white border rounded-2xl p-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="font-bold">
+              {isUnlocked ? "🔓 Location Unlocked" : "🔒 Location Locked"}
+            </div>
+
+            {isUnlocked ? (
+              <button
+                onClick={lockNow}
+                className="px-4 py-2 rounded-xl bg-slate-200 font-bold"
+              >
+                Lock
+              </button>
+            ) : (
+              <button
+                onClick={handleUnlock}
+                className="px-4 py-2 rounded-xl bg-black text-white font-bold"
+              >
+                Unlock
+              </button>
+            )}
+          </div>
+
+          {!isUnlocked && (
+            <div className="space-y-2">
+              <input
+                value={pin}
+                onChange={(e) => setPin(e.target.value)}
+                placeholder="Enter PIN"
+                className="w-full p-3 rounded-xl border"
+              />
+              <div className="text-sm font-bold">{unlockStatus}</div>
+            </div>
+          )}
+
+          <div className="space-y-2">
+            <div className="font-bold">Default location</div>
+            <select
+              value={location}
+              onChange={(e) => setLocation(e.target.value)}
+              disabled={!isUnlocked}
+              className="w-full p-3 rounded-xl border bg-white disabled:bg-slate-100"
+            >
+              <option>Main Sterile Supply</option>
+              <option>OR 1 - Cabinet A</option>
+              <option>OR 1 - Cabinet B</option>
+              <option>OR 2 - Cabinet A</option>
+              <option>OR 2 - Cabinet B</option>
+            </select>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => setUseFromMainOneTime(true)}
+              className={`px-4 py-2 rounded-xl font-bold ${
+                useFromMainOneTime ? "bg-blue-600 text-white" : "bg-slate-200"
+              }`}
+            >
+              ⚡ MAIN (1x)
+            </button>
+
+            {useFromMainOneTime && (
+              <button
+                onClick={() => setUseFromMainOneTime(false)}
+                className="px-4 py-2 rounded-xl bg-slate-200 font-bold"
+              >
+                Cancel
+              </button>
+            )}
           </div>
         </div>
 
-        {anyLow && (
-          <div className="bg-red-100 border border-red-400 p-4 rounded-xl font-bold text-red-900">
-            ⚠ LOW STOCK ITEMS DETECTED
-          </div>
-        )}
-
+        {/* Mode Buttons */}
         <div className="grid md:grid-cols-2 gap-4">
           <button
             onClick={() => setMode("USE")}
@@ -199,45 +256,61 @@ export default function ProtectedPage() {
           </button>
         </div>
 
-        <input
-          value={itemOrBarcode}
-          onChange={(e) => setItemOrBarcode(e.target.value)}
-          placeholder="Item name or barcode"
-          className="w-full p-4 rounded-xl border"
-        />
+        {/* Transaction Form */}
+        <div className="bg-white border rounded-2xl p-4 space-y-3">
+          <input
+            value={itemOrBarcode}
+            onChange={(e) => setItemOrBarcode(e.target.value)}
+            placeholder="Item name or barcode"
+            className="w-full p-4 rounded-xl border"
+          />
 
-        <input
-          type="number"
-          value={qty}
-          onChange={(e) => setQty(Number(e.target.value))}
-          className="w-full p-4 rounded-xl border"
-        />
+          <input
+            type="number"
+            value={qty}
+            onChange={(e) => setQty(Number(e.target.value))}
+            className="w-full p-4 rounded-xl border"
+          />
 
-        <button
-          onClick={handleSubmit}
-          className="w-full p-6 bg-black text-white rounded-xl font-black text-xl"
-        >
-          Submit
-        </button>
+          <button
+            onClick={handleSubmit}
+            className="w-full p-6 bg-black text-white rounded-xl font-black text-xl"
+          >
+            Submit {mode}
+          </button>
 
-        <div className="text-sm font-bold">{submitStatus}</div>
+          <div className="text-sm font-bold">{submitStatus}</div>
+        </div>
 
-        <div>
+        {/* Total Inventory */}
+        <div className="bg-white border rounded-2xl p-4 space-y-3">
+          <div className="flex items-center justify-between gap-3">
+            <div className="font-black text-lg">Total Inventory (All Locations)</div>
+            <button
+              onClick={loadTotals}
+              className="px-4 py-2 rounded-xl bg-slate-200 font-bold"
+            >
+              Refresh
+            </button>
+          </div>
+
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search..."
-            className="w-full p-3 rounded-xl border mb-3"
+            placeholder="Search item or barcode..."
+            className="w-full p-3 rounded-xl border"
           />
+
+          {listStatus && <div className="text-sm font-bold">{listStatus}</div>}
 
           {filteredRows.map((r) => (
             <div
               key={r.item_id}
-              className="flex justify-between items-center p-4 bg-white rounded-xl mb-2"
+              className="flex justify-between items-center p-4 bg-slate-50 rounded-xl"
             >
               <div>
                 <div className="font-bold">{r.item_name}</div>
-                <div className="text-xs text-gray-500">{r.barcode}</div>
+                <div className="text-xs text-gray-500">{r.barcode ?? ""}</div>
               </div>
 
               <div className="flex items-center gap-3">
@@ -248,20 +321,13 @@ export default function ProtectedPage() {
                   USE 1
                 </button>
 
-                <div
-                  className={`px-4 py-2 rounded-xl text-white font-black ${
-                    Number(r.total_on_hand) <= 3
-                      ? "bg-red-600"
-                      : "bg-black"
-                  }`}
-                >
+                <div className="px-4 py-2 rounded-xl bg-black text-white font-black">
                   {r.total_on_hand}
                 </div>
               </div>
             </div>
           ))}
         </div>
-
       </div>
     </div>
   );
