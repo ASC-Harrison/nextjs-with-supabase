@@ -8,6 +8,7 @@ const supabase = createClient(
 
 export async function GET() {
   try {
+    // Pull ALL locations (master list), even if they have zero inventory rows
     const { data, error } = await supabase
       .from("locations")
       .select("id, name")
@@ -17,8 +18,17 @@ export async function GET() {
       return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
     }
 
-    return NextResponse.json({ ok: true, locations: data ?? [] });
+    // Many parts of your app probably expect "storageAreas"
+    const storageAreas = (data ?? []).map((row) => ({
+      id: row.id,
+      name: row.name,
+    }));
+
+    return NextResponse.json({ ok: true, storageAreas });
   } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message ?? "Unknown error" }, { status: 500 });
+    return NextResponse.json(
+      { ok: false, error: e?.message ?? "Unknown error" },
+      { status: 500 }
+    );
   }
 }
