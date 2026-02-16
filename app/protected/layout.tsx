@@ -1,24 +1,29 @@
-import type { ReactNode } from "react";
-import AuthButton from "@/components/auth-button"; // ✅ default import
-import { ThemeSwitcher } from "@/components/theme-switcher";
+import { Suspense } from "react";
+import AuthButton from "@/components/auth-button";
 
-export default function ProtectedLayout({ children }: { children: ReactNode }) {
+export default function ProtectedLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   return (
-    <div className="min-h-screen">
-      <header className="border-b">
-        <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-4 py-3">
-          <div className="flex items-center gap-3">
-            <div className="font-semibold">Baxter ASC Inventory</div>
-          </div>
+    <div className="min-h-screen bg-neutral-950 text-white">
+      <header className="border-b border-neutral-800 bg-neutral-950">
+        <div className="mx-auto max-w-md px-4 py-3 flex items-center justify-between">
+          <div className="text-sm font-semibold">ASC Inventory</div>
 
-          <div className="flex items-center gap-3">
-            <ThemeSwitcher />
+          {/* IMPORTANT: AuthButton reads session/cookies, so it MUST be inside Suspense */}
+          <Suspense
+            fallback={
+              <div className="h-9 w-24 rounded-md bg-neutral-900 border border-neutral-800" />
+            }
+          >
             <AuthButton />
-          </div>
+          </Suspense>
         </div>
       </header>
 
-      <main className="mx-auto max-w-6xl px-4 py-6">{children}</main>
+      <main className="mx-auto max-w-md px-4 py-4">{children}</main>
     </div>
   );
 }
