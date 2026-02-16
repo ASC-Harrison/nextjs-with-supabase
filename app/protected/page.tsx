@@ -165,11 +165,15 @@ export default function ProtectedPage() {
         }),
       });
 
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        setStatus(`Transaction failed: ${json?.error || res.statusText}`);
-        return;
-      }
+     if (!res.ok) {
+  if (json?.code === "ITEM_NOT_FOUND") {
+    setStatus(`❌ Not in system: ${json?.scanned || itemQuery.trim()}`);
+  } else {
+    setStatus(`Transaction failed: ${json?.error || res.statusText}`);
+  }
+  return;
+}
+
 
       setStatus("✅ Submitted");
 
