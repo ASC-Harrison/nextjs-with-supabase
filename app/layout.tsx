@@ -3,13 +3,11 @@ import type { Metadata } from "next";
 
 export const metadata: Metadata = {
   title: "Baxter ASC Inventory",
-  description: "Cabinet tracking + building totals + low stock alerts",
+  description: "Cabinet tracking + building totals",
   icons: {
-    icon: [{ url: "/favicon.ico" }],
-    apple: [{ url: "/apple-touch-icon.png" }],
+    icon: "/favicon.ico",
+    apple: "/apple-touch-icon.png",
   },
-  manifest: "/manifest.webmanifest",
-  themeColor: "#303136",
 };
 
 export default function RootLayout({
