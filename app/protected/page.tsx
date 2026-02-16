@@ -1,45 +1,50 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import { createBrowserClient } from "@/lib/supabase/client";
+import BarcodeScanner from "@/components/barcode-scanner";
 
-type StorageArea = {
-  id: string;        // uuid
-  name: string;
-};
-
+type StorageArea = { id: string; name: string };
 type Tab = "transaction" | "totals" | "settings";
 
 export default function ProtectedPage() {
   const supabase = useMemo(() => createBrowserClient(), []);
 
+  // Tabs
   const [tab, setTab] = useState<Tab>("transaction");
 
+  // Locations
   const [areas, setAreas] = useState<StorageArea[]>([]);
   const [areasError, setAreasError] = useState<string>("");
-
   const [defaultAreaId, setDefaultAreaId] = useState<string>("");
+
+  // Locking
   const [locked, setLocked] = useState<boolean>(true);
   const [pin, setPin] = useState<string>("");
 
-  // one-time override
+  // One-time override
   const [overrideOnce, setOverrideOnce] = useState<boolean>(false);
 
-  // transaction form
+  // Transaction form
   const [mode, setMode] = useState<"USE" | "RESTOCK">("USE");
   const [itemQuery, setItemQuery] = useState<string>("");
   const [qty, setQty] = useState<number>(1);
   const [status, setStatus] = useState<string>("Ready");
 
+  // Scanner UI
+  const [scannerOpen, setScannerOpen] = useState<boolean>(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+
   const currentArea = useMemo(
-    () => areas.find(a => a.id === defaultAreaId),
+    () => areas.find((a) => a.id === defaultAreaId),
     [areas, defaultAreaId]
   );
 
   const mainAreaId = useMemo(() => {
-    // tries to find “Main Sterile Supply” by name
-    const m = areas.find(a => a.name.toLowerCase().includes("main sterile"));
+    const m = areas.find((a) =>
+      a.name.toLowerCase().includes("main sterile")
+    );
     return m?.id || "";
   }, [areas]);
 
@@ -67,7 +72,7 @@ export default function ProtectedPage() {
     localStorage.setItem("asc_override_once", String(overrideOnce));
   }, [overrideOnce]);
 
-  // Fetch storage areas (THIS fixes your “locations are gone” problem)
+  // Fetch storage areas
   useEffect(() => {
     let cancelled = false;
 
@@ -86,11 +91,11 @@ export default function ProtectedPage() {
         const list = (data || []) as StorageArea[];
         setAreas(list);
 
-        // If nothing selected yet, default to “Main Sterile Supply” if it exists
         if (!defaultAreaId) {
-          const main = list.find(a => a.name.toLowerCase().includes("main sterile"));
-          if (main) setDefaultAreaId(main.id);
-          else if (list[0]) setDefaultAreaId(list[0].id);
+          const main = list.find((a) =>
+            a.name.toLowerCase().includes("main sterile")
+          );
+          setDefaultAreaId(main?.id || list[0]?.id || "");
         }
       } catch (e: any) {
         if (cancelled) return;
@@ -100,12 +105,21 @@ export default function ProtectedPage() {
     }
 
     loadAreas();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [supabase]);
 
+  // Autofocus on transaction tab
+  useEffect(() => {
+    if (tab === "transaction") {
+      setTimeout(() => inputRef.current?.focus(), 150);
+    }
+  }, [tab]);
+
   function unlock() {
-    // default PIN: 1234 (you can later move this to DB)
+    // Change this later to DB if you want.
     if (pin.trim() === "1234") {
       setLocked(false);
       setStatus("Unlocked");
@@ -130,12 +144,10 @@ export default function ProtectedPage() {
       setStatus("Transaction failed: Missing location");
       return;
     }
-
     if (!itemQuery.trim()) {
-      setStatus("Transaction failed: Missing item");
+      setStatus("Transaction failed: Missing item/barcode");
       return;
     }
-
     if (!qty || qty < 1) {
       setStatus("Transaction failed: Qty must be 1+");
       return;
@@ -154,7 +166,6 @@ export default function ProtectedPage() {
       });
 
       const json = await res.json().catch(() => ({}));
-
       if (!res.ok) {
         setStatus(`Transaction failed: ${json?.error || res.statusText}`);
         return;
@@ -162,11 +173,15 @@ export default function ProtectedPage() {
 
       setStatus("✅ Submitted");
 
-      // If override was used, consume it (one-time)
+      // consume one-time override
       if (overrideOnce) setOverrideOnce(false);
 
+      // clear inputs
       setItemQuery("");
       setQty(1);
+
+      // refocus for fast scanning
+      setTimeout(() => inputRef.current?.focus(), 100);
     } catch (e: any) {
       setStatus(`Transaction failed: ${e?.message || "Unknown error"}`);
     }
@@ -176,18 +191,18 @@ export default function ProtectedPage() {
     <div className="min-h-screen bg-neutral-950 text-white">
       <div className="mx-auto max-w-xl px-4 py-4">
         {/* Header */}
-        <div className="rounded-2xl bg-neutral-900/70 p-4 shadow">
+        <div className="rounded-3xl bg-neutral-900/70 p-4 shadow ring-1 ring-white/10">
           <div className="flex items-center gap-3">
-            <div className="h-12 w-12 overflow-hidden rounded-2xl bg-neutral-800 flex items-center justify-center">
+            <div className="h-14 w-14 overflow-hidden rounded-2xl bg-white/10 flex items-center justify-center ring-1 ring-white/10">
               <Image
-  src="/asc-header-logo.png"
-  alt="ASC Logo"
-  width={80}
-  height={80}
-  priority
-/>
-
+                src="/asc-header-logo.png"
+                alt="ASC Logo"
+                width={96}
+                height={96}
+                priority
+              />
             </div>
+
             <div className="flex-1">
               <div className="text-2xl font-bold leading-tight">
                 Baxter ASC Inventory
@@ -196,6 +211,7 @@ export default function ProtectedPage() {
                 Cabinet tracking + building totals + low stock alerts
               </div>
             </div>
+
             <div className="text-right text-sm text-neutral-300">
               <div>Location:</div>
               <div className="font-semibold text-white">
@@ -208,24 +224,30 @@ export default function ProtectedPage() {
         {/* Tabs */}
         <div className="mt-4 flex gap-2">
           <button
-            className={`flex-1 rounded-xl px-3 py-2 font-semibold ${
-              tab === "transaction" ? "bg-white text-black" : "bg-neutral-900 text-white"
+            className={`flex-1 rounded-2xl px-3 py-3 font-bold ${
+              tab === "transaction"
+                ? "bg-white text-black"
+                : "bg-neutral-900 text-white ring-1 ring-white/10"
             }`}
             onClick={() => setTab("transaction")}
           >
             Transaction
           </button>
           <button
-            className={`flex-1 rounded-xl px-3 py-2 font-semibold ${
-              tab === "totals" ? "bg-white text-black" : "bg-neutral-900 text-white"
+            className={`flex-1 rounded-2xl px-3 py-3 font-bold ${
+              tab === "totals"
+                ? "bg-white text-black"
+                : "bg-neutral-900 text-white ring-1 ring-white/10"
             }`}
             onClick={() => setTab("totals")}
           >
             Totals
           </button>
           <button
-            className={`flex-1 rounded-xl px-3 py-2 font-semibold ${
-              tab === "settings" ? "bg-white text-black" : "bg-neutral-900 text-white"
+            className={`flex-1 rounded-2xl px-3 py-3 font-bold ${
+              tab === "settings"
+                ? "bg-white text-black"
+                : "bg-neutral-900 text-white ring-1 ring-white/10"
             }`}
             onClick={() => setTab("settings")}
           >
@@ -233,11 +255,11 @@ export default function ProtectedPage() {
           </button>
         </div>
 
-        {/* Content */}
+        {/* Transaction Tab */}
         {tab === "transaction" && (
           <div className="mt-4 space-y-4">
             {/* One-time override */}
-            <div className="rounded-2xl bg-neutral-900 p-4">
+            <div className="rounded-3xl bg-neutral-900 p-4 ring-1 ring-white/10">
               <div className="flex items-center justify-between gap-3">
                 <div>
                   <div className="text-lg font-bold">One-time override</div>
@@ -246,15 +268,17 @@ export default function ProtectedPage() {
                   </div>
                 </div>
                 <button
-                  className={`rounded-2xl px-4 py-3 font-bold ${
+                  className={`rounded-2xl px-4 py-3 font-black ${
                     overrideOnce ? "bg-blue-600" : "bg-neutral-800"
-                  }`}
+                  } ring-1 ring-white/10`}
                   onClick={() => {
                     if (!mainAreaId) {
-                      setStatus("No MAIN location found (check storage_areas names).");
+                      setStatus(
+                        "No MAIN location found (name must include 'Main Sterile')."
+                      );
                       return;
                     }
-                    setOverrideOnce(v => !v);
+                    setOverrideOnce((v) => !v);
                   }}
                 >
                   ⚡ MAIN<br />(1x)
@@ -262,22 +286,23 @@ export default function ProtectedPage() {
               </div>
             </div>
 
-            {/* Mode */}
-            <div className="rounded-2xl bg-neutral-900 p-4">
+            {/* Mode + Inputs */}
+            <div className="rounded-3xl bg-neutral-900 p-4 ring-1 ring-white/10">
               <div className="text-lg font-bold mb-3">Mode</div>
+
               <div className="flex gap-3">
                 <button
-                  className={`flex-1 rounded-2xl py-3 font-bold ${
+                  className={`flex-1 rounded-2xl py-3 font-black ${
                     mode === "USE" ? "bg-red-600" : "bg-neutral-800"
-                  }`}
+                  } ring-1 ring-white/10`}
                   onClick={() => setMode("USE")}
                 >
                   USE
                 </button>
                 <button
-                  className={`flex-1 rounded-2xl py-3 font-bold ${
+                  className={`flex-1 rounded-2xl py-3 font-black ${
                     mode === "RESTOCK" ? "bg-green-600" : "bg-neutral-800"
-                  }`}
+                  } ring-1 ring-white/10`}
                   onClick={() => setMode("RESTOCK")}
                 >
                   RESTOCK
@@ -285,59 +310,76 @@ export default function ProtectedPage() {
               </div>
 
               <div className="mt-4 space-y-3">
+                {/* Barcode/Item Input */}
+                <div className="flex gap-2">
+                  <input
+                    ref={inputRef}
+                    className="flex-1 rounded-2xl bg-white px-4 py-3 text-black text-lg"
+                    placeholder="Scan or type item name / barcode"
+                    value={itemQuery}
+                    onChange={(e) => setItemQuery(e.target.value)}
+                    onKeyDown={(e) => {
+                      // Bluetooth scanners usually send Enter
+                      if (e.key === "Enter") submitTransaction();
+                    }}
+                  />
+                  <button
+                    className="rounded-2xl bg-neutral-800 px-4 py-3 font-bold ring-1 ring-white/10"
+                    onClick={() => setScannerOpen(true)}
+                  >
+                    📷
+                    <div className="text-[10px] font-semibold text-white/70">
+                      Scan
+                    </div>
+                  </button>
+                </div>
+
+                {/* Qty */}
                 <input
-                  className="w-full rounded-xl bg-white px-4 py-3 text-black text-lg"
-                  placeholder="Item name or barcode"
-                  value={itemQuery}
-                  onChange={(e) => setItemQuery(e.target.value)}
-                />
-                <input
-                  className="w-full rounded-xl bg-white px-4 py-3 text-black text-lg"
+                  className="w-full rounded-2xl bg-white px-4 py-3 text-black text-lg"
                   type="number"
                   min={1}
                   value={qty}
                   onChange={(e) => setQty(Number(e.target.value))}
                 />
+
+                {/* Submit */}
                 <button
-                  className="w-full rounded-2xl bg-black py-4 text-xl font-bold"
+                  className="w-full rounded-2xl bg-black py-4 text-xl font-black ring-1 ring-white/10"
                   onClick={submitTransaction}
                 >
                   Submit
                 </button>
 
                 <div className="text-sm text-neutral-300">
-                  {areasError
-                    ? `Failed to load locations: ${areasError}`
-                    : status}
+                  {areasError ? `Locations error: ${areasError}` : status}
                 </div>
               </div>
             </div>
-
-            <div className="text-xs text-neutral-400">
-              Tip: keep default on your room cabinet; use ⚡ MAIN (1x) when you grab something from supply room.
-            </div>
           </div>
         )}
 
+        {/* Totals Tab */}
         {tab === "totals" && (
-          <div className="mt-4 rounded-2xl bg-neutral-900 p-4">
+          <div className="mt-4 rounded-3xl bg-neutral-900 p-4 ring-1 ring-white/10">
             <div className="text-lg font-bold">Totals</div>
             <div className="text-sm text-neutral-300">
-              (We can wire this to your building_inventory view next.)
+              Next: hook this to your building_inventory view.
             </div>
           </div>
         )}
 
+        {/* Settings Tab */}
         {tab === "settings" && (
           <div className="mt-4 space-y-4">
             {/* Lock */}
-            <div className="rounded-2xl bg-neutral-900 p-4">
+            <div className="rounded-3xl bg-neutral-900 p-4 ring-1 ring-white/10">
               <div className="flex items-center justify-between">
                 <div className="text-lg font-bold">
                   {locked ? "🔒 Location Locked" : "🔓 Location Unlocked"}
                 </div>
                 <button
-                  className="rounded-xl bg-neutral-800 px-4 py-2 font-semibold"
+                  className="rounded-2xl bg-neutral-800 px-4 py-2 font-bold ring-1 ring-white/10"
                   onClick={locked ? unlock : lock}
                 >
                   {locked ? "Unlock" : "Lock"}
@@ -347,13 +389,13 @@ export default function ProtectedPage() {
               {locked && (
                 <div className="mt-3">
                   <input
-                    className="w-full rounded-xl bg-neutral-800 px-4 py-3 text-white"
+                    className="w-full rounded-2xl bg-neutral-800 px-4 py-3 text-white"
                     placeholder="Enter PIN (default 1234)"
                     value={pin}
                     onChange={(e) => setPin(e.target.value)}
                   />
                   <button
-                    className="mt-3 w-full rounded-xl bg-white py-3 font-bold text-black"
+                    className="mt-3 w-full rounded-2xl bg-white py-3 font-black text-black"
                     onClick={unlock}
                   >
                     Unlock
@@ -363,13 +405,11 @@ export default function ProtectedPage() {
             </div>
 
             {/* Location selector */}
-            <div className="rounded-2xl bg-neutral-900 p-4">
-              <div className="flex items-center justify-between">
-                <div className="text-lg font-bold">Default location</div>
-              </div>
+            <div className="rounded-3xl bg-neutral-900 p-4 ring-1 ring-white/10">
+              <div className="text-lg font-bold">Default location</div>
 
               <select
-                className="mt-3 w-full rounded-xl bg-neutral-800 px-4 py-3 text-white"
+                className="mt-3 w-full rounded-2xl bg-neutral-800 px-4 py-3 text-white"
                 value={defaultAreaId}
                 onChange={(e) => {
                   if (locked) {
@@ -388,19 +428,25 @@ export default function ProtectedPage() {
               </select>
 
               {areasError && (
-                <div className="mt-2 text-sm text-red-300">
-                  Failed to load locations: {areasError}
+                <div className="mt-2 text-sm text-red-200">
+                  {areasError}
                 </div>
               )}
-            </div>
-
-            {/* Dark mode note */}
-            <div className="rounded-2xl bg-neutral-900 p-4 text-sm text-neutral-300">
-              App is currently in <b>dark mode</b>. If you want light mode, tell me and I’ll give you the full `app/layout.tsx` replacement to force light theme.
             </div>
           </div>
         )}
       </div>
+
+      {/* Scanner Modal */}
+      {scannerOpen && (
+        <BarcodeScanner
+          onScan={(value) => {
+            setItemQuery(value);
+            setTimeout(() => inputRef.current?.focus(), 150);
+          }}
+          onClose={() => setScannerOpen(false)}
+        />
+      )}
     </div>
   );
 }
