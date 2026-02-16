@@ -180,12 +180,13 @@ export default function ProtectedPage() {
           <div className="flex items-center gap-3">
             <div className="h-12 w-12 overflow-hidden rounded-2xl bg-neutral-800 flex items-center justify-center">
               <Image
-                src="/logo.png"
-                alt="ASC Logo"
-                width={48}
-                height={48}
-                priority
-              />
+  src="/asc-header-logo.png"
+  alt="ASC Logo"
+  width={80}
+  height={80}
+  priority
+/>
+
             </div>
             <div className="flex-1">
               <div className="text-2xl font-bold leading-tight">
