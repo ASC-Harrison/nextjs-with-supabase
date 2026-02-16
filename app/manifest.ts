@@ -1,30 +1,24 @@
+// app/manifest.ts
 import type { MetadataRoute } from "next";
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
     name: "Baxter ASC Inventory",
     short_name: "ASC Inventory",
-    description: "Cabinet tracking + building totals + low stock alerts",
     start_url: "/protected",
     display: "standalone",
-    background_color: "#303136",
-    theme_color: "#303136",
+    background_color: "#2f3136",
+    theme_color: "#2f3136",
     icons: [
       {
-        src: "/icon-192.png",
+        src: "/asc-icon-192.png",
         sizes: "192x192",
         type: "image/png",
       },
       {
-        src: "/icon-512.png",
+        src: "/asc-icon-512.png",
         sizes: "512x512",
         type: "image/png",
-      },
-      {
-        src: "/icon-512.png",
-        sizes: "512x512",
-        type: "image/png",
-        purpose: "maskable",
       },
     ],
   };
