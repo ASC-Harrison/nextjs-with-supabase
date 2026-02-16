@@ -1,456 +1,447 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import Image from "next/image";
-import { createBrowserClient } from "@/lib/supabase/client";
-import BarcodeScanner from "@/components/barcode-scanner";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 
-type StorageArea = { id: string; name: string };
-type Tab = "transaction" | "totals" | "settings";
+type LocationRow = {
+  id: string;
+  name: string;
+};
+
+type Mode = "USE" | "RESTOCK";
+
+type TxResponseOk = {
+  ok: true;
+  item?: { id?: string; name?: string; barcode?: string };
+  on_hand?: number;
+};
+
+type TxResponseErr = {
+  ok?: false;
+  code?: string; // e.g. "ITEM_NOT_FOUND"
+  error?: string;
+  scanned?: string;
+};
 
 export default function ProtectedPage() {
-  const supabase = useMemo(() => createBrowserClient(), []);
-
-  // Tabs
-  const [tab, setTab] = useState<Tab>("transaction");
-
-  // Locations
-  const [areas, setAreas] = useState<StorageArea[]>([]);
-  const [areasError, setAreasError] = useState<string>("");
-  const [defaultAreaId, setDefaultAreaId] = useState<string>("");
-
-  // Locking
-  const [locked, setLocked] = useState<boolean>(true);
-  const [pin, setPin] = useState<string>("");
-
-  // One-time override
-  const [overrideOnce, setOverrideOnce] = useState<boolean>(false);
-
-  // Transaction form
-  const [mode, setMode] = useState<"USE" | "RESTOCK">("USE");
-  const [itemQuery, setItemQuery] = useState<string>("");
-  const [qty, setQty] = useState<number>(1);
-  const [status, setStatus] = useState<string>("Ready");
-
-  // Scanner UI
-  const [scannerOpen, setScannerOpen] = useState<boolean>(false);
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  const currentArea = useMemo(
-    () => areas.find((a) => a.id === defaultAreaId),
-    [areas, defaultAreaId]
+  // ---------- UI State ----------
+  const [activeTab, setActiveTab] = useState<"transaction" | "totals" | "settings">(
+    "transaction"
   );
 
-  const mainAreaId = useMemo(() => {
-    const m = areas.find((a) =>
-      a.name.toLowerCase().includes("main sterile")
-    );
-    return m?.id || "";
-  }, [areas]);
+  const [mode, setMode] = useState<Mode>("USE");
+  const [itemQuery, setItemQuery] = useState("");
+  const [qty, setQty] = useState<number>(1);
+  const [status, setStatus] = useState<string>("");
 
-  // Load saved settings
+  // Locations
+  const [locations, setLocations] = useState<LocationRow[]>([]);
+  const [locationError, setLocationError] = useState<string>("");
+  const [currentLocationId, setCurrentLocationId] = useState<string>("");
+  const currentLocation = useMemo(
+    () => locations.find((l) => l.id === currentLocationId) || null,
+    [locations, currentLocationId]
+  );
+
+  // One-time override (MAIN 1x)
+  const [overrideOnce, setOverrideOnce] = useState(false);
+
+  // Camera scanning
+  const [scannerOpen, setScannerOpen] = useState(false);
+  const [cameraError, setCameraError] = useState<string>("");
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const scanTimerRef = useRef<number | null>(null);
+
+  // ---------- Load locations ----------
   useEffect(() => {
-    const savedArea = localStorage.getItem("asc_default_area_id") || "";
-    const savedLocked = localStorage.getItem("asc_locked");
-    const savedOverride = localStorage.getItem("asc_override_once");
-
-    if (savedArea) setDefaultAreaId(savedArea);
-    if (savedLocked !== null) setLocked(savedLocked === "true");
-    if (savedOverride !== null) setOverrideOnce(savedOverride === "true");
-  }, []);
-
-  // Persist settings
-  useEffect(() => {
-    localStorage.setItem("asc_default_area_id", defaultAreaId);
-  }, [defaultAreaId]);
-
-  useEffect(() => {
-    localStorage.setItem("asc_locked", String(locked));
-  }, [locked]);
-
-  useEffect(() => {
-    localStorage.setItem("asc_override_once", String(overrideOnce));
-  }, [overrideOnce]);
-
-  // Fetch storage areas
-  useEffect(() => {
-    let cancelled = false;
-
-    async function loadAreas() {
+    (async () => {
       try {
-        setAreasError("");
+        setLocationError("");
+        const res = await fetch("/api/locations", { cache: "no-store" });
+        const json = (await res.json()) as any;
 
-        const { data, error } = await supabase
-          .from("storage_areas")
-          .select("id,name")
-          .order("name", { ascending: true });
+        if (!res.ok) {
+          const msg =
+            typeof json?.error === "string"
+              ? json.error
+              : "Failed to load locations.";
+          setLocationError(msg);
+          setLocations([]);
+          return;
+        }
 
-        if (error) throw error;
-        if (cancelled) return;
+        // Support either: { locations: [...] } or plain array
+        const list: LocationRow[] = Array.isArray(json)
+          ? json
+          : Array.isArray(json?.locations)
+          ? json.locations
+          : [];
 
-        const list = (data || []) as StorageArea[];
-        setAreas(list);
+        if (!Array.isArray(list)) {
+          setLocationError("Failed to load locations: unexpected response.");
+          setLocations([]);
+          return;
+        }
 
-        if (!defaultAreaId) {
-          const main = list.find((a) =>
-            a.name.toLowerCase().includes("main sterile")
-          );
-          setDefaultAreaId(main?.id || list[0]?.id || "");
+        setLocations(list);
+
+        // Restore saved location
+        const saved = typeof window !== "undefined" ? localStorage.getItem("asc_location_id") : null;
+        const first = list[0]?.id || "";
+
+        const pick = saved && list.some((l) => l.id === saved) ? saved : first;
+        if (pick) {
+          setCurrentLocationId(pick);
+          if (typeof window !== "undefined") localStorage.setItem("asc_location_id", pick);
         }
       } catch (e: any) {
-        if (cancelled) return;
-        setAreas([]);
-        setAreasError(e?.message || "Failed to load locations.");
+        setLocations([]);
+        setLocationError(`Failed to load locations: ${e?.message || "Unknown error"}`);
       }
-    }
+    })();
+  }, []);
 
-    loadAreas();
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [supabase]);
-
-  // Autofocus on transaction tab
-  useEffect(() => {
-    if (tab === "transaction") {
-      setTimeout(() => inputRef.current?.focus(), 150);
-    }
-  }, [tab]);
-
-  function unlock() {
-    // Change this later to DB if you want.
-    if (pin.trim() === "1234") {
-      setLocked(false);
-      setStatus("Unlocked");
-      setPin("");
-    } else {
-      setStatus("Wrong PIN");
-    }
+  // ---------- Save location selection ----------
+  function handleChangeLocation(id: string) {
+    setCurrentLocationId(id);
+    if (typeof window !== "undefined") localStorage.setItem("asc_location_id", id);
   }
 
-  function lock() {
-    setLocked(true);
-    setStatus("Locked");
-  }
-
+  // ---------- Transaction submit ----------
   async function submitTransaction() {
-    setStatus("Submitting...");
+    setStatus("");
 
-    const sourceAreaId =
-      overrideOnce && mainAreaId ? mainAreaId : defaultAreaId;
-
-    if (!sourceAreaId) {
-      setStatus("Transaction failed: Missing location");
+    const trimmed = itemQuery.trim();
+    if (!trimmed) {
+      setStatus("❌ Enter an item name or barcode first.");
       return;
     }
-    if (!itemQuery.trim()) {
-      setStatus("Transaction failed: Missing item/barcode");
+    if (!currentLocationId) {
+      setStatus("❌ No location selected.");
       return;
     }
-    if (!qty || qty < 1) {
-      setStatus("Transaction failed: Qty must be 1+");
+    if (!qty || qty <= 0) {
+      setStatus("❌ Quantity must be at least 1.");
       return;
     }
 
     try {
       const res = await fetch("/api/transaction", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          itemQuery: itemQuery.trim(),
+          itemQuery: trimmed,
           qty,
           mode,
-          storage_area_id: sourceAreaId,
+          storage_area_id: overrideOnce ? "MAIN" : currentLocationId, // server can interpret "MAIN" if you use that
+          override_once: overrideOnce,
         }),
       });
 
-     if (!res.ok) {
-  if (json?.code === "ITEM_NOT_FOUND") {
-    setStatus(`❌ Not in system: ${json?.scanned || itemQuery.trim()}`);
-  } else {
-    setStatus(`Transaction failed: ${json?.error || res.statusText}`);
-  }
-  return;
-}
+      // ✅ THIS is what you were missing before:
+      const json = (await res.json()) as TxResponseOk & TxResponseErr;
 
+      if (!res.ok) {
+        if (json?.code === "ITEM_NOT_FOUND") {
+          setStatus(`❌ Not in system: ${json?.scanned || trimmed}`);
+        } else {
+          setStatus(`❌ Transaction failed: ${json?.error || res.statusText}`);
+        }
+        return;
+      }
 
-      setStatus("✅ Submitted");
+      setStatus("✅ Submitted!");
 
-      // consume one-time override
+      // If override was used, consume it (one-time)
       if (overrideOnce) setOverrideOnce(false);
 
-      // clear inputs
+      // Clear fields
       setItemQuery("");
       setQty(1);
-
-      // refocus for fast scanning
-      setTimeout(() => inputRef.current?.focus(), 100);
     } catch (e: any) {
-      setStatus(`Transaction failed: ${e?.message || "Unknown error"}`);
+      setStatus(`❌ Transaction failed: ${e?.message || "Unknown error"}`);
     }
   }
 
+  // ---------- Scanner helpers ----------
+  async function openScanner() {
+    setCameraError("");
+    setScannerOpen(true);
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: "environment" } },
+        audio: false,
+      });
+      streamRef.current = stream;
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        await videoRef.current.play();
+      }
+
+      // Try BarcodeDetector if available
+      const AnyWindow = window as any;
+      if (!AnyWindow.BarcodeDetector) {
+        setCameraError("Camera opened. This device/browser doesn’t support auto barcode detection here. Type or use a handheld scanner into the input.");
+        return;
+      }
+
+      const detector = new AnyWindow.BarcodeDetector({
+        formats: ["qr_code", "code_128", "ean_13", "ean_8", "upc_a", "upc_e", "code_39"],
+      });
+
+      // Scan loop (every ~300ms)
+      scanTimerRef.current = window.setInterval(async () => {
+        try {
+          if (!videoRef.current) return;
+          const barcodes = await detector.detect(videoRef.current);
+          if (barcodes && barcodes.length > 0) {
+            const raw = barcodes[0]?.rawValue || "";
+            if (raw) {
+              setItemQuery(raw);
+              closeScanner();
+            }
+          }
+        } catch {
+          // ignore detect errors
+        }
+      }, 300);
+    } catch (e: any) {
+      setCameraError(e?.message || "Could not open camera.");
+    }
+  }
+
+  function closeScanner() {
+    setScannerOpen(false);
+    setCameraError("");
+
+    if (scanTimerRef.current) {
+      window.clearInterval(scanTimerRef.current);
+      scanTimerRef.current = null;
+    }
+
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((t) => t.stop());
+      streamRef.current = null;
+    }
+  }
+
+  // Ensure camera stops if tab changes/unmounts
+  useEffect(() => {
+    return () => closeScanner();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ---------- UI ----------
   return (
     <div className="min-h-screen bg-neutral-950 text-white">
       <div className="mx-auto max-w-xl px-4 py-4">
         {/* Header */}
-        <div className="rounded-3xl bg-neutral-900/70 p-4 shadow ring-1 ring-white/10">
+        <div className="rounded-2xl bg-neutral-900/70 p-4 shadow">
           <div className="flex items-center gap-3">
-            <div className="h-14 w-14 overflow-hidden rounded-2xl bg-white/10 flex items-center justify-center ring-1 ring-white/10">
-              <Image
-                src="/asc-header-logo.png"
-                alt="ASC Logo"
-                width={96}
-                height={96}
-                priority
-              />
+            <div className="h-12 w-12 overflow-hidden rounded-2xl bg-neutral-800 flex items-center justify-center">
+              {/* If you have your logo in /public/logo.png this will show */}
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src="/logo.png" alt="ASC Logo" className="h-12 w-12 object-contain" onError={(e) => ((e.currentTarget.style.display = "none"))} />
+              <span className="text-xl font-bold">?</span>
             </div>
 
             <div className="flex-1">
-              <div className="text-2xl font-bold leading-tight">
-                Baxter ASC Inventory
-              </div>
+              <div className="text-2xl font-bold leading-tight">Baxter ASC Inventory</div>
               <div className="text-sm text-neutral-300">
                 Cabinet tracking + building totals + low stock alerts
               </div>
             </div>
 
-            <div className="text-right text-sm text-neutral-300">
-              <div>Location:</div>
-              <div className="font-semibold text-white">
-                {currentArea?.name || "—"}
-              </div>
+            <div className="text-right">
+              <div className="text-sm text-neutral-400">Location:</div>
+              <div className="font-semibold">{currentLocation?.name || "—"}</div>
             </div>
+          </div>
+
+          {/* Tabs */}
+          <div className="mt-4 flex gap-2">
+            <TabButton active={activeTab === "transaction"} onClick={() => setActiveTab("transaction")}>
+              Transaction
+            </TabButton>
+            <TabButton active={activeTab === "totals"} onClick={() => setActiveTab("totals")}>
+              Totals
+            </TabButton>
+            <TabButton active={activeTab === "settings"} onClick={() => setActiveTab("settings")}>
+              Settings
+            </TabButton>
           </div>
         </div>
 
-        {/* Tabs */}
-        <div className="mt-4 flex gap-2">
-          <button
-            className={`flex-1 rounded-2xl px-3 py-3 font-bold ${
-              tab === "transaction"
-                ? "bg-white text-black"
-                : "bg-neutral-900 text-white ring-1 ring-white/10"
-            }`}
-            onClick={() => setTab("transaction")}
-          >
-            Transaction
-          </button>
-          <button
-            className={`flex-1 rounded-2xl px-3 py-3 font-bold ${
-              tab === "totals"
-                ? "bg-white text-black"
-                : "bg-neutral-900 text-white ring-1 ring-white/10"
-            }`}
-            onClick={() => setTab("totals")}
-          >
-            Totals
-          </button>
-          <button
-            className={`flex-1 rounded-2xl px-3 py-3 font-bold ${
-              tab === "settings"
-                ? "bg-white text-black"
-                : "bg-neutral-900 text-white ring-1 ring-white/10"
-            }`}
-            onClick={() => setTab("settings")}
-          >
-            Settings
-          </button>
-        </div>
-
-        {/* Transaction Tab */}
-        {tab === "transaction" && (
-          <div className="mt-4 space-y-4">
-            {/* One-time override */}
-            <div className="rounded-3xl bg-neutral-900 p-4 ring-1 ring-white/10">
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <div className="text-lg font-bold">One-time override</div>
-                  <div className="text-sm text-neutral-300">
-                    Use MAIN (1x) if you grabbed it from supply room.
+        {/* Content */}
+        <div className="mt-4 rounded-3xl bg-neutral-900/60 p-4 shadow">
+          {activeTab === "transaction" && (
+            <>
+              {/* One-time override */}
+              <div className="rounded-2xl bg-neutral-950/40 p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <div className="text-lg font-semibold">One-time override</div>
+                    <div className="text-sm text-neutral-300">
+                      Use <b>MAIN (1x)</b> if you grabbed it from supply room.
+                    </div>
                   </div>
+
+                  <button
+                    onClick={() => setOverrideOnce((v) => !v)}
+                    className={`h-20 w-28 rounded-2xl border px-3 py-2 font-bold ${
+                      overrideOnce
+                        ? "border-yellow-400 bg-yellow-400/15"
+                        : "border-neutral-700 bg-neutral-900"
+                    }`}
+                  >
+                    <div className="text-xl">⚡</div>
+                    <div>MAIN</div>
+                    <div className="text-sm font-semibold">(1x)</div>
+                  </button>
                 </div>
-                <button
-                  className={`rounded-2xl px-4 py-3 font-black ${
-                    overrideOnce ? "bg-blue-600" : "bg-neutral-800"
-                  } ring-1 ring-white/10`}
-                  onClick={() => {
-                    if (!mainAreaId) {
-                      setStatus(
-                        "No MAIN location found (name must include 'Main Sterile')."
-                      );
-                      return;
-                    }
-                    setOverrideOnce((v) => !v);
-                  }}
-                >
-                  ⚡ MAIN<br />(1x)
-                </button>
-              </div>
-            </div>
-
-            {/* Mode + Inputs */}
-            <div className="rounded-3xl bg-neutral-900 p-4 ring-1 ring-white/10">
-              <div className="text-lg font-bold mb-3">Mode</div>
-
-              <div className="flex gap-3">
-                <button
-                  className={`flex-1 rounded-2xl py-3 font-black ${
-                    mode === "USE" ? "bg-red-600" : "bg-neutral-800"
-                  } ring-1 ring-white/10`}
-                  onClick={() => setMode("USE")}
-                >
-                  USE
-                </button>
-                <button
-                  className={`flex-1 rounded-2xl py-3 font-black ${
-                    mode === "RESTOCK" ? "bg-green-600" : "bg-neutral-800"
-                  } ring-1 ring-white/10`}
-                  onClick={() => setMode("RESTOCK")}
-                >
-                  RESTOCK
-                </button>
               </div>
 
-              <div className="mt-4 space-y-3">
-                {/* Barcode/Item Input */}
+              {/* Mode */}
+              <div className="mt-4 rounded-2xl bg-neutral-950/40 p-4">
+                <div className="text-lg font-semibold">Mode</div>
+                <div className="mt-3 flex gap-3">
+                  <button
+                    onClick={() => setMode("USE")}
+                    className={`flex-1 rounded-2xl px-4 py-4 text-xl font-bold ${
+                      mode === "USE" ? "bg-red-600" : "bg-neutral-900 border border-neutral-700"
+                    }`}
+                  >
+                    USE
+                  </button>
+                  <button
+                    onClick={() => setMode("RESTOCK")}
+                    className={`flex-1 rounded-2xl px-4 py-4 text-xl font-bold ${
+                      mode === "RESTOCK"
+                        ? "bg-green-600"
+                        : "bg-neutral-900 border border-neutral-700"
+                    }`}
+                  >
+                    RESTOCK
+                  </button>
+                </div>
+              </div>
+
+              {/* Inputs */}
+              <div className="mt-4 rounded-2xl bg-neutral-950/40 p-4">
                 <div className="flex gap-2">
                   <input
-                    ref={inputRef}
-                    className="flex-1 rounded-2xl bg-white px-4 py-3 text-black text-lg"
-                    placeholder="Scan or type item name / barcode"
                     value={itemQuery}
                     onChange={(e) => setItemQuery(e.target.value)}
-                    onKeyDown={(e) => {
-                      // Bluetooth scanners usually send Enter
-                      if (e.key === "Enter") submitTransaction();
-                    }}
+                    placeholder="Item name or barcode"
+                    className="w-full rounded-2xl bg-white px-4 py-4 text-lg text-black outline-none"
                   />
                   <button
-                    className="rounded-2xl bg-neutral-800 px-4 py-3 font-bold ring-1 ring-white/10"
-                    onClick={() => setScannerOpen(true)}
+                    onClick={scannerOpen ? closeScanner : openScanner}
+                    className="rounded-2xl border border-neutral-700 bg-neutral-900 px-4 py-4 font-bold"
                   >
-                    📷
-                    <div className="text-[10px] font-semibold text-white/70">
-                      Scan
-                    </div>
+                    {scannerOpen ? "Close" : "Scan"}
                   </button>
                 </div>
 
-                {/* Qty */}
-                <input
-                  className="w-full rounded-2xl bg-white px-4 py-3 text-black text-lg"
-                  type="number"
-                  min={1}
-                  value={qty}
-                  onChange={(e) => setQty(Number(e.target.value))}
-                />
+                {scannerOpen && (
+                  <div className="mt-3 rounded-2xl border border-neutral-800 bg-black p-2">
+                    <video ref={videoRef} className="h-56 w-full rounded-xl object-cover" playsInline />
+                    {cameraError && (
+                      <div className="mt-2 text-sm text-yellow-300">{cameraError}</div>
+                    )}
+                    <div className="mt-2 text-xs text-neutral-400">
+                      Tip: If detection isn’t supported here, you can still scan with a handheld USB/Bluetooth scanner into the input.
+                    </div>
+                  </div>
+                )}
 
-                {/* Submit */}
+                <div className="mt-3">
+                  <input
+                    value={qty}
+                    onChange={(e) => setQty(Number(e.target.value))}
+                    type="number"
+                    min={1}
+                    className="w-full rounded-2xl bg-white px-4 py-4 text-lg text-black outline-none"
+                  />
+                </div>
+
                 <button
-                  className="w-full rounded-2xl bg-black py-4 text-xl font-black ring-1 ring-white/10"
                   onClick={submitTransaction}
+                  className="mt-4 w-full rounded-2xl bg-black px-4 py-5 text-xl font-bold"
                 >
                   Submit
                 </button>
 
-                <div className="text-sm text-neutral-300">
-                  {areasError ? `Locations error: ${areasError}` : status}
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Totals Tab */}
-        {tab === "totals" && (
-          <div className="mt-4 rounded-3xl bg-neutral-900 p-4 ring-1 ring-white/10">
-            <div className="text-lg font-bold">Totals</div>
-            <div className="text-sm text-neutral-300">
-              Next: hook this to your building_inventory view.
-            </div>
-          </div>
-        )}
-
-        {/* Settings Tab */}
-        {tab === "settings" && (
-          <div className="mt-4 space-y-4">
-            {/* Lock */}
-            <div className="rounded-3xl bg-neutral-900 p-4 ring-1 ring-white/10">
-              <div className="flex items-center justify-between">
-                <div className="text-lg font-bold">
-                  {locked ? "🔒 Location Locked" : "🔓 Location Unlocked"}
-                </div>
-                <button
-                  className="rounded-2xl bg-neutral-800 px-4 py-2 font-bold ring-1 ring-white/10"
-                  onClick={locked ? unlock : lock}
-                >
-                  {locked ? "Unlock" : "Lock"}
-                </button>
+                {status && (
+                  <div className="mt-3 text-sm text-neutral-200">{status}</div>
+                )}
               </div>
 
-              {locked && (
-                <div className="mt-3">
-                  <input
-                    className="w-full rounded-2xl bg-neutral-800 px-4 py-3 text-white"
-                    placeholder="Enter PIN (default 1234)"
-                    value={pin}
-                    onChange={(e) => setPin(e.target.value)}
-                  />
-                  <button
-                    className="mt-3 w-full rounded-2xl bg-white py-3 font-black text-black"
-                    onClick={unlock}
+              <div className="mt-4 text-xs text-neutral-400">
+                Tip: keep default on your room cabinet; use ⚡ MAIN (1x) when you grab something from the main supply room.
+              </div>
+            </>
+          )}
+
+          {activeTab === "settings" && (
+            <>
+              <div className="text-lg font-semibold">Settings</div>
+
+              <div className="mt-3 rounded-2xl bg-neutral-950/40 p-4">
+                <div className="text-sm text-neutral-300 mb-2">Default location</div>
+
+                {locationError ? (
+                  <div className="text-sm text-red-300">{locationError}</div>
+                ) : (
+                  <select
+                    value={currentLocationId}
+                    onChange={(e) => handleChangeLocation(e.target.value)}
+                    className="w-full rounded-xl bg-neutral-900 border border-neutral-700 px-3 py-3"
                   >
-                    Unlock
-                  </button>
+                    {locations.map((loc) => (
+                      <option key={loc.id} value={loc.id}>
+                        {loc.name}
+                      </option>
+                    ))}
+                  </select>
+                )}
+
+                <div className="mt-2 text-xs text-neutral-400">
+                  This is saved on the device (so each iPad/phone can default to its room).
                 </div>
-              )}
+              </div>
+            </>
+          )}
+
+          {activeTab === "totals" && (
+            <div className="text-sm text-neutral-300">
+              Totals screen coming next (building totals / low stock list). Your transaction + alerts can still run now.
             </div>
-
-            {/* Location selector */}
-            <div className="rounded-3xl bg-neutral-900 p-4 ring-1 ring-white/10">
-              <div className="text-lg font-bold">Default location</div>
-
-              <select
-                className="mt-3 w-full rounded-2xl bg-neutral-800 px-4 py-3 text-white"
-                value={defaultAreaId}
-                onChange={(e) => {
-                  if (locked) {
-                    setStatus("Locked: enter PIN to change location.");
-                    return;
-                  }
-                  setDefaultAreaId(e.target.value);
-                  setStatus("Location updated");
-                }}
-              >
-                {areas.map((a) => (
-                  <option key={a.id} value={a.id}>
-                    {a.name}
-                  </option>
-                ))}
-              </select>
-
-              {areasError && (
-                <div className="mt-2 text-sm text-red-200">
-                  {areasError}
-                </div>
-              )}
-            </div>
-          </div>
-        )}
+          )}
+        </div>
       </div>
-
-      {/* Scanner Modal */}
-      {scannerOpen && (
-        <BarcodeScanner
-          onScan={(value) => {
-            setItemQuery(value);
-            setTimeout(() => inputRef.current?.focus(), 150);
-          }}
-          onClose={() => setScannerOpen(false)}
-        />
-      )}
     </div>
+  );
+}
+
+function TabButton({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={`flex-1 rounded-2xl px-4 py-3 font-semibold ${
+        active ? "bg-white text-black" : "bg-neutral-900 text-white border border-neutral-800"
+      }`}
+    >
+      {children}
+    </button>
   );
 }
