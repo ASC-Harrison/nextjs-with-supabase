@@ -1,219 +1,230 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Image from "next/image";
+import { createBrowserClient } from "@/lib/supabase/client";
 
-type LocationRow = {
-  id: string;
+type StorageArea = {
+  id: string;        // uuid
   name: string;
 };
 
-type TotalsRow = {
-  item_id: string;
-  name: string;
-  barcode: string | null;
-  total_on_hand: number;
-};
+type Tab = "transaction" | "totals" | "settings";
 
 export default function ProtectedPage() {
-  // --------- UI tabs ----------
-  type Tab = "transaction" | "totals" | "settings";
+  const supabase = useMemo(() => createBrowserClient(), []);
+
   const [tab, setTab] = useState<Tab>("transaction");
 
-  // --------- location ----------
-  const [locations, setLocations] = useState<LocationRow[]>([]);
-  const [locationId, setLocationId] = useState<string>("");
-  const [locationName, setLocationName] = useState<string>("");
+  const [areas, setAreas] = useState<StorageArea[]>([]);
+  const [areasError, setAreasError] = useState<string>("");
 
-  // One-time override (MAIN 1x)
+  const [defaultAreaId, setDefaultAreaId] = useState<string>("");
+  const [locked, setLocked] = useState<boolean>(true);
+  const [pin, setPin] = useState<string>("");
+
+  // one-time override
   const [overrideOnce, setOverrideOnce] = useState<boolean>(false);
 
-  // --------- transaction ----------
-  const [mode, setMode] = useState<"use" | "restock">("use");
+  // transaction form
+  const [mode, setMode] = useState<"USE" | "RESTOCK">("USE");
   const [itemQuery, setItemQuery] = useState<string>("");
   const [qty, setQty] = useState<number>(1);
   const [status, setStatus] = useState<string>("Ready");
-  const [busy, setBusy] = useState<boolean>(false);
 
-  // --------- totals ----------
-  const [totals, setTotals] = useState<TotalsRow[]>([]);
-  const [totalsSearch, setTotalsSearch] = useState<string>("");
+  const currentArea = useMemo(
+    () => areas.find(a => a.id === defaultAreaId),
+    [areas, defaultAreaId]
+  );
 
-  const filteredTotals = useMemo(() => {
-    const q = totalsSearch.trim().toLowerCase();
-    if (!q) return totals;
-    return totals.filter((r) => {
-      return (
-        r.name.toLowerCase().includes(q) ||
-        (r.barcode || "").toLowerCase().includes(q)
-      );
-    });
-  }, [totals, totalsSearch]);
+  const mainAreaId = useMemo(() => {
+    // tries to find “Main Sterile Supply” by name
+    const m = areas.find(a => a.name.toLowerCase().includes("main sterile"));
+    return m?.id || "";
+  }, [areas]);
 
-  // --------- fetch locations + initial data ----------
+  // Load saved settings
   useEffect(() => {
-    (async () => {
-      try {
-        const res = await fetch("/api/locations", { cache: "no-store" });
-        const json = await res.json();
+    const savedArea = localStorage.getItem("asc_default_area_id") || "";
+    const savedLocked = localStorage.getItem("asc_locked");
+    const savedOverride = localStorage.getItem("asc_override_once");
 
-        const rows: LocationRow[] = json.locations || [];
-        setLocations(rows);
-
-        // Default to first location if none selected
-        if (rows.length > 0) {
-          setLocationId(rows[0].id);
-          setLocationName(rows[0].name);
-        }
-      } catch (e: any) {
-        setStatus(`Failed to load locations: ${e?.message || e}`);
-      }
-    })();
+    if (savedArea) setDefaultAreaId(savedArea);
+    if (savedLocked !== null) setLocked(savedLocked === "true");
+    if (savedOverride !== null) setOverrideOnce(savedOverride === "true");
   }, []);
 
-  async function refreshTotals() {
-    try {
-      const res = await fetch("/api/totals", { cache: "no-store" });
-      const json = await res.json();
-      setTotals(json.totals || []);
-    } catch (e: any) {
-      setStatus(`Failed to load totals: ${e?.message || e}`);
+  // Persist settings
+  useEffect(() => {
+    localStorage.setItem("asc_default_area_id", defaultAreaId);
+  }, [defaultAreaId]);
+
+  useEffect(() => {
+    localStorage.setItem("asc_locked", String(locked));
+  }, [locked]);
+
+  useEffect(() => {
+    localStorage.setItem("asc_override_once", String(overrideOnce));
+  }, [overrideOnce]);
+
+  // Fetch storage areas (THIS fixes your “locations are gone” problem)
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadAreas() {
+      try {
+        setAreasError("");
+
+        const { data, error } = await supabase
+          .from("storage_areas")
+          .select("id,name")
+          .order("name", { ascending: true });
+
+        if (error) throw error;
+        if (cancelled) return;
+
+        const list = (data || []) as StorageArea[];
+        setAreas(list);
+
+        // If nothing selected yet, default to “Main Sterile Supply” if it exists
+        if (!defaultAreaId) {
+          const main = list.find(a => a.name.toLowerCase().includes("main sterile"));
+          if (main) setDefaultAreaId(main.id);
+          else if (list[0]) setDefaultAreaId(list[0].id);
+        }
+      } catch (e: any) {
+        if (cancelled) return;
+        setAreas([]);
+        setAreasError(e?.message || "Failed to load locations.");
+      }
+    }
+
+    loadAreas();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [supabase]);
+
+  function unlock() {
+    // default PIN: 1234 (you can later move this to DB)
+    if (pin.trim() === "1234") {
+      setLocked(false);
+      setStatus("Unlocked");
+      setPin("");
+    } else {
+      setStatus("Wrong PIN");
     }
   }
 
-  useEffect(() => {
-    refreshTotals();
-  }, []);
-
-  // When locationId changes, update locationName
-  useEffect(() => {
-    const found = locations.find((l) => l.id === locationId);
-    setLocationName(found?.name || "");
-  }, [locationId, locations]);
-
-  // Effective source location for the next submit
-  const effectiveLocationId = useMemo(() => {
-    if (!overrideOnce) return locationId;
-
-    // If you use MAIN 1x, we try to find a location named "Main Sterile Supply"
-    const main = locations.find((l) => l.name === "Main Sterile Supply");
-    return main?.id || locationId;
-  }, [overrideOnce, locationId, locations]);
-
-  const effectiveLocationName = useMemo(() => {
-    if (!overrideOnce) return locationName;
-    const main = locations.find((l) => l.name === "Main Sterile Supply");
-    return main?.name || locationName;
-  }, [overrideOnce, locationName, locations]);
+  function lock() {
+    setLocked(true);
+    setStatus("Locked");
+  }
 
   async function submitTransaction() {
-    if (!effectiveLocationId) {
+    setStatus("Submitting...");
+
+    const sourceAreaId =
+      overrideOnce && mainAreaId ? mainAreaId : defaultAreaId;
+
+    if (!sourceAreaId) {
       setStatus("Transaction failed: Missing location");
       return;
     }
+
     if (!itemQuery.trim()) {
-      setStatus("Transaction failed: Missing item name/barcode");
-      return;
-    }
-    if (!qty || qty < 1) {
-      setStatus("Transaction failed: Quantity must be 1+");
+      setStatus("Transaction failed: Missing item");
       return;
     }
 
-    setBusy(true);
-    setStatus("Submitting...");
+    if (!qty || qty < 1) {
+      setStatus("Transaction failed: Qty must be 1+");
+      return;
+    }
 
     try {
       const res = await fetch("/api/transaction", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          mode,
           itemQuery: itemQuery.trim(),
           qty,
-          locationId: effectiveLocationId,
+          mode,
+          storage_area_id: sourceAreaId,
         }),
       });
 
-      const json = await res.json();
+      const json = await res.json().catch(() => ({}));
 
-      if (!res.ok || json?.ok === false) {
+      if (!res.ok) {
         setStatus(`Transaction failed: ${json?.error || res.statusText}`);
-      } else {
-        setStatus("Submitted ✅");
-        setItemQuery("");
-        setQty(1);
-
-        // One-time override resets after submit
-        if (overrideOnce) setOverrideOnce(false);
-
-        // refresh totals after successful submit
-        refreshTotals();
+        return;
       }
+
+      setStatus("✅ Submitted");
+
+      // If override was used, consume it (one-time)
+      if (overrideOnce) setOverrideOnce(false);
+
+      setItemQuery("");
+      setQty(1);
     } catch (e: any) {
-      setStatus(`Transaction failed: ${e?.message || e}`);
-    } finally {
-      setBusy(false);
+      setStatus(`Transaction failed: ${e?.message || "Unknown error"}`);
     }
   }
 
   return (
-    <div className="min-h-screen bg-neutral-950 text-white p-4">
-      <div className="mx-auto max-w-md">
+    <div className="min-h-screen bg-neutral-950 text-white">
+      <div className="mx-auto max-w-xl px-4 py-4">
         {/* Header */}
-        <div className="mb-4 rounded-2xl bg-neutral-900 p-4 border border-neutral-800">
-          <div className="flex items-center justify-between gap-3">
-            <div className="flex items-center gap-3">
-              {/* Logo placeholder (image can be added later) */}
-              <div className="h-12 w-12 rounded-xl bg-neutral-800 border border-neutral-700 flex items-center justify-center text-neutral-400">
-                ?
+        <div className="rounded-2xl bg-neutral-900/70 p-4 shadow">
+          <div className="flex items-center gap-3">
+            <div className="h-12 w-12 overflow-hidden rounded-2xl bg-neutral-800 flex items-center justify-center">
+              <Image
+                src="/logo.png"
+                alt="ASC Logo"
+                width={48}
+                height={48}
+                priority
+              />
+            </div>
+            <div className="flex-1">
+              <div className="text-2xl font-bold leading-tight">
+                Baxter ASC Inventory
               </div>
-
-              <div>
-                <div className="text-xl font-semibold leading-tight">
-                  Baxter ASC Inventory
-                </div>
-                <div className="text-xs text-neutral-400">
-                  Cabinet tracking + building totals + low stock alerts
-                </div>
+              <div className="text-sm text-neutral-300">
+                Cabinet tracking + building totals + low stock alerts
               </div>
             </div>
-
-            <div className="text-xs text-neutral-400 text-right">
+            <div className="text-right text-sm text-neutral-300">
               <div>Location:</div>
               <div className="font-semibold text-white">
-                {effectiveLocationName || "—"}
+                {currentArea?.name || "—"}
               </div>
             </div>
           </div>
         </div>
 
         {/* Tabs */}
-        <div className="mb-4 grid grid-cols-3 gap-2">
+        <div className="mt-4 flex gap-2">
           <button
-            className={`rounded-xl py-2 text-sm font-semibold border ${
-              tab === "transaction"
-                ? "bg-white text-black border-white"
-                : "bg-neutral-900 text-white border-neutral-800"
+            className={`flex-1 rounded-xl px-3 py-2 font-semibold ${
+              tab === "transaction" ? "bg-white text-black" : "bg-neutral-900 text-white"
             }`}
             onClick={() => setTab("transaction")}
           >
             Transaction
           </button>
           <button
-            className={`rounded-xl py-2 text-sm font-semibold border ${
-              tab === "totals"
-                ? "bg-white text-black border-white"
-                : "bg-neutral-900 text-white border-neutral-800"
+            className={`flex-1 rounded-xl px-3 py-2 font-semibold ${
+              tab === "totals" ? "bg-white text-black" : "bg-neutral-900 text-white"
             }`}
             onClick={() => setTab("totals")}
           >
             Totals
           </button>
           <button
-            className={`rounded-xl py-2 text-sm font-semibold border ${
-              tab === "settings"
-                ? "bg-white text-black border-white"
-                : "bg-neutral-900 text-white border-neutral-800"
+            className={`flex-1 rounded-xl px-3 py-2 font-semibold ${
+              tab === "settings" ? "bg-white text-black" : "bg-neutral-900 text-white"
             }`}
             onClick={() => setTab("settings")}
           >
@@ -221,172 +232,173 @@ export default function ProtectedPage() {
           </button>
         </div>
 
-        {/* Transaction Tab */}
+        {/* Content */}
         {tab === "transaction" && (
-          <div className="rounded-2xl bg-neutral-900 p-4 border border-neutral-800 space-y-4">
-            {/* One-time override visible here */}
-            <div className="flex items-center justify-between gap-2 rounded-xl bg-neutral-950 border border-neutral-800 p-3">
-              <div className="text-sm">
-                <div className="font-semibold">One-time override</div>
-                <div className="text-xs text-neutral-400">
-                  Use MAIN (1x) if you grabbed it from supply room.
+          <div className="mt-4 space-y-4">
+            {/* One-time override */}
+            <div className="rounded-2xl bg-neutral-900 p-4">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <div className="text-lg font-bold">One-time override</div>
+                  <div className="text-sm text-neutral-300">
+                    Use MAIN (1x) if you grabbed it from supply room.
+                  </div>
                 </div>
+                <button
+                  className={`rounded-2xl px-4 py-3 font-bold ${
+                    overrideOnce ? "bg-blue-600" : "bg-neutral-800"
+                  }`}
+                  onClick={() => {
+                    if (!mainAreaId) {
+                      setStatus("No MAIN location found (check storage_areas names).");
+                      return;
+                    }
+                    setOverrideOnce(v => !v);
+                  }}
+                >
+                  ⚡ MAIN<br />(1x)
+                </button>
               </div>
-              <button
-                className={`rounded-xl px-3 py-2 text-sm font-semibold border ${
-                  overrideOnce
-                    ? "bg-blue-600 border-blue-600 text-white"
-                    : "bg-neutral-900 border-neutral-700 text-white"
-                }`}
-                onClick={() => setOverrideOnce((v) => !v)}
-                type="button"
-              >
-                ⚡ MAIN (1x)
-              </button>
             </div>
 
-            <div className="rounded-xl bg-neutral-950 border border-neutral-800 p-3">
-              <div className="text-sm font-semibold mb-2">Mode</div>
-              <div className="grid grid-cols-2 gap-2">
+            {/* Mode */}
+            <div className="rounded-2xl bg-neutral-900 p-4">
+              <div className="text-lg font-bold mb-3">Mode</div>
+              <div className="flex gap-3">
                 <button
-                  className={`rounded-xl py-3 text-sm font-bold border ${
-                    mode === "use"
-                      ? "bg-red-600 border-red-600 text-white"
-                      : "bg-neutral-900 border-neutral-700 text-white"
+                  className={`flex-1 rounded-2xl py-3 font-bold ${
+                    mode === "USE" ? "bg-red-600" : "bg-neutral-800"
                   }`}
-                  onClick={() => setMode("use")}
-                  type="button"
+                  onClick={() => setMode("USE")}
                 >
                   USE
                 </button>
                 <button
-                  className={`rounded-xl py-3 text-sm font-bold border ${
-                    mode === "restock"
-                      ? "bg-green-600 border-green-600 text-white"
-                      : "bg-neutral-900 border-neutral-700 text-white"
+                  className={`flex-1 rounded-2xl py-3 font-bold ${
+                    mode === "RESTOCK" ? "bg-green-600" : "bg-neutral-800"
                   }`}
-                  onClick={() => setMode("restock")}
-                  type="button"
+                  onClick={() => setMode("RESTOCK")}
                 >
                   RESTOCK
                 </button>
               </div>
-            </div>
 
-            <div className="space-y-2">
-              <input
-                className="w-full rounded-xl bg-white text-black px-3 py-3 text-base"
-                placeholder="Item name or barcode"
-                value={itemQuery}
-                onChange={(e) => setItemQuery(e.target.value)}
-              />
-              <input
-                className="w-full rounded-xl bg-white text-black px-3 py-3 text-base"
-                type="number"
-                min={1}
-                value={qty}
-                onChange={(e) => setQty(Math.max(1, Number(e.target.value || 1)))}
-              />
-            </div>
-
-            <button
-              className="w-full rounded-xl bg-black text-white py-4 font-bold text-lg disabled:opacity-60"
-              onClick={submitTransaction}
-              disabled={busy}
-              type="button"
-            >
-              {busy ? "Submitting..." : "Submit"}
-            </button>
-
-            <div className="text-sm text-neutral-300">{status}</div>
-          </div>
-        )}
-
-        {/* Totals Tab */}
-        {tab === "totals" && (
-          <div className="rounded-2xl bg-neutral-900 p-4 border border-neutral-800 space-y-3">
-            <div className="flex items-center justify-between gap-2">
-              <div>
-                <div className="text-sm font-semibold">Total Inventory</div>
-                <div className="text-xs text-neutral-400">
-                  Building totals (auto-summed)
-                </div>
-              </div>
-              <button
-                className="rounded-xl px-3 py-2 text-sm font-semibold bg-neutral-950 border border-neutral-800"
-                onClick={refreshTotals}
-                type="button"
-              >
-                Refresh
-              </button>
-            </div>
-
-            <input
-              className="w-full rounded-xl bg-white text-black px-3 py-3 text-base"
-              placeholder="Search item or barcode..."
-              value={totalsSearch}
-              onChange={(e) => setTotalsSearch(e.target.value)}
-            />
-
-            <div className="space-y-2">
-              {filteredTotals.map((r) => (
-                <div
-                  key={r.item_id}
-                  className="rounded-xl bg-neutral-950 border border-neutral-800 p-3 flex items-center justify-between"
+              <div className="mt-4 space-y-3">
+                <input
+                  className="w-full rounded-xl bg-white px-4 py-3 text-black text-lg"
+                  placeholder="Item name or barcode"
+                  value={itemQuery}
+                  onChange={(e) => setItemQuery(e.target.value)}
+                />
+                <input
+                  className="w-full rounded-xl bg-white px-4 py-3 text-black text-lg"
+                  type="number"
+                  min={1}
+                  value={qty}
+                  onChange={(e) => setQty(Number(e.target.value))}
+                />
+                <button
+                  className="w-full rounded-2xl bg-black py-4 text-xl font-bold"
+                  onClick={submitTransaction}
                 >
-                  <div>
-                    <div className="font-semibold">{r.name}</div>
-                    <div className="text-xs text-neutral-400">
-                      {r.barcode || "—"}
-                    </div>
-                  </div>
-                  <div className="h-10 w-10 rounded-xl bg-neutral-800 border border-neutral-700 flex items-center justify-center font-bold">
-                    {r.total_on_hand}
-                  </div>
-                </div>
-              ))}
-              {filteredTotals.length === 0 && (
-                <div className="text-sm text-neutral-400">No items found.</div>
-              )}
-            </div>
-          </div>
-        )}
+                  Submit
+                </button>
 
-        {/* Settings Tab */}
-        {tab === "settings" && (
-          <div className="rounded-2xl bg-neutral-900 p-4 border border-neutral-800 space-y-3">
-            <div>
-              <div className="text-sm font-semibold">Default location</div>
-              <div className="text-xs text-neutral-400">
-                Choose where this device normally uses/restocks from.
+                <div className="text-sm text-neutral-300">
+                  {areasError
+                    ? `Failed to load locations: ${areasError}`
+                    : status}
+                </div>
               </div>
             </div>
-
-            <select
-              className="w-full rounded-xl bg-white text-black px-3 py-3 text-base"
-              value={locationId}
-              onChange={(e) => setLocationId(e.target.value)}
-            >
-              {locations.map((l) => (
-                <option key={l.id} value={l.id}>
-                  {l.name}
-                </option>
-              ))}
-            </select>
 
             <div className="text-xs text-neutral-400">
-              Current:{" "}
-              <span className="text-white font-semibold">
-                {locationName || "—"}
-              </span>
+              Tip: keep default on your room cabinet; use ⚡ MAIN (1x) when you grab something from supply room.
             </div>
           </div>
         )}
 
-        <div className="mt-4 text-xs text-neutral-500">
-          Tip: keep default on your room cabinet; use ⚡ MAIN (1x) when you grab
-          something from the supply room.
-        </div>
+        {tab === "totals" && (
+          <div className="mt-4 rounded-2xl bg-neutral-900 p-4">
+            <div className="text-lg font-bold">Totals</div>
+            <div className="text-sm text-neutral-300">
+              (We can wire this to your building_inventory view next.)
+            </div>
+          </div>
+        )}
+
+        {tab === "settings" && (
+          <div className="mt-4 space-y-4">
+            {/* Lock */}
+            <div className="rounded-2xl bg-neutral-900 p-4">
+              <div className="flex items-center justify-between">
+                <div className="text-lg font-bold">
+                  {locked ? "🔒 Location Locked" : "🔓 Location Unlocked"}
+                </div>
+                <button
+                  className="rounded-xl bg-neutral-800 px-4 py-2 font-semibold"
+                  onClick={locked ? unlock : lock}
+                >
+                  {locked ? "Unlock" : "Lock"}
+                </button>
+              </div>
+
+              {locked && (
+                <div className="mt-3">
+                  <input
+                    className="w-full rounded-xl bg-neutral-800 px-4 py-3 text-white"
+                    placeholder="Enter PIN (default 1234)"
+                    value={pin}
+                    onChange={(e) => setPin(e.target.value)}
+                  />
+                  <button
+                    className="mt-3 w-full rounded-xl bg-white py-3 font-bold text-black"
+                    onClick={unlock}
+                  >
+                    Unlock
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Location selector */}
+            <div className="rounded-2xl bg-neutral-900 p-4">
+              <div className="flex items-center justify-between">
+                <div className="text-lg font-bold">Default location</div>
+              </div>
+
+              <select
+                className="mt-3 w-full rounded-xl bg-neutral-800 px-4 py-3 text-white"
+                value={defaultAreaId}
+                onChange={(e) => {
+                  if (locked) {
+                    setStatus("Locked: enter PIN to change location.");
+                    return;
+                  }
+                  setDefaultAreaId(e.target.value);
+                  setStatus("Location updated");
+                }}
+              >
+                {areas.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.name}
+                  </option>
+                ))}
+              </select>
+
+              {areasError && (
+                <div className="mt-2 text-sm text-red-300">
+                  Failed to load locations: {areasError}
+                </div>
+              )}
+            </div>
+
+            {/* Dark mode note */}
+            <div className="rounded-2xl bg-neutral-900 p-4 text-sm text-neutral-300">
+              App is currently in <b>dark mode</b>. If you want light mode, tell me and I’ll give you the full `app/layout.tsx` replacement to force light theme.
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
