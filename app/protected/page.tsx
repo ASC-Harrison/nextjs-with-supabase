@@ -3,41 +3,17 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 
-type TxMode = "USE" | "RESTOCK";
 type Tab = "transaction" | "totals" | "settings";
+type TxMode = "USE" | "RESTOCK";
+type LocationRow = { id: string; name: string };
 
-type TxOk = {
-  ok: true;
-  message?: string;
-  // optional payloads your API might return
-  item?: any;
-  inventory?: any;
-};
+type ItemRow = { id: string; name: string };
 
-type TxErr = {
-  ok: false;
-  code?: "ITEM_NOT_FOUND" | string;
-  error?: string;
-  scanned?: string;
-};
-
-type TxResponse = TxOk | TxErr;
-
-type LocationRow = {
-  id: string;
-  name: string;
-};
-
-function safeJson<T>(raw: any): T | null {
-  if (!raw) return null;
-  return raw as T;
-}
-
-async function fetchJson<T>(input: RequestInfo, init?: RequestInit): Promise<{ res: Response; data: T | null }> {
+async function fetchJson(input: RequestInfo, init?: RequestInit) {
   const res = await fetch(input, init);
-  let data: T | null = null;
+  let data: any = null;
   try {
-    data = (await res.json()) as T;
+    data = await res.json();
   } catch {
     data = null;
   }
@@ -47,139 +23,234 @@ async function fetchJson<T>(input: RequestInfo, init?: RequestInit): Promise<{ r
 export default function ProtectedPage() {
   const [tab, setTab] = useState<Tab>("transaction");
 
-  // Transaction state
-  const [mode, setMode] = useState<TxMode>("USE");
-  const [itemQuery, setItemQuery] = useState("");
-  const [qty, setQty] = useState<number>(1);
-  const [status, setStatus] = useState<string>("");
-
-  // Locations
+  // locations
   const [locations, setLocations] = useState<LocationRow[]>([]);
   const [locationId, setLocationId] = useState<string>("");
   const [locationsError, setLocationsError] = useState<string>("");
 
-  // One-time override for MAIN
-  const [overrideMainOnce, setOverrideMainOnce] = useState(false);
+  const currentLocationName = useMemo(() => {
+    return locations.find((l) => l.id === locationId)?.name || "—";
+  }, [locations, locationId]);
 
-  // Scanner
+  // transaction
+  const [mode, setMode] = useState<TxMode>("USE");
+  const [itemQuery, setItemQuery] = useState("");
+  const [qty, setQty] = useState<number>(1);
+  const [overrideMainOnce, setOverrideMainOnce] = useState(false);
+  const [status, setStatus] = useState("");
+
+  // scanner modal
   const [scannerOpen, setScannerOpen] = useState(false);
 
-  // Load locations (tries /api/locations first; if you don’t have it, it won’t break the build)
+  // not found modal
+  const [notFoundOpen, setNotFoundOpen] = useState(false);
+  const [pendingBarcode, setPendingBarcode] = useState<string>("");
+
+  // attach UI
+  const [attachSearch, setAttachSearch] = useState("");
+  const [attachResults, setAttachResults] = useState<ItemRow[]>([]);
+  const [attachSelectedId, setAttachSelectedId] = useState<string>("");
+  const [attachNote, setAttachNote] = useState<string>("Substitute / alternate packaging");
+
+  // create UI
+  const [newName, setNewName] = useState("");
+  const [newPar, setNewPar] = useState<number>(0);
+  const [newLow, setNewLow] = useState<number>(0);
+  const [newVendor, setNewVendor] = useState("");
+  const [newCategory, setNewCategory] = useState("");
+  const [newRef, setNewRef] = useState("");
+
+  // Load locations
   useEffect(() => {
     let cancelled = false;
 
-    async function loadLocations() {
+    async function load() {
       setLocationsError("");
-      // If you already have a locations endpoint, great:
-      const { res, data } = await fetchJson<{ ok: boolean; locations?: LocationRow[]; error?: string }>("/api/locations");
-
+      const { res, data } = await fetchJson("/api/locations", { cache: "no-store" });
       if (cancelled) return;
 
-      if (res.ok && data?.ok && Array.isArray(data.locations)) {
-        setLocations(data.locations);
-        // pick first default if none
-        if (!locationId && data.locations[0]?.id) setLocationId(data.locations[0].id);
+      if (!res.ok || !data?.ok) {
+        setLocations([]);
+        setLocationId("");
+        setLocationsError(data?.error || "Failed to load locations.");
         return;
       }
 
-      // If /api/locations doesn't exist or fails, we don't crash the UI
-      // You can remove this fallback later once /api/locations exists.
-      setLocations([]);
-      setLocationId("");
-      setLocationsError(
-        data?.error ||
-          (res.status === 404
-            ? "Locations API not found (/api/locations). App still works, but dropdown will be empty."
-            : "Failed to load locations.")
-      );
+      const list: LocationRow[] = Array.isArray(data.locations) ? data.locations : [];
+      setLocations(list);
+
+      const saved = localStorage.getItem("asc_location_id");
+      const pick = saved && list.some((x) => x.id === saved) ? saved : list[0]?.id || "";
+      setLocationId(pick);
+      if (pick) localStorage.setItem("asc_location_id", pick);
     }
 
-    loadLocations();
+    load();
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const currentLocationName = useMemo(() => {
-    const found = locations.find((l) => l.id === locationId);
-    return found?.name || "—";
-  }, [locations, locationId]);
+  useEffect(() => {
+    if (locationId) localStorage.setItem("asc_location_id", locationId);
+  }, [locationId]);
 
-  async function submitTransaction() {
+  // Search items for attach
+  useEffect(() => {
+    let cancelled = false;
+
+    async function run() {
+      const q = attachSearch.trim();
+      if (!q) {
+        setAttachResults([]);
+        setAttachSelectedId("");
+        return;
+      }
+      const { res, data } = await fetchJson(`/api/items/search?q=${encodeURIComponent(q)}`, {
+        cache: "no-store",
+      });
+      if (cancelled) return;
+      if (!res.ok || !data?.ok) {
+        setAttachResults([]);
+        return;
+      }
+      setAttachResults(Array.isArray(data.items) ? data.items : []);
+    }
+
+    run();
+    return () => {
+      cancelled = true;
+    };
+  }, [attachSearch]);
+
+  async function submitTransaction(overrideQuery?: string) {
     setStatus("");
 
-    const cleaned = itemQuery.trim();
+    const cleaned = (overrideQuery ?? itemQuery).trim();
     if (!cleaned) {
       setStatus("❌ Enter an item name or barcode.");
       return;
     }
-    if (!qty || qty <= 0) {
-      setStatus("❌ Quantity must be 1 or more.");
+    if (!locationId) {
+      setStatus("❌ No location selected.");
       return;
     }
+    const safeQty = Math.max(1, Math.floor(Number(qty || 1)));
 
-    // Payload expected by your API (adjust if needed)
     const payload = {
-      itemQuery: cleaned, // name OR barcode
-      qty: Number(qty),
-      action: mode, // "USE" or "RESTOCK"
-      locationId: locationId || null,
-      overrideMainOnce: overrideMainOnce || false,
+      itemQuery: cleaned,
+      qty: safeQty,
+      action: mode,
+      locationId,
+      overrideMainOnce,
     };
 
-    const { res, data } = await fetchJson<TxResponse>("/api/transaction", {
+    const { res, data } = await fetchJson("/api/transaction", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
 
-    // consume override once
     if (overrideMainOnce) setOverrideMainOnce(false);
 
-    // Handle errors cleanly (NO "json" variable problems)
-    if (!res.ok || !data) {
-      setStatus(`❌ Transaction failed: ${res.status} ${res.statusText}`);
-      return;
-    }
+    if (!res.ok) {
+      if (data?.code === "ITEM_NOT_FOUND") {
+        // Open modal to attach or create
+        setPendingBarcode(data?.scanned || cleaned);
+        setNotFoundOpen(true);
 
-    if (data.ok === false) {
-      if (data.code === "ITEM_NOT_FOUND") {
-        setStatus(`❌ Not in system: ${data.scanned || cleaned}`);
+        // pre-fill create name from whatever user typed (helps when they typed a name)
+        if (!newName) setNewName("");
+        setStatus(`❌ Not in system: ${data?.scanned || cleaned}`);
         return;
       }
-      setStatus(`❌ Transaction failed: ${data.error || "Unknown error"}`);
+
+      setStatus(`❌ Transaction failed: ${data?.error || res.statusText}`);
       return;
     }
 
-    // Success
-    setStatus(`✅ Submitted${data.message ? `: ${data.message}` : ""}`);
+    setStatus("✅ Submitted");
     setItemQuery("");
     setQty(1);
   }
 
-  function onScanned(value: string) {
-    // Put scanned value into the input
-    setItemQuery(value);
-    setScannerOpen(false);
-    // Optional: auto-submit after scan (comment out if you don’t want)
-    // submitTransaction();
+  async function handleAttach() {
+    if (!pendingBarcode.trim()) return;
+    if (!attachSelectedId) {
+      setStatus("❌ Select an item to attach this barcode to.");
+      return;
+    }
+
+    const { res, data } = await fetchJson("/api/items/attach-barcode", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        item_id: attachSelectedId,
+        barcode: pendingBarcode.trim(),
+        note: attachNote.trim(),
+      }),
+    });
+
+    if (!res.ok || !data?.ok) {
+      setStatus(`❌ Attach failed: ${data?.error || "Unknown error"}`);
+      return;
+    }
+
+    setStatus("✅ Barcode attached. Scan again to submit.");
+    setNotFoundOpen(false);
+
+    // Auto-submit now that it’s attached
+    await submitTransaction(pendingBarcode.trim());
+  }
+
+  async function handleCreateNew() {
+    if (!pendingBarcode.trim()) return;
+
+    const nm = newName.trim();
+    if (!nm) {
+      setStatus("❌ Enter a name for the new item.");
+      return;
+    }
+
+    const { res, data } = await fetchJson("/api/items/create", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: nm,
+        par_level: Number(newPar || 0) || null,
+        low_level: Number(newLow || 0) || null,
+        vendor: newVendor.trim() || null,
+        category: newCategory.trim() || null,
+        reference_number: newRef.trim() || null,
+        barcode: pendingBarcode.trim(), // attach the scanned barcode as alias
+      }),
+    });
+
+    if (!res.ok || !data?.ok) {
+      setStatus(`❌ Create failed: ${data?.error || "Unknown error"}`);
+      return;
+    }
+
+    setStatus("✅ Item created. Submitted now…");
+    setNotFoundOpen(false);
+
+    // Auto-submit now that it exists
+    await submitTransaction(pendingBarcode.trim());
   }
 
   return (
     <div className="min-h-screen bg-neutral-950 text-white">
       <div className="mx-auto max-w-xl px-4 py-6">
         {/* Header */}
-        <div className="rounded-2xl bg-neutral-900/70 p-4 shadow">
+        <div className="rounded-2xl bg-neutral-900/70 p-4 shadow ring-1 ring-white/10">
           <div className="flex items-center gap-3">
-            <div className="h-14 w-14 overflow-hidden rounded-2xl bg-neutral-800 flex items-center justify-center">
-              {/* Put your in-app header logo file in /public/asc-header-logo.png */}
+            <div className="h-14 w-14 overflow-hidden rounded-2xl bg-neutral-800 flex items-center justify-center ring-1 ring-white/10">
               <Image src="/asc-header-logo.png" alt="ASC" width={56} height={56} priority />
             </div>
 
             <div className="flex-1">
               <div className="text-xl font-bold leading-tight">Baxter ASC Inventory</div>
-              <div className="text-sm text-neutral-300">Cabinet tracking + building totals + low stock alerts</div>
+              <div className="text-sm text-neutral-300">Scan → auto submit → fix unknown barcodes instantly</div>
             </div>
 
             <div className="text-right">
@@ -190,32 +261,26 @@ export default function ProtectedPage() {
 
           {/* Tabs */}
           <div className="mt-4 flex gap-2">
-            <TabButton active={tab === "transaction"} onClick={() => setTab("transaction")}>
-              Transaction
-            </TabButton>
-            <TabButton active={tab === "totals"} onClick={() => setTab("totals")}>
-              Totals
-            </TabButton>
-            <TabButton active={tab === "settings"} onClick={() => setTab("settings")}>
-              Settings
-            </TabButton>
+            <TabButton active={tab === "transaction"} onClick={() => setTab("transaction")}>Transaction</TabButton>
+            <TabButton active={tab === "totals"} onClick={() => setTab("totals")}>Totals</TabButton>
+            <TabButton active={tab === "settings"} onClick={() => setTab("settings")}>Settings</TabButton>
           </div>
         </div>
 
         {/* Content */}
-        <div className="mt-4 rounded-2xl bg-neutral-900/70 p-4 shadow">
+        <div className="mt-4 rounded-2xl bg-neutral-900/70 p-4 shadow ring-1 ring-white/10">
           {tab === "transaction" && (
             <>
-              {/* One-time override */}
-              <div className="rounded-2xl bg-neutral-950/60 p-4">
+              {/* override */}
+              <div className="rounded-2xl bg-neutral-950/60 p-4 ring-1 ring-white/10">
                 <div className="flex items-center justify-between gap-3">
                   <div>
-                    <div className="text-base font-semibold">One-time override</div>
-                    <div className="text-sm text-neutral-300">Use MAIN (1x) if you grabbed it from supply room.</div>
+                    <div className="font-semibold">One-time override</div>
+                    <div className="text-sm text-neutral-300">Grabbed it from MAIN supply room? Tap this once.</div>
                   </div>
                   <button
                     onClick={() => setOverrideMainOnce(true)}
-                    className={`rounded-2xl px-4 py-3 text-sm font-semibold shadow ${
+                    className={`rounded-2xl px-4 py-3 font-semibold ${
                       overrideMainOnce ? "bg-yellow-500 text-black" : "bg-neutral-800 text-white"
                     }`}
                   >
@@ -224,14 +289,14 @@ export default function ProtectedPage() {
                 </div>
               </div>
 
-              {/* Mode */}
-              <div className="mt-4 rounded-2xl bg-neutral-950/60 p-4">
-                <div className="text-base font-semibold mb-3">Mode</div>
+              {/* mode */}
+              <div className="mt-4 rounded-2xl bg-neutral-950/60 p-4 ring-1 ring-white/10">
+                <div className="font-semibold mb-3">Mode</div>
                 <div className="flex gap-3">
                   <button
                     onClick={() => setMode("USE")}
                     className={`flex-1 rounded-2xl px-4 py-3 font-bold ${
-                      mode === "USE" ? "bg-red-600 text-white" : "bg-neutral-800 text-white"
+                      mode === "USE" ? "bg-red-600" : "bg-neutral-800"
                     }`}
                   >
                     USE
@@ -239,26 +304,29 @@ export default function ProtectedPage() {
                   <button
                     onClick={() => setMode("RESTOCK")}
                     className={`flex-1 rounded-2xl px-4 py-3 font-bold ${
-                      mode === "RESTOCK" ? "bg-green-600 text-white" : "bg-neutral-800 text-white"
+                      mode === "RESTOCK" ? "bg-green-600" : "bg-neutral-800"
                     }`}
                   >
                     RESTOCK
                   </button>
                 </div>
 
-                {/* Scanner + inputs */}
                 <div className="mt-4 space-y-3">
                   <div className="flex gap-2">
                     <input
                       className="w-full rounded-2xl bg-white px-4 py-3 text-black outline-none"
-                      placeholder="Item name or barcode"
+                      placeholder="Scan barcode or type item name"
                       value={itemQuery}
                       onChange={(e) => setItemQuery(e.target.value)}
+                      onKeyDown={(e) => {
+                        // handheld scanner usually sends Enter
+                        if (e.key === "Enter") submitTransaction();
+                      }}
                     />
                     <button
                       onClick={() => setScannerOpen(true)}
-                      className="rounded-2xl bg-neutral-800 px-4 py-3 font-semibold"
-                      title="Scan barcode"
+                      className="rounded-2xl bg-neutral-800 px-4 py-3 font-semibold ring-1 ring-white/10"
+                      title="Scan"
                     >
                       📷
                     </button>
@@ -272,35 +340,34 @@ export default function ProtectedPage() {
                     onChange={(e) => setQty(Number(e.target.value))}
                   />
 
-                  <button onClick={submitTransaction} className="w-full rounded-2xl bg-black py-4 text-lg font-bold">
+                  <button
+                    onClick={() => submitTransaction()}
+                    className="w-full rounded-2xl bg-black py-4 text-lg font-bold ring-1 ring-white/10"
+                  >
                     Submit
                   </button>
 
                   {status ? <div className="text-sm text-neutral-200">{status}</div> : null}
 
                   {locationsError ? (
-                    <div className="text-sm text-yellow-300">Failed to load locations: {locationsError}</div>
+                    <div className="text-sm text-yellow-300">Locations error: {locationsError}</div>
                   ) : null}
                 </div>
-              </div>
-
-              <div className="mt-4 text-xs text-neutral-400">
-                Tip: keep default on your room cabinet; use ⚡ MAIN (1x) when you grab something from the supply room.
               </div>
             </>
           )}
 
           {tab === "totals" && (
-            <div className="rounded-2xl bg-neutral-950/60 p-4">
+            <div className="rounded-2xl bg-neutral-950/60 p-4 ring-1 ring-white/10">
               <div className="text-lg font-bold">Totals</div>
               <div className="mt-2 text-sm text-neutral-300">
-                (Placeholder) If you already have a totals view/API, tell me what it is and I’ll wire it in.
+                (Optional next step) We can wire this to your building totals view.
               </div>
             </div>
           )}
 
           {tab === "settings" && (
-            <div className="rounded-2xl bg-neutral-950/60 p-4 space-y-3">
+            <div className="rounded-2xl bg-neutral-950/60 p-4 ring-1 ring-white/10 space-y-3">
               <div className="text-lg font-bold">Settings</div>
 
               <div>
@@ -312,7 +379,7 @@ export default function ProtectedPage() {
                   disabled={locations.length === 0}
                 >
                   {locations.length === 0 ? (
-                    <option value="">No locations loaded</option>
+                    <option value="">No locations</option>
                   ) : (
                     locations.map((l) => (
                       <option key={l.id} value={l.id}>
@@ -322,38 +389,162 @@ export default function ProtectedPage() {
                   )}
                 </select>
               </div>
-
-              <div className="text-sm text-neutral-400">
-                If your location dropdown is empty, you probably need a `/api/locations` route (or tell me how you store
-                locations and I’ll wire it to Supabase).
-              </div>
             </div>
           )}
         </div>
       </div>
 
-      {/* Scanner Modal */}
+      {/* Camera Scanner */}
       {scannerOpen && (
         <ScannerModal
           onClose={() => setScannerOpen(false)}
-          onDetected={(val) => {
-            if (val) onScanned(val);
+          onDetected={async (val) => {
+            const scanned = (val || "").trim();
+            if (!scanned) return;
+
+            setItemQuery(scanned);
+            setScannerOpen(false);
+
+            // ✅ AUTO SUBMIT immediately
+            await submitTransaction(scanned);
           }}
         />
+      )}
+
+      {/* Not Found Modal */}
+      {notFoundOpen && (
+        <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
+          <div className="w-full max-w-xl rounded-2xl bg-neutral-900 p-4 shadow ring-1 ring-white/10">
+            <div className="flex items-center justify-between">
+              <div className="text-lg font-bold">Not in system</div>
+              <button
+                onClick={() => setNotFoundOpen(false)}
+                className="rounded-xl bg-neutral-800 px-3 py-2 text-sm font-semibold"
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="mt-2 text-sm text-neutral-300">
+              Scanned barcode:
+              <div className="mt-1 rounded-xl bg-neutral-800 px-3 py-2 font-mono text-white">
+                {pendingBarcode}
+              </div>
+            </div>
+
+            <div className="mt-4 grid gap-4 md:grid-cols-2">
+              {/* Attach to existing */}
+              <div className="rounded-2xl bg-neutral-950/60 p-4 ring-1 ring-white/10">
+                <div className="font-bold">Attach to existing item</div>
+                <div className="text-xs text-neutral-400 mt-1">
+                  Use this for substitutes / alternate packaging of the same item.
+                </div>
+
+                <input
+                  className="mt-3 w-full rounded-2xl bg-white px-4 py-3 text-black outline-none"
+                  placeholder="Search item name (ex: Gloves medium)"
+                  value={attachSearch}
+                  onChange={(e) => setAttachSearch(e.target.value)}
+                />
+
+                <select
+                  className="mt-3 w-full rounded-2xl bg-neutral-800 px-4 py-3 text-white"
+                  value={attachSelectedId}
+                  onChange={(e) => setAttachSelectedId(e.target.value)}
+                >
+                  <option value="">Select item…</option>
+                  {attachResults.map((it) => (
+                    <option key={it.id} value={it.id}>
+                      {it.name}
+                    </option>
+                  ))}
+                </select>
+
+                <input
+                  className="mt-3 w-full rounded-2xl bg-neutral-800 px-4 py-3 text-white outline-none"
+                  placeholder="Note (optional)"
+                  value={attachNote}
+                  onChange={(e) => setAttachNote(e.target.value)}
+                />
+
+                <button
+                  onClick={handleAttach}
+                  className="mt-3 w-full rounded-2xl bg-blue-600 py-3 font-bold"
+                >
+                  Attach Barcode
+                </button>
+              </div>
+
+              {/* Create new item */}
+              <div className="rounded-2xl bg-neutral-950/60 p-4 ring-1 ring-white/10">
+                <div className="font-bold">Create new item</div>
+                <div className="text-xs text-neutral-400 mt-1">
+                  Use this if it’s truly a different item you want tracked separately.
+                </div>
+
+                <input
+                  className="mt-3 w-full rounded-2xl bg-white px-4 py-3 text-black outline-none"
+                  placeholder="Item name"
+                  value={newName}
+                  onChange={(e) => setNewName(e.target.value)}
+                />
+
+                <div className="mt-3 grid grid-cols-2 gap-2">
+                  <input
+                    className="w-full rounded-2xl bg-white px-4 py-3 text-black outline-none"
+                    type="number"
+                    placeholder="Par"
+                    value={newPar}
+                    onChange={(e) => setNewPar(Number(e.target.value))}
+                  />
+                  <input
+                    className="w-full rounded-2xl bg-white px-4 py-3 text-black outline-none"
+                    type="number"
+                    placeholder="Low"
+                    value={newLow}
+                    onChange={(e) => setNewLow(Number(e.target.value))}
+                  />
+                </div>
+
+                <input
+                  className="mt-3 w-full rounded-2xl bg-neutral-800 px-4 py-3 text-white outline-none"
+                  placeholder="Vendor (optional)"
+                  value={newVendor}
+                  onChange={(e) => setNewVendor(e.target.value)}
+                />
+                <input
+                  className="mt-3 w-full rounded-2xl bg-neutral-800 px-4 py-3 text-white outline-none"
+                  placeholder="Category (optional)"
+                  value={newCategory}
+                  onChange={(e) => setNewCategory(e.target.value)}
+                />
+                <input
+                  className="mt-3 w-full rounded-2xl bg-neutral-800 px-4 py-3 text-white outline-none"
+                  placeholder="Reference # (optional)"
+                  value={newRef}
+                  onChange={(e) => setNewRef(e.target.value)}
+                />
+
+                <button
+                  onClick={handleCreateNew}
+                  className="mt-3 w-full rounded-2xl bg-green-600 py-3 font-bold"
+                >
+                  Create Item
+                </button>
+              </div>
+            </div>
+
+            <div className="mt-3 text-xs text-neutral-400">
+              After attaching/creating, the app auto-submits the transaction for this scan.
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
 }
 
-function TabButton({
-  active,
-  onClick,
-  children,
-}: {
-  active: boolean;
-  onClick: () => void;
-  children: React.ReactNode;
-}) {
+function TabButton({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
   return (
     <button
       onClick={onClick}
@@ -366,15 +557,17 @@ function TabButton({
   );
 }
 
-/**
- * Scanner modal using the native BarcodeDetector API when available.
- * No extra libraries needed. If unsupported, it tells you instead of breaking.
- */
-function ScannerModal({ onClose, onDetected }: { onClose: () => void; onDetected: (value: string) => void }) {
+function ScannerModal({
+  onClose,
+  onDetected,
+}: {
+  onClose: () => void;
+  onDetected: (value: string) => void | Promise<void>;
+}) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const rafRef = useRef<number | null>(null);
-  const [err, setErr] = useState<string>("");
+  const [err, setErr] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -383,9 +576,9 @@ function ScannerModal({ onClose, onDetected }: { onClose: () => void; onDetected
       setErr("");
 
       // @ts-ignore
-      const hasDetector = typeof window !== "undefined" && "BarcodeDetector" in window;
-      if (!hasDetector) {
-        setErr("Barcode scanning not supported on this browser/device. Use manual entry or a scanner that types into the field.");
+      const supported = typeof window !== "undefined" && "BarcodeDetector" in window;
+      if (!supported) {
+        setErr("Scanner not supported on this browser. Use manual entry or a scanner that types into the field.");
         return;
       }
 
@@ -396,7 +589,6 @@ function ScannerModal({ onClose, onDetected }: { onClose: () => void; onDetected
         });
 
         if (cancelled) return;
-
         streamRef.current = stream;
 
         if (videoRef.current) {
@@ -416,19 +608,17 @@ function ScannerModal({ onClose, onDetected }: { onClose: () => void; onDetected
             if (barcodes && barcodes.length > 0) {
               const raw = barcodes[0]?.rawValue;
               if (raw) {
-                onDetected(raw);
+                await onDetected(raw);
                 return;
               }
             }
-          } catch {
-            // ignore detect errors and keep trying
-          }
+          } catch {}
           rafRef.current = requestAnimationFrame(tick);
         };
 
         rafRef.current = requestAnimationFrame(tick);
       } catch (e: any) {
-        setErr(e?.message || "Camera permission denied or camera not available.");
+        setErr(e?.message || "Camera permission denied.");
       }
     }
 
@@ -437,15 +627,13 @@ function ScannerModal({ onClose, onDetected }: { onClose: () => void; onDetected
     return () => {
       cancelled = true;
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
-      if (streamRef.current) {
-        streamRef.current.getTracks().forEach((t) => t.stop());
-      }
+      if (streamRef.current) streamRef.current.getTracks().forEach((t) => t.stop());
     };
   }, [onDetected]);
 
   return (
     <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
-      <div className="w-full max-w-lg rounded-2xl bg-neutral-900 p-4 shadow">
+      <div className="w-full max-w-lg rounded-2xl bg-neutral-900 p-4 shadow ring-1 ring-white/10">
         <div className="flex items-center justify-between">
           <div className="text-lg font-bold">Scan Barcode</div>
           <button onClick={onClose} className="rounded-xl bg-neutral-800 px-3 py-2 text-sm font-semibold">
@@ -457,7 +645,11 @@ function ScannerModal({ onClose, onDetected }: { onClose: () => void; onDetected
           <video ref={videoRef} className="w-full h-72 object-cover" playsInline muted />
         </div>
 
-        {err ? <div className="mt-3 text-sm text-yellow-300">{err}</div> : <div className="mt-3 text-sm text-neutral-300">Point the camera at the barcode…</div>}
+        {err ? (
+          <div className="mt-3 text-sm text-yellow-300">{err}</div>
+        ) : (
+          <div className="mt-3 text-sm text-neutral-300">Point the camera at the barcode…</div>
+        )}
       </div>
     </div>
   );
