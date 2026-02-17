@@ -2,163 +2,81 @@
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
 
-type TabKey = "transaction" | "totals" | "settings";
-
 type LocationRow = { id: string; name: string };
 
-type TxMode = "USE" | "RESTOCK";
+type Tab = "TRANSACTION" | "TOTALS" | "SETTINGS";
+type Mode = "USE" | "RESTOCK";
 
-type TxResponseOk = {
-  ok: true;
-  item?: { id: string; name: string; barcode?: string | null };
-  location?: { id: string; name: string };
-  new_on_hand?: number | null;
-  message?: string;
-};
-
-type TxResponseErr = {
-  ok: false;
-  code?: string; // e.g. "ITEM_NOT_FOUND"
-  error?: string;
-  scanned?: string;
-};
-
-async function fetchLocations(): Promise<LocationRow[]> {
-  const res = await fetch("/api/locations", { cache: "no-store" });
-  const data: any = await res.json().catch(() => null);
-
-  if (!res.ok) {
-    throw new Error(data?.error || "Failed to load locations");
-  }
-  if (!data?.ok || !Array.isArray(data.locations)) {
-    throw new Error("Bad response from /api/locations");
-  }
-  return data.locations as LocationRow[];
+function clsx(...s: Array<string | false | undefined | null>) {
+  return s.filter(Boolean).join(" ");
 }
 
-async function postTransaction(payload: {
-  mode: TxMode;
-  itemQuery: string; // barcode or name
-  qty: number;
-  locationId: string;
-  overrideMainOnce: boolean;
-}): Promise<TxResponseOk | TxResponseErr> {
-  const res = await fetch("/api/transaction", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
-
-  const data: any = await res.json().catch(() => null);
-
-  // Always return a safe object shape
-  if (!res.ok) {
-    return {
-      ok: false,
-      code: data?.code,
-      error: data?.error || res.statusText || "Transaction failed",
-      scanned: data?.scanned,
-    };
-  }
-
-  if (data?.ok === true) return data as TxResponseOk;
-
-  return {
-    ok: false,
-    code: data?.code,
-    error: data?.error || "Transaction failed",
-    scanned: data?.scanned,
-  };
-}
-
-/**
- * Camera scanning:
- * - Uses native BarcodeDetector if available (works on many Android/desktop; iOS support varies).
- * - If not available, it will tell you and you can still use a hardware scanner (best).
- */
-async function scanWithCameraOnce(): Promise<string> {
-  // @ts-ignore
-  const BarcodeDetectorCtor = (window as any).BarcodeDetector as
-    | undefined
-    | (new (opts: any) => {
-        detect: (img: ImageBitmapSource) => Promise<Array<{ rawValue?: string }>>;
-      });
-
-  if (!navigator.mediaDevices?.getUserMedia) {
-    throw new Error("Camera not available in this browser.");
-  }
-  if (!BarcodeDetectorCtor) {
-    throw new Error("Camera barcode scan not supported here. Use a scanner or type the barcode.");
-  }
-
-  const stream = await navigator.mediaDevices.getUserMedia({
-    video: { facingMode: "environment" },
-    audio: false,
-  });
-
+function safeJson<T = any>(v: any): T | null {
   try {
-    const video = document.createElement("video");
-    video.srcObject = stream;
-    video.playsInline = true;
-
-    await video.play();
-
-    const detector = new BarcodeDetectorCtor({
-      formats: ["qr_code", "code_128", "ean_13", "ean_8", "upc_a", "upc_e", "code_39"],
-    });
-
-    // Wait up to ~5 seconds scanning frames
-    const started = Date.now();
-    while (Date.now() - started < 5000) {
-      // Create bitmap from video frame
-      const bitmap = await createImageBitmap(video);
-      const results = await detector.detect(bitmap);
-      bitmap.close?.();
-
-      const value = results?.[0]?.rawValue?.trim();
-      if (value) return value;
-
-      // small delay
-      await new Promise((r) => setTimeout(r, 120));
-    }
-
-    throw new Error("No barcode detected. Try again or use the scanner.");
-  } finally {
-    stream.getTracks().forEach((t) => t.stop());
+    return JSON.parse(v);
+  } catch {
+    return null;
   }
 }
 
 export default function ProtectedPage() {
-  const [tab, setTab] = useState<TabKey>("transaction");
+  const [tab, setTab] = useState<Tab>("TRANSACTION");
+  const [mode, setMode] = useState<Mode>("USE");
 
-  // Locations
   const [locations, setLocations] = useState<LocationRow[]>([]);
   const [locationsError, setLocationsError] = useState<string>("");
-  const [locationId, setLocationId] = useState<string>("");
 
-  // Transaction
-  const [mode, setMode] = useState<TxMode>("USE");
+  const [defaultLocationId, setDefaultLocationId] = useState<string>("");
+  const [overrideMainOnce, setOverrideMainOnce] = useState<boolean>(false);
+
   const [itemQuery, setItemQuery] = useState<string>("");
   const [qty, setQty] = useState<number>(1);
 
-  const [overrideMainOnce, setOverrideMainOnce] = useState<boolean>(false);
-  const [autoSubmit, setAutoSubmit] = useState<boolean>(true);
-
-  const [busy, setBusy] = useState<boolean>(false);
   const [status, setStatus] = useState<string>("");
+  const [scannerOpen, setScannerOpen] = useState<boolean>(false);
 
-  const inputRef = useRef<HTMLInputElement | null>(null);
+  const activeLocationId = useMemo(() => {
+    if (overrideMainOnce) {
+      // Try to pick a MAIN location by name if it exists
+      const main = locations.find((l) => l.name.toLowerCase().includes("main"));
+      return main?.id ?? defaultLocationId;
+    }
+    return defaultLocationId;
+  }, [overrideMainOnce, locations, defaultLocationId]);
 
-  // Load locations on first render
+  const activeLocationName = useMemo(() => {
+    const found = locations.find((l) => l.id === activeLocationId);
+    return found?.name ?? "—";
+  }, [locations, activeLocationId]);
+
+  // Load saved default location
+  useEffect(() => {
+    const saved = typeof window !== "undefined" ? localStorage.getItem("asc_default_location_id") : null;
+    if (saved) setDefaultLocationId(saved);
+  }, []);
+
+  // Fetch locations
   useEffect(() => {
     (async () => {
       try {
         setLocationsError("");
-        const list = await fetchLocations();
+        const res = await fetch("/api/storage-areas", { method: "GET" });
+        const j = await res.json();
+
+        if (!res.ok) {
+          setLocations([]);
+          setLocationsError(j?.error ?? "Failed to load locations");
+          return;
+        }
+
+        const list: LocationRow[] = Array.isArray(j?.locations) ? j.locations : [];
         setLocations(list);
 
-        // If nothing selected yet, choose first location
-        if (!locationId && list.length) setLocationId(list[0].id);
+        // If no default is set, pick the first location
+        if (!defaultLocationId && list.length) {
+          setDefaultLocationId(list[0].id);
+          localStorage.setItem("asc_default_location_id", list[0].id);
+        }
       } catch (e: any) {
         setLocations([]);
         setLocationsError(e?.message ?? "Failed to load locations");
@@ -167,89 +85,69 @@ export default function ProtectedPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const currentLocationName = useMemo(() => {
-    const found = locations.find((l) => l.id === locationId);
-    return found?.name ?? "—";
-  }, [locations, locationId]);
-
-  async function submit() {
-    const trimmed = itemQuery.trim();
-    if (!trimmed) {
-      setStatus("Enter or scan an item name/barcode.");
-      inputRef.current?.focus();
-      return;
-    }
-    if (!locationId) {
-      setStatus("Pick a location first.");
-      return;
-    }
-    if (!qty || qty <= 0) {
-      setStatus("Qty must be 1 or more.");
-      return;
-    }
-
-    setBusy(true);
-    setStatus("");
-
-    try {
-      const res = await postTransaction({
-        mode,
-        itemQuery: trimmed,
-        qty: Number(qty),
-        locationId,
-        overrideMainOnce,
-      });
-
-      if (res.ok) {
-        setStatus(`✅ ${mode} saved${res.new_on_hand != null ? ` • New on-hand: ${res.new_on_hand}` : ""}`);
-        setItemQuery("");
-        setQty(1);
-        setOverrideMainOnce(false);
-        inputRef.current?.focus();
-      } else {
-        if (res.code === "ITEM_NOT_FOUND") {
-          const scanned = (res.scanned ?? trimmed).trim();
-          setStatus(`❌ Not in system: ${scanned}. Add it first (or map barcode to an existing item).`);
-        } else {
-          setStatus(`❌ Transaction failed: ${res.error ?? "Unknown error"}`);
-        }
-      }
-    } catch (e: any) {
-      setStatus(`❌ Transaction failed: ${e?.message ?? "Unknown error"}`);
-    } finally {
-      setBusy(false);
+  function setAndSaveDefaultLocation(id: string) {
+    setDefaultLocationId(id);
+    if (typeof window !== "undefined") {
+      localStorage.setItem("asc_default_location_id", id);
     }
   }
 
-  async function handleCameraScan() {
-    setStatus("");
-    try {
-      setBusy(true);
-      const code = await scanWithCameraOnce();
-      setItemQuery(code);
+  async function submitTransaction(queryOverride?: string) {
+    const q = (queryOverride ?? itemQuery).trim();
+    if (!q) {
+      setStatus("❌ Enter an item name or barcode.");
+      return;
+    }
+    if (!activeLocationId) {
+      setStatus("❌ Choose a location first.");
+      return;
+    }
 
-      // Auto submit if enabled
-      if (autoSubmit) {
-        // tiny delay so state updates
-        setTimeout(() => {
-          submit();
-        }, 50);
-      } else {
-        inputRef.current?.focus();
+    setStatus("⏳ Submitting...");
+
+    try {
+      const res = await fetch("/api/transaction", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          mode,
+          itemQuery: q,
+          qty,
+          storageAreaId: activeLocationId,
+        }),
+      });
+
+      const text = await res.text();
+      const j = safeJson<any>(text);
+
+      if (!res.ok) {
+        if (j?.code === "ITEM_NOT_FOUND") {
+          setStatus(`❌ Not in system: ${j?.scanned ?? q}`);
+        } else {
+          setStatus(`❌ Transaction failed: ${j?.error ?? res.statusText}`);
+        }
+        return;
       }
+
+      setStatus("✅ Submitted");
+
+      // one-time MAIN override is consumed after a successful submit
+      if (overrideMainOnce) setOverrideMainOnce(false);
+
+      // reset input
+      setItemQuery("");
+      setQty(1);
     } catch (e: any) {
-      setStatus(`❌ ${e?.message ?? "Scan failed"}`);
-    } finally {
-      setBusy(false);
+      setStatus(`❌ Transaction failed: ${e?.message ?? "Unknown error"}`);
     }
   }
 
   return (
-    <div className="min-h-screen bg-neutral-950 text-white">
-      <div className="mx-auto max-w-xl px-4 py-6">
+    <div className="min-h-screen bg-neutral-950 text-white px-4 py-6">
+      <div className="max-w-xl mx-auto space-y-4">
         {/* Header */}
-        <div className="rounded-2xl bg-neutral-900/80 p-4 shadow">
-          <div className="flex items-center justify-between gap-3">
+        <div className="rounded-3xl bg-neutral-900/70 border border-neutral-800 p-5">
+          <div className="flex items-start justify-between gap-4">
             <div>
               <div className="text-2xl font-bold leading-tight">Baxter ASC Inventory</div>
               <div className="text-sm text-neutral-300">
@@ -259,205 +157,323 @@ export default function ProtectedPage() {
 
             <div className="text-right">
               <div className="text-xs text-neutral-400">Location:</div>
-              <div className="font-semibold">{currentLocationName}</div>
+              <div className="text-sm font-semibold">{activeLocationName}</div>
             </div>
+          </div>
+
+          {/* Tabs */}
+          <div className="mt-4 flex gap-2">
+            <button
+              onClick={() => setTab("TRANSACTION")}
+              className={clsx(
+                "px-4 py-2 rounded-full border",
+                tab === "TRANSACTION"
+                  ? "bg-white text-black border-white"
+                  : "bg-neutral-900 border-neutral-700"
+              )}
+            >
+              Transaction
+            </button>
+            <button
+              onClick={() => setTab("TOTALS")}
+              className={clsx(
+                "px-4 py-2 rounded-full border",
+                tab === "TOTALS"
+                  ? "bg-white text-black border-white"
+                  : "bg-neutral-900 border-neutral-700"
+              )}
+            >
+              Totals
+            </button>
+            <button
+              onClick={() => setTab("SETTINGS")}
+              className={clsx(
+                "px-4 py-2 rounded-full border",
+                tab === "SETTINGS"
+                  ? "bg-white text-black border-white"
+                  : "bg-neutral-900 border-neutral-700"
+              )}
+            >
+              Settings
+            </button>
           </div>
         </div>
 
-        {/* Tabs */}
-        <div className="mt-4 flex gap-2">
-          <button
-            className={`flex-1 rounded-full px-4 py-2 font-semibold ${
-              tab === "transaction" ? "bg-white text-black" : "bg-neutral-800 text-white"
-            }`}
-            onClick={() => setTab("transaction")}
-          >
-            Transaction
-          </button>
-          <button
-            className={`flex-1 rounded-full px-4 py-2 font-semibold ${
-              tab === "totals" ? "bg-white text-black" : "bg-neutral-800 text-white"
-            }`}
-            onClick={() => setTab("totals")}
-          >
-            Totals
-          </button>
-          <button
-            className={`flex-1 rounded-full px-4 py-2 font-semibold ${
-              tab === "settings" ? "bg-white text-black" : "bg-neutral-800 text-white"
-            }`}
-            onClick={() => setTab("settings")}
-          >
-            Settings
-          </button>
-        </div>
-
-        {/* Transaction tab */}
-        {tab === "transaction" && (
-          <div className="mt-4 space-y-4 rounded-2xl bg-neutral-900/80 p-4 shadow">
+        {/* TRANSACTION TAB */}
+        {tab === "TRANSACTION" && (
+          <div className="rounded-3xl bg-neutral-900/70 border border-neutral-800 p-5 space-y-4">
             {/* One-time override */}
-            <div className="rounded-2xl bg-neutral-950/60 p-4">
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <div className="text-lg font-bold">One-time override</div>
-                  <div className="text-sm text-neutral-300">
-                    Grabbed it from MAIN supply room? Tap this once.
-                  </div>
+            <div className="rounded-2xl bg-neutral-950/50 border border-neutral-800 p-4 flex items-center justify-between gap-3">
+              <div>
+                <div className="font-semibold">One-time override</div>
+                <div className="text-sm text-neutral-300">
+                  Grabbed it from MAIN supply room? Tap this once.
                 </div>
-
-                <button
-                  className={`rounded-2xl px-4 py-3 font-bold ${
-                    overrideMainOnce ? "bg-yellow-500 text-black" : "bg-neutral-800 text-white"
-                  }`}
-                  onClick={() => setOverrideMainOnce((v) => !v)}
-                  disabled={busy}
-                >
-                  ⚡ MAIN
-                  <div className="text-xs font-semibold">(1x)</div>
-                </button>
               </div>
+              <button
+                onClick={() => setOverrideMainOnce((v) => !v)}
+                className={clsx(
+                  "w-24 h-20 rounded-2xl border flex flex-col items-center justify-center",
+                  overrideMainOnce
+                    ? "bg-yellow-400/20 border-yellow-400 text-yellow-200"
+                    : "bg-neutral-900 border-neutral-700"
+                )}
+              >
+                <div className="text-xl">⚡</div>
+                <div className="font-semibold">MAIN</div>
+                <div className="text-xs">(1x)</div>
+              </button>
             </div>
 
             {/* Mode */}
-            <div className="rounded-2xl bg-neutral-950/60 p-4">
-              <div className="text-lg font-bold">Mode</div>
-              <div className="mt-3 flex gap-3">
+            <div className="rounded-2xl bg-neutral-950/50 border border-neutral-800 p-4 space-y-3">
+              <div className="font-semibold">Mode</div>
+              <div className="flex gap-3">
                 <button
-                  className={`flex-1 rounded-2xl px-4 py-3 text-lg font-bold ${
-                    mode === "USE" ? "bg-red-600 text-white" : "bg-neutral-800 text-white"
-                  }`}
                   onClick={() => setMode("USE")}
-                  disabled={busy}
+                  className={clsx(
+                    "flex-1 py-4 rounded-2xl font-bold border",
+                    mode === "USE"
+                      ? "bg-red-600 border-red-600"
+                      : "bg-neutral-900 border-neutral-700"
+                  )}
                 >
                   USE
                 </button>
                 <button
-                  className={`flex-1 rounded-2xl px-4 py-3 text-lg font-bold ${
-                    mode === "RESTOCK" ? "bg-green-600 text-white" : "bg-neutral-800 text-white"
-                  }`}
                   onClick={() => setMode("RESTOCK")}
-                  disabled={busy}
+                  className={clsx(
+                    "flex-1 py-4 rounded-2xl font-bold border",
+                    mode === "RESTOCK"
+                      ? "bg-green-600 border-green-600"
+                      : "bg-neutral-900 border-neutral-700"
+                  )}
                 >
                   RESTOCK
                 </button>
               </div>
 
-              {/* Item input + camera */}
-              <div className="mt-4 flex gap-3">
+              {/* Item + camera */}
+              <div className="flex gap-3 items-center">
                 <input
-                  ref={inputRef}
-                  className="flex-1 rounded-2xl bg-white px-4 py-3 text-black outline-none"
-                  placeholder="Scan barcode or type item name"
+                  className="flex-1 rounded-2xl bg-white text-black px-4 py-4"
+                  placeholder="Scan barcode or type item"
                   value={itemQuery}
                   onChange={(e) => setItemQuery(e.target.value)}
                   onKeyDown={(e) => {
-                    if (e.key === "Enter") submit();
+                    if (e.key === "Enter") submitTransaction();
                   }}
-                  disabled={busy}
                 />
 
                 <button
-                  className="rounded-2xl bg-neutral-800 px-4 py-3 text-xl"
-                  onClick={handleCameraScan}
-                  disabled={busy}
-                  title="Scan with camera"
+                  type="button"
+                  onClick={() => setScannerOpen(true)}
+                  className="w-14 h-14 rounded-2xl bg-neutral-800 border border-neutral-700 flex items-center justify-center"
+                  aria-label="Open scanner"
                 >
                   📷
                 </button>
               </div>
 
               {/* Qty */}
-              <div className="mt-3">
-                <input
-                  className="w-full rounded-2xl bg-white px-4 py-3 text-black outline-none"
-                  type="number"
-                  min={1}
-                  value={qty}
-                  onChange={(e) => setQty(Number(e.target.value))}
-                  disabled={busy}
-                />
-              </div>
+              <input
+                className="w-full rounded-2xl bg-white text-black px-4 py-4"
+                type="number"
+                min={1}
+                step={1}
+                value={qty}
+                onChange={(e) => setQty(Math.max(1, Number(e.target.value || 1)))}
+              />
 
               {/* Submit */}
               <button
-                className="mt-4 w-full rounded-2xl bg-black px-4 py-4 text-xl font-bold text-white shadow"
-                onClick={submit}
-                disabled={busy}
+                onClick={() => submitTransaction()}
+                className="w-full py-4 rounded-2xl bg-black border border-neutral-700 font-bold text-lg"
               >
-                {busy ? "Working..." : "Submit"}
+                Submit
               </button>
 
-              {/* Status */}
-              {status ? <div className="mt-4 text-sm text-neutral-200">{status}</div> : null}
-
-              {/* Locations errors */}
+              {/* Status + errors */}
               {locationsError ? (
-                <div className="mt-3 text-sm text-yellow-400">
+                <div className="text-yellow-300 font-semibold">
                   Locations error: {locationsError}
                 </div>
               ) : null}
-            </div>
 
-            <div className="text-xs text-neutral-400">
-              Tip: keep default on your room cabinet; use ⚡ MAIN (1x) when you grab something from supply.
-            </div>
-          </div>
-        )}
+              {status ? <div className="text-neutral-200">{status}</div> : null}
 
-        {/* Totals tab (simple placeholder - keep your real totals page later) */}
-        {tab === "totals" && (
-          <div className="mt-4 rounded-2xl bg-neutral-900/80 p-4 shadow">
-            <div className="text-lg font-bold">Totals</div>
-            <div className="mt-2 text-sm text-neutral-300">
-              This tab is reserved for building totals / cabinet totals. (We can wire it to your views next.)
-            </div>
-          </div>
-        )}
-
-        {/* Settings tab */}
-        {tab === "settings" && (
-          <div className="mt-4 space-y-4 rounded-2xl bg-neutral-900/80 p-4 shadow">
-            <div>
-              <div className="text-lg font-bold">Location</div>
-
-              {locations.length ? (
-                <select
-                  className="mt-2 w-full rounded-2xl bg-neutral-800 px-4 py-3 text-white outline-none"
-                  value={locationId}
-                  onChange={(e) => setLocationId(e.target.value)}
-                  disabled={busy}
-                >
-                  {locations.map((l) => (
-                    <option key={l.id} value={l.id}>
-                      {l.name}
-                    </option>
-                  ))}
-                </select>
-              ) : (
-                <div className="mt-2 text-sm text-neutral-300">
-                  No locations loaded yet.
-                </div>
-              )}
-            </div>
-
-            <div className="rounded-2xl bg-neutral-950/60 p-4">
-              <div className="text-lg font-bold">Scan behavior</div>
-
-              <label className="mt-3 flex items-center gap-3 text-sm">
-                <input
-                  type="checkbox"
-                  checked={autoSubmit}
-                  onChange={(e) => setAutoSubmit(e.target.checked)}
-                />
-                Auto-submit after scan
-              </label>
-
-              <div className="mt-2 text-xs text-neutral-400">
-                Best experience is a Bluetooth/USB scanner (fast + reliable). Camera scan depends on device support.
+              <div className="text-xs text-neutral-400 pt-2">
+                Tip: keep default on your room cabinet; use ⚡ MAIN (1x) when you grab something from supply.
               </div>
             </div>
+
+            {/* Scanner modal */}
+            {scannerOpen && (
+              <ScannerModal
+                onClose={() => setScannerOpen(false)}
+                onScan={(code) => {
+                  setScannerOpen(false);
+                  setItemQuery(code);
+                  // auto-submit immediately
+                  submitTransaction(code);
+                }}
+              />
+            )}
           </div>
         )}
+
+        {/* TOTALS TAB */}
+        {tab === "TOTALS" && (
+          <div className="rounded-3xl bg-neutral-900/70 border border-neutral-800 p-5">
+            <div className="text-lg font-semibold">Totals</div>
+            <div className="text-sm text-neutral-300 mt-1">
+              (We can wire this to building totals next.)
+            </div>
+          </div>
+        )}
+
+        {/* SETTINGS TAB */}
+        {tab === "SETTINGS" && (
+          <div className="rounded-3xl bg-neutral-900/70 border border-neutral-800 p-5 space-y-3">
+            <div className="text-lg font-semibold">Settings</div>
+
+            <div className="text-sm text-neutral-300">
+              Default location for this device:
+            </div>
+
+            <select
+              className="w-full rounded-2xl bg-neutral-950 border border-neutral-700 px-4 py-3"
+              value={defaultLocationId}
+              onChange={(e) => setAndSaveDefaultLocation(e.target.value)}
+            >
+              {locations.map((l) => (
+                <option key={l.id} value={l.id}>
+                  {l.name}
+                </option>
+              ))}
+            </select>
+
+            <div className="text-xs text-neutral-400">
+              This saves to your device (so each iPad/iPhone can default to its room).
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * ScannerModal:
+ * - Uses BarcodeDetector when available
+ * - If not available, lets you paste/type a barcode and submit
+ */
+function ScannerModal(props: { onClose: () => void; onScan: (code: string) => void }) {
+  const { onClose, onScan } = props;
+
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const [error, setError] = useState<string>("");
+  const [manual, setManual] = useState<string>("");
+
+  useEffect(() => {
+    let stream: MediaStream | null = null;
+    let raf = 0;
+    let stopped = false;
+
+    async function start() {
+      setError("");
+
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: "environment" },
+          audio: false,
+        });
+
+        if (!videoRef.current) return;
+        videoRef.current.srcObject = stream;
+        await videoRef.current.play();
+
+        const hasDetector = typeof (window as any).BarcodeDetector !== "undefined";
+        if (!hasDetector) {
+          setError("BarcodeDetector not supported on this device/browser. Use manual entry below.");
+          return;
+        }
+
+        const detector = new (window as any).BarcodeDetector({
+          formats: ["qr_code", "ean_13", "ean_8", "code_128", "upc_a", "upc_e"],
+        });
+
+        const scanLoop = async () => {
+          if (stopped) return;
+          try {
+            if (videoRef.current) {
+              const barcodes = await detector.detect(videoRef.current);
+              if (barcodes && barcodes.length) {
+                const raw = (barcodes[0].rawValue ?? "").trim();
+                if (raw) {
+                  onScan(raw);
+                  return;
+                }
+              }
+            }
+          } catch {
+            // ignore and keep scanning
+          }
+          raf = requestAnimationFrame(scanLoop);
+        };
+
+        raf = requestAnimationFrame(scanLoop);
+      } catch (e: any) {
+        setError(e?.message ?? "Could not access camera");
+      }
+    }
+
+    start();
+
+    return () => {
+      stopped = true;
+      if (raf) cancelAnimationFrame(raf);
+      if (stream) stream.getTracks().forEach((t) => t.stop());
+    };
+  }, [onScan]);
+
+  return (
+    <div className="fixed inset-0 bg-black/70 flex items-center justify-center p-4 z-50">
+      <div className="w-full max-w-xl rounded-3xl bg-neutral-950 border border-neutral-700 p-4 space-y-3">
+        <div className="flex items-center justify-between">
+          <div className="font-semibold">Scan Barcode</div>
+          <button
+            onClick={onClose}
+            className="px-3 py-1 rounded-xl bg-neutral-800 border border-neutral-700"
+          >
+            Close
+          </button>
+        </div>
+
+        <div className="rounded-2xl overflow-hidden border border-neutral-700 bg-black">
+          <video ref={videoRef} className="w-full h-64 object-cover" />
+        </div>
+
+        {error ? <div className="text-yellow-300 text-sm">{error}</div> : null}
+
+        <div className="text-sm text-neutral-300">Manual entry (if needed):</div>
+        <div className="flex gap-2">
+          <input
+            className="flex-1 rounded-2xl bg-white text-black px-4 py-3"
+            value={manual}
+            onChange={(e) => setManual(e.target.value)}
+            placeholder="Type/paste barcode"
+          />
+          <button
+            onClick={() => {
+              const code = manual.trim();
+              if (code) onScan(code);
+            }}
+            className="px-4 py-3 rounded-2xl bg-white text-black font-bold"
+          >
+            Use
+          </button>
+        </div>
       </div>
     </div>
   );
