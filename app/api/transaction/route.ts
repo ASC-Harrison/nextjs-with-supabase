@@ -1,142 +1,128 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-  { auth: { persistSession: false } }
-);
+import { createAdminClient } from "@/lib/supabase/admin";
 
 type Body = {
-  itemQuery: string;
+  mode: "USE" | "RESTOCK";
+  itemQuery: string; // barcode or name text
   qty: number;
-  action: "USE" | "RESTOCK";
-  locationId: string | null;
-  overrideMainOnce?: boolean;
+  storageAreaId: string; // where to apply it (room cabinet / main)
 };
-
-async function findItemId(itemQuery: string): Promise<string | null> {
-  const q = itemQuery.trim();
-
-  // 1) Try internal barcode in items.barcode
-  {
-    const { data } = await supabase
-      .from("items")
-      .select("id")
-      .eq("barcode", q)
-      .limit(1)
-      .maybeSingle();
-    if (data?.id) return data.id;
-  }
-
-  // 2) Try alias barcode in item_barcodes
-  {
-    const { data, error } = await supabase
-      .from("item_barcodes")
-      .select("item_id")
-      .eq("barcode", q)
-      .limit(1)
-      .maybeSingle();
-
-    if (!error && data?.item_id) return data.item_id;
-  }
-
-  // 3) Try name search (only if it doesn't look like a long barcode)
-  const looksLikeBarcode = /^[A-Za-z0-9\-\_]{6,}$/.test(q) && /\d/.test(q);
-  if (!looksLikeBarcode) {
-    const { data } = await supabase
-      .from("items")
-      .select("id")
-      .ilike("name", `%${q}%`)
-      .order("name", { ascending: true })
-      .limit(1)
-      .maybeSingle();
-    if (data?.id) return data.id;
-  }
-
-  return null;
-}
 
 export async function POST(req: Request) {
   try {
+    const supabase = createAdminClient();
     const body = (await req.json()) as Body;
 
-    const itemQuery = (body.itemQuery || "").trim();
-    const qty = Math.max(1, Math.floor(Number(body.qty || 1)));
-    const action = body.action;
-    let locationId = body.locationId;
+    const mode = body.mode;
+    const itemQuery = (body.itemQuery ?? "").trim();
+    const qty = Number(body.qty ?? 0);
+    const storageAreaId = body.storageAreaId;
 
     if (!itemQuery) {
-      return NextResponse.json({ ok: false, error: "Missing itemQuery" }, { status: 400 });
+      return NextResponse.json({ error: "Missing itemQuery" }, { status: 400 });
     }
-    if (action !== "USE" && action !== "RESTOCK") {
-      return NextResponse.json({ ok: false, error: "Bad action" }, { status: 400 });
+    if (!storageAreaId) {
+      return NextResponse.json({ error: "Missing storageAreaId" }, { status: 400 });
+    }
+    if (!Number.isFinite(qty) || qty <= 0) {
+      return NextResponse.json({ error: "Qty must be > 0" }, { status: 400 });
+    }
+    if (mode !== "USE" && mode !== "RESTOCK") {
+      return NextResponse.json({ error: "Invalid mode" }, { status: 400 });
     }
 
-    // If you want “MAIN override” logic by name, do it here.
-    // For now, if overrideMainOnce is true and MAIN exists, use it.
-    if (body.overrideMainOnce) {
-      const { data: main } = await supabase
-        .from("storage_areas")
+    // 1) Find item by barcode exact match OR name ilike
+    const isProbablyBarcode = /^[0-9A-Za-z\-\._]{4,}$/.test(itemQuery);
+
+    let itemId: string | null = null;
+
+    if (isProbablyBarcode) {
+      const { data: byBarcode } = await supabase
+        .from("items")
         .select("id")
-        .ilike("name", "%main%")
-        .limit(1)
-        .maybeSingle();
-      if (main?.id) locationId = main.id;
+        .eq("barcode", itemQuery)
+        .limit(1);
+
+      if (byBarcode && byBarcode.length) itemId = byBarcode[0].id;
     }
 
-    if (!locationId) {
-      return NextResponse.json({ ok: false, error: "Missing locationId" }, { status: 400 });
-    }
+    if (!itemId) {
+      const { data: byName } = await supabase
+        .from("items")
+        .select("id")
+        .ilike("name", `%${itemQuery}%`)
+        .limit(1);
 
-    const itemId = await findItemId(itemQuery);
+      if (byName && byName.length) itemId = byName[0].id;
+    }
 
     if (!itemId) {
       return NextResponse.json(
-        { ok: false, code: "ITEM_NOT_FOUND", scanned: itemQuery, error: "Not in system" },
+        { code: "ITEM_NOT_FOUND", scanned: itemQuery },
         { status: 404 }
       );
     }
 
-    // Ensure row exists in storage_inventory, then update on_hand
-    const { data: existing, error: selErr } = await supabase
+    // 2) Upsert storage_inventory row if missing, then adjust on_hand
+    // storage_inventory: storage_area_id, item_id, on_hand
+    const { data: existing, error: existingErr } = await supabase
       .from("storage_inventory")
-      .select("id,on_hand")
+      .select("storage_area_id,item_id,on_hand")
+      .eq("storage_area_id", storageAreaId)
       .eq("item_id", itemId)
-      .eq("storage_area_id", locationId)
-      .limit(1)
-      .maybeSingle();
+      .limit(1);
 
-    if (selErr) throw selErr;
-
-    const current = Number(existing?.on_hand || 0);
-    const next = action === "USE" ? Math.max(0, current - qty) : current + qty;
-
-    if (existing?.id) {
-      const { error: updErr } = await supabase
-        .from("storage_inventory")
-        .update({ on_hand: next })
-        .eq("id", existing.id);
-      if (updErr) throw updErr;
-    } else {
-      const { error: insErr } = await supabase.from("storage_inventory").insert({
-        item_id: itemId,
-        storage_area_id: locationId,
-        on_hand: next,
-      });
-      if (insErr) throw insErr;
+    if (existingErr) {
+      return NextResponse.json({ error: existingErr.message }, { status: 500 });
     }
 
-    // Optional transaction log (if you have the table)
-    await supabase.from("transactions").insert({
-      item_id: itemId,
-      storage_area_id: locationId,
-      qty,
-      mode: action,
-    });
+    const currentOnHand = existing?.[0]?.on_hand ?? 0;
+    const delta = mode === "USE" ? -qty : qty;
+    const nextOnHand = Math.max(0, Number(currentOnHand) + delta);
 
-    return NextResponse.json({ ok: true, message: "Updated", on_hand: next });
+    if (!existing || existing.length === 0) {
+      const { error: insErr } = await supabase.from("storage_inventory").insert({
+        storage_area_id: storageAreaId,
+        item_id: itemId,
+        on_hand: nextOnHand,
+      });
+      if (insErr) return NextResponse.json({ error: insErr.message }, { status: 500 });
+    } else {
+      const { error: upErr } = await supabase
+        .from("storage_inventory")
+        .update({ on_hand: nextOnHand })
+        .eq("storage_area_id", storageAreaId)
+        .eq("item_id", itemId);
+
+      if (upErr) return NextResponse.json({ error: upErr.message }, { status: 500 });
+    }
+
+    // Optional: write a transaction row if you have a transactions table
+    // (won't break if the table doesn't exist - we just skip it)
+    try {
+      await supabase.from("transactions").insert({
+        storage_area_id: storageAreaId,
+        item_id: itemId,
+        qty: qty,
+        mode: mode,
+      });
+    } catch {
+      // ignore
+    }
+
+    return NextResponse.json(
+      {
+        ok: true,
+        item_id: itemId,
+        storage_area_id: storageAreaId,
+        on_hand: nextOnHand,
+      },
+      { status: 200 }
+    );
   } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message || "Server error" }, { status: 500 });
+    return NextResponse.json(
+      { error: e?.message ?? "Unknown server error" },
+      { status: 500 }
+    );
   }
 }
