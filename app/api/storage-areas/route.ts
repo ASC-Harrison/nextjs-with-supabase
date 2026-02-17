@@ -3,30 +3,19 @@ import { createClient } from "@supabase/supabase-js";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
+  process.env.SUPABASE_SERVICE_ROLE_KEY!,
+  { auth: { persistSession: false } }
 );
 
 export async function GET() {
-  try {
-    // MASTER LIST: return every storage area in the table, no joins, no filters.
-    const { data, error } = await supabase
-      .from("storage_areas")
-      .select("id, name")
-      .order("name", { ascending: true });
+  const { data, error } = await supabase
+    .from("storage_areas")
+    .select("id,name")
+    .order("name", { ascending: true });
 
-    if (error) {
-      return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
-    }
-
-    return NextResponse.json({
-      ok: true,
-      storageAreas: (data ?? []).map((r) => ({ id: r.id, name: r.name })),
-      count: (data ?? []).length,
-    });
-  } catch (e: any) {
-    return NextResponse.json(
-      { ok: false, error: e?.message ?? "Unknown error" },
-      { status: 500 }
-    );
+  if (error) {
+    return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
   }
+
+  return NextResponse.json({ ok: true, locations: data ?? [] });
 }
