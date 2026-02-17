@@ -1,131 +1,169 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 
-type Mode = "use" | "restock";
+type TxMode = "USE" | "RESTOCK";
+type Tab = "transaction" | "totals" | "settings";
+
+type TxOk = {
+  ok: true;
+  message?: string;
+  // optional payloads your API might return
+  item?: any;
+  inventory?: any;
+};
+
+type TxErr = {
+  ok: false;
+  code?: "ITEM_NOT_FOUND" | string;
+  error?: string;
+  scanned?: string;
+};
+
+type TxResponse = TxOk | TxErr;
 
 type LocationRow = {
   id: string;
   name: string;
 };
 
+function safeJson<T>(raw: any): T | null {
+  if (!raw) return null;
+  return raw as T;
+}
+
+async function fetchJson<T>(input: RequestInfo, init?: RequestInit): Promise<{ res: Response; data: T | null }> {
+  const res = await fetch(input, init);
+  let data: T | null = null;
+  try {
+    data = (await res.json()) as T;
+  } catch {
+    data = null;
+  }
+  return { res, data };
+}
+
 export default function ProtectedPage() {
-  const [mode, setMode] = useState<Mode>("use");
+  const [tab, setTab] = useState<Tab>("transaction");
+
+  // Transaction state
+  const [mode, setMode] = useState<TxMode>("USE");
   const [itemQuery, setItemQuery] = useState("");
   const [qty, setQty] = useState<number>(1);
-
-  // locations + current
-  const [locations, setLocations] = useState<LocationRow[]>([]);
-  const [currentAreaId, setCurrentAreaId] = useState<string>("");
-  const [currentAreaName, setCurrentAreaName] = useState<string>("");
-
-  // one-time override (MAIN 1x)
-  const [overrideOnce, setOverrideOnce] = useState(false);
-
-  // UI status
   const [status, setStatus] = useState<string>("");
 
-  const trimmed = useMemo(() => itemQuery.trim(), [itemQuery]);
+  // Locations
+  const [locations, setLocations] = useState<LocationRow[]>([]);
+  const [locationId, setLocationId] = useState<string>("");
+  const [locationsError, setLocationsError] = useState<string>("");
 
-  // ===== Load locations from your API (if you have one)
-  // If you DO NOT have /api/locations, this will fail gracefully and show a message
+  // One-time override for MAIN
+  const [overrideMainOnce, setOverrideMainOnce] = useState(false);
+
+  // Scanner
+  const [scannerOpen, setScannerOpen] = useState(false);
+
+  // Load locations (tries /api/locations first; if you don’t have it, it won’t break the build)
   useEffect(() => {
-    (async () => {
-      try {
-        const res = await fetch("/api/locations", { cache: "no-store" });
-        if (!res.ok) {
-          // show helpful message but don’t crash the page
-          setStatus(
-            `Failed to load locations (API missing?): ${res.status} ${res.statusText}`
-          );
-          return;
-        }
+    let cancelled = false;
 
-        const data: any = await res.json();
+    async function loadLocations() {
+      setLocationsError("");
+      // If you already have a locations endpoint, great:
+      const { res, data } = await fetchJson<{ ok: boolean; locations?: LocationRow[]; error?: string }>("/api/locations");
 
-        // Accept several possible shapes so it doesn't break:
-        // { locations: [...] } OR [...] directly
-        const list: any[] = Array.isArray(data) ? data : data?.locations || [];
-        const parsed: LocationRow[] = list
-          .filter((x) => x?.id && x?.name)
-          .map((x) => ({ id: String(x.id), name: String(x.name) }));
+      if (cancelled) return;
 
-        setLocations(parsed);
-
-        // Try to set a default location (first one)
-        if (parsed.length > 0) {
-          setCurrentAreaId(parsed[0].id);
-          setCurrentAreaName(parsed[0].name);
-        }
-      } catch (e: any) {
-        setStatus(`Failed to load locations: ${e?.message || "Unknown error"}`);
+      if (res.ok && data?.ok && Array.isArray(data.locations)) {
+        setLocations(data.locations);
+        // pick first default if none
+        if (!locationId && data.locations[0]?.id) setLocationId(data.locations[0].id);
+        return;
       }
-    })();
+
+      // If /api/locations doesn't exist or fails, we don't crash the UI
+      // You can remove this fallback later once /api/locations exists.
+      setLocations([]);
+      setLocationId("");
+      setLocationsError(
+        data?.error ||
+          (res.status === 404
+            ? "Locations API not found (/api/locations). App still works, but dropdown will be empty."
+            : "Failed to load locations.")
+      );
+    }
+
+    loadLocations();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ===== Scanner hook (optional)
-  // If your scanner component sets itemQuery directly, great.
-  // This lets you paste barcode into the field too.
-  function onScanResult(code: string) {
-    setItemQuery(code);
-    setStatus(`Scanned: ${code}`);
-  }
+  const currentLocationName = useMemo(() => {
+    const found = locations.find((l) => l.id === locationId);
+    return found?.name || "—";
+  }, [locations, locationId]);
 
   async function submitTransaction() {
     setStatus("");
 
-    if (!trimmed) {
+    const cleaned = itemQuery.trim();
+    if (!cleaned) {
       setStatus("❌ Enter an item name or barcode.");
       return;
     }
+    if (!qty || qty <= 0) {
+      setStatus("❌ Quantity must be 1 or more.");
+      return;
+    }
 
-    const safeQty = Number.isFinite(qty) ? Math.max(1, Math.floor(qty)) : 1;
-
-    // Decide what location to send
-    // If overrideOnce is ON, you can let your API interpret it as "MAIN" 1x
-    // Otherwise use currentAreaId
-    const payload: any = {
-      itemQuery: trimmed, // name OR barcode
-      qty: safeQty,
-      mode, // "use" | "restock"
-      storage_area_id: currentAreaId || null,
-      overrideOnce: overrideOnce === true,
+    // Payload expected by your API (adjust if needed)
+    const payload = {
+      itemQuery: cleaned, // name OR barcode
+      qty: Number(qty),
+      action: mode, // "USE" or "RESTOCK"
+      locationId: locationId || null,
+      overrideMainOnce: overrideMainOnce || false,
     };
 
-    try {
-      const res = await fetch("/api/transaction", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
+    const { res, data } = await fetchJson<TxResponse>("/api/transaction", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
 
-      const json: any = await res.json().catch(() => ({}));
+    // consume override once
+    if (overrideMainOnce) setOverrideMainOnce(false);
 
-      if (!res.ok) {
-        // Show "Not in system" if your API returns this code
-        if (json?.code === "ITEM_NOT_FOUND") {
-          setStatus(`❌ Not in system: ${json?.scanned || trimmed}`);
-        } else {
-          setStatus(
-            `❌ Transaction failed: ${json?.error || res.statusText || "Unknown error"}`
-          );
-        }
+    // Handle errors cleanly (NO "json" variable problems)
+    if (!res.ok || !data) {
+      setStatus(`❌ Transaction failed: ${res.status} ${res.statusText}`);
+      return;
+    }
+
+    if (data.ok === false) {
+      if (data.code === "ITEM_NOT_FOUND") {
+        setStatus(`❌ Not in system: ${data.scanned || cleaned}`);
         return;
       }
-
-      // success
-      setStatus("✅ Submitted!");
-
-      // If override was used, consume it (one-time)
-      if (overrideOnce) setOverrideOnce(false);
-
-      // clear inputs
-      setItemQuery("");
-      setQty(1);
-    } catch (e: any) {
-      setStatus(`❌ Transaction failed: ${e?.message || "Unknown error"}`);
+      setStatus(`❌ Transaction failed: ${data.error || "Unknown error"}`);
+      return;
     }
+
+    // Success
+    setStatus(`✅ Submitted${data.message ? `: ${data.message}` : ""}`);
+    setItemQuery("");
+    setQty(1);
+  }
+
+  function onScanned(value: string) {
+    // Put scanned value into the input
+    setItemQuery(value);
+    setScannerOpen(false);
+    // Optional: auto-submit after scan (comment out if you don’t want)
+    // submitTransaction();
   }
 
   return (
@@ -134,140 +172,292 @@ export default function ProtectedPage() {
         {/* Header */}
         <div className="rounded-2xl bg-neutral-900/70 p-4 shadow">
           <div className="flex items-center gap-3">
-            {/* Make sure this image exists in /public */}
-            <div className="h-12 w-12 overflow-hidden rounded-2xl bg-neutral-800 flex items-center justify-center">
-              <Image
-                src="/asc-header-logo.png"
-                alt="ASC Logo"
-                width={48}
-                height={48}
-                priority
-              />
+            <div className="h-14 w-14 overflow-hidden rounded-2xl bg-neutral-800 flex items-center justify-center">
+              {/* Put your in-app header logo file in /public/asc-header-logo.png */}
+              <Image src="/asc-header-logo.png" alt="ASC" width={56} height={56} priority />
             </div>
 
             <div className="flex-1">
-              <div className="text-2xl font-bold leading-tight">Baxter ASC Inventory</div>
-              <div className="text-sm text-neutral-300">
-                Cabinet tracking + building totals + low stock alerts
-              </div>
+              <div className="text-xl font-bold leading-tight">Baxter ASC Inventory</div>
+              <div className="text-sm text-neutral-300">Cabinet tracking + building totals + low stock alerts</div>
             </div>
 
             <div className="text-right">
-              <div className="text-sm text-neutral-400">Location:</div>
-              <div className="font-semibold">{currentAreaName || "—"}</div>
+              <div className="text-xs text-neutral-400">Location:</div>
+              <div className="text-sm font-semibold">{currentLocationName}</div>
             </div>
           </div>
+
+          {/* Tabs */}
+          <div className="mt-4 flex gap-2">
+            <TabButton active={tab === "transaction"} onClick={() => setTab("transaction")}>
+              Transaction
+            </TabButton>
+            <TabButton active={tab === "totals"} onClick={() => setTab("totals")}>
+              Totals
+            </TabButton>
+            <TabButton active={tab === "settings"} onClick={() => setTab("settings")}>
+              Settings
+            </TabButton>
+          </div>
         </div>
 
-        {/* Tabs */}
-        <div className="mt-4 flex gap-2">
-          <button className="rounded-xl bg-white px-4 py-2 font-semibold text-black">
-            Transaction
+        {/* Content */}
+        <div className="mt-4 rounded-2xl bg-neutral-900/70 p-4 shadow">
+          {tab === "transaction" && (
+            <>
+              {/* One-time override */}
+              <div className="rounded-2xl bg-neutral-950/60 p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <div className="text-base font-semibold">One-time override</div>
+                    <div className="text-sm text-neutral-300">Use MAIN (1x) if you grabbed it from supply room.</div>
+                  </div>
+                  <button
+                    onClick={() => setOverrideMainOnce(true)}
+                    className={`rounded-2xl px-4 py-3 text-sm font-semibold shadow ${
+                      overrideMainOnce ? "bg-yellow-500 text-black" : "bg-neutral-800 text-white"
+                    }`}
+                  >
+                    ⚡ MAIN (1x)
+                  </button>
+                </div>
+              </div>
+
+              {/* Mode */}
+              <div className="mt-4 rounded-2xl bg-neutral-950/60 p-4">
+                <div className="text-base font-semibold mb-3">Mode</div>
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => setMode("USE")}
+                    className={`flex-1 rounded-2xl px-4 py-3 font-bold ${
+                      mode === "USE" ? "bg-red-600 text-white" : "bg-neutral-800 text-white"
+                    }`}
+                  >
+                    USE
+                  </button>
+                  <button
+                    onClick={() => setMode("RESTOCK")}
+                    className={`flex-1 rounded-2xl px-4 py-3 font-bold ${
+                      mode === "RESTOCK" ? "bg-green-600 text-white" : "bg-neutral-800 text-white"
+                    }`}
+                  >
+                    RESTOCK
+                  </button>
+                </div>
+
+                {/* Scanner + inputs */}
+                <div className="mt-4 space-y-3">
+                  <div className="flex gap-2">
+                    <input
+                      className="w-full rounded-2xl bg-white px-4 py-3 text-black outline-none"
+                      placeholder="Item name or barcode"
+                      value={itemQuery}
+                      onChange={(e) => setItemQuery(e.target.value)}
+                    />
+                    <button
+                      onClick={() => setScannerOpen(true)}
+                      className="rounded-2xl bg-neutral-800 px-4 py-3 font-semibold"
+                      title="Scan barcode"
+                    >
+                      📷
+                    </button>
+                  </div>
+
+                  <input
+                    className="w-full rounded-2xl bg-white px-4 py-3 text-black outline-none"
+                    type="number"
+                    min={1}
+                    value={qty}
+                    onChange={(e) => setQty(Number(e.target.value))}
+                  />
+
+                  <button onClick={submitTransaction} className="w-full rounded-2xl bg-black py-4 text-lg font-bold">
+                    Submit
+                  </button>
+
+                  {status ? <div className="text-sm text-neutral-200">{status}</div> : null}
+
+                  {locationsError ? (
+                    <div className="text-sm text-yellow-300">Failed to load locations: {locationsError}</div>
+                  ) : null}
+                </div>
+              </div>
+
+              <div className="mt-4 text-xs text-neutral-400">
+                Tip: keep default on your room cabinet; use ⚡ MAIN (1x) when you grab something from the supply room.
+              </div>
+            </>
+          )}
+
+          {tab === "totals" && (
+            <div className="rounded-2xl bg-neutral-950/60 p-4">
+              <div className="text-lg font-bold">Totals</div>
+              <div className="mt-2 text-sm text-neutral-300">
+                (Placeholder) If you already have a totals view/API, tell me what it is and I’ll wire it in.
+              </div>
+            </div>
+          )}
+
+          {tab === "settings" && (
+            <div className="rounded-2xl bg-neutral-950/60 p-4 space-y-3">
+              <div className="text-lg font-bold">Settings</div>
+
+              <div>
+                <div className="text-sm text-neutral-300 mb-1">Default Location</div>
+                <select
+                  className="w-full rounded-2xl bg-neutral-800 px-4 py-3 text-white"
+                  value={locationId}
+                  onChange={(e) => setLocationId(e.target.value)}
+                  disabled={locations.length === 0}
+                >
+                  {locations.length === 0 ? (
+                    <option value="">No locations loaded</option>
+                  ) : (
+                    locations.map((l) => (
+                      <option key={l.id} value={l.id}>
+                        {l.name}
+                      </option>
+                    ))
+                  )}
+                </select>
+              </div>
+
+              <div className="text-sm text-neutral-400">
+                If your location dropdown is empty, you probably need a `/api/locations` route (or tell me how you store
+                locations and I’ll wire it to Supabase).
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Scanner Modal */}
+      {scannerOpen && (
+        <ScannerModal
+          onClose={() => setScannerOpen(false)}
+          onDetected={(val) => {
+            if (val) onScanned(val);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function TabButton({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={`flex-1 rounded-2xl px-3 py-2 text-sm font-semibold ${
+        active ? "bg-white text-black" : "bg-neutral-800 text-white"
+      }`}
+    >
+      {children}
+    </button>
+  );
+}
+
+/**
+ * Scanner modal using the native BarcodeDetector API when available.
+ * No extra libraries needed. If unsupported, it tells you instead of breaking.
+ */
+function ScannerModal({ onClose, onDetected }: { onClose: () => void; onDetected: (value: string) => void }) {
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const rafRef = useRef<number | null>(null);
+  const [err, setErr] = useState<string>("");
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function start() {
+      setErr("");
+
+      // @ts-ignore
+      const hasDetector = typeof window !== "undefined" && "BarcodeDetector" in window;
+      if (!hasDetector) {
+        setErr("Barcode scanning not supported on this browser/device. Use manual entry or a scanner that types into the field.");
+        return;
+      }
+
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: { ideal: "environment" } },
+          audio: false,
+        });
+
+        if (cancelled) return;
+
+        streamRef.current = stream;
+
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+          await videoRef.current.play();
+        }
+
+        // @ts-ignore
+        const detector = new window.BarcodeDetector({
+          formats: ["ean_13", "ean_8", "code_128", "code_39", "upc_a", "upc_e", "qr_code"],
+        });
+
+        const tick = async () => {
+          if (!videoRef.current) return;
+          try {
+            const barcodes = await detector.detect(videoRef.current);
+            if (barcodes && barcodes.length > 0) {
+              const raw = barcodes[0]?.rawValue;
+              if (raw) {
+                onDetected(raw);
+                return;
+              }
+            }
+          } catch {
+            // ignore detect errors and keep trying
+          }
+          rafRef.current = requestAnimationFrame(tick);
+        };
+
+        rafRef.current = requestAnimationFrame(tick);
+      } catch (e: any) {
+        setErr(e?.message || "Camera permission denied or camera not available.");
+      }
+    }
+
+    start();
+
+    return () => {
+      cancelled = true;
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach((t) => t.stop());
+      }
+    };
+  }, [onDetected]);
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
+      <div className="w-full max-w-lg rounded-2xl bg-neutral-900 p-4 shadow">
+        <div className="flex items-center justify-between">
+          <div className="text-lg font-bold">Scan Barcode</div>
+          <button onClick={onClose} className="rounded-xl bg-neutral-800 px-3 py-2 text-sm font-semibold">
+            Close
           </button>
-          <button className="rounded-xl bg-neutral-900 px-4 py-2 font-semibold text-white/80">
-            Totals
-          </button>
-          <button className="rounded-xl bg-neutral-900 px-4 py-2 font-semibold text-white/80">
-            Settings
-          </button>
         </div>
 
-        {/* One-time override */}
-        <div className="mt-4 rounded-2xl bg-neutral-900/70 p-4">
-          <div className="text-lg font-semibold">One-time override</div>
-          <div className="text-sm text-neutral-300">
-            Use MAIN (1x) if you grabbed it from supply room.
-          </div>
-
-          <div className="mt-3 flex items-center justify-between gap-3">
-            <button
-              onClick={() => setOverrideOnce(true)}
-              className={`rounded-2xl px-4 py-3 font-bold ${
-                overrideOnce ? "bg-yellow-500 text-black" : "bg-neutral-800 text-white"
-              }`}
-            >
-              ⚡ MAIN (1x)
-            </button>
-
-            <button
-              onClick={() => setOverrideOnce(false)}
-              className="rounded-2xl bg-neutral-800 px-4 py-3 font-semibold text-white/90"
-            >
-              Clear
-            </button>
-          </div>
+        <div className="mt-3 rounded-2xl overflow-hidden bg-black">
+          <video ref={videoRef} className="w-full h-72 object-cover" playsInline muted />
         </div>
 
-        {/* Mode */}
-        <div className="mt-4 rounded-2xl bg-neutral-900/70 p-4">
-          <div className="text-lg font-semibold">Mode</div>
-
-          <div className="mt-3 flex gap-3">
-            <button
-              onClick={() => setMode("use")}
-              className={`flex-1 rounded-2xl px-4 py-3 font-bold ${
-                mode === "use" ? "bg-red-600 text-white" : "bg-neutral-800 text-white/80"
-              }`}
-            >
-              USE
-            </button>
-            <button
-              onClick={() => setMode("restock")}
-              className={`flex-1 rounded-2xl px-4 py-3 font-bold ${
-                mode === "restock"
-                  ? "bg-green-600 text-white"
-                  : "bg-neutral-800 text-white/80"
-              }`}
-            >
-              RESTOCK
-            </button>
-          </div>
-
-          {/* Inputs */}
-          <div className="mt-4 space-y-3">
-            <input
-              value={itemQuery}
-              onChange={(e) => setItemQuery(e.target.value)}
-              placeholder="Item name or barcode"
-              className="w-full rounded-2xl bg-white px-4 py-4 text-lg text-black outline-none"
-            />
-
-            <input
-              type="number"
-              value={qty}
-              onChange={(e) => setQty(parseInt(e.target.value || "1", 10))}
-              min={1}
-              className="w-full rounded-2xl bg-white px-4 py-4 text-lg text-black outline-none"
-            />
-
-            <button
-              onClick={submitTransaction}
-              className="w-full rounded-2xl bg-black px-4 py-5 text-xl font-bold text-white"
-            >
-              Submit
-            </button>
-
-            {/* Status */}
-            {status ? (
-              <div className="mt-2 text-sm text-neutral-200">{status}</div>
-            ) : null}
-          </div>
-
-          {/* Optional: quick scan test button (remove later) */}
-          <div className="mt-3">
-            <button
-              onClick={() => onScanResult("TEST-BARCODE-123")}
-              className="rounded-xl bg-neutral-800 px-3 py-2 text-sm text-white/80"
-            >
-              (Test) Simulate scan
-            </button>
-          </div>
-        </div>
-
-        <div className="mt-6 text-xs text-neutral-500">
-          Tip: keep default on your room cabinet; use ⚡ MAIN (1x) when you grab something
-          from the supply room.
-        </div>
+        {err ? <div className="mt-3 text-sm text-yellow-300">{err}</div> : <div className="mt-3 text-sm text-neutral-300">Point the camera at the barcode…</div>}
       </div>
     </div>
   );
