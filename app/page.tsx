@@ -17,6 +17,7 @@ export default function Page() {
   const [mainOverride, setMainOverride] = useState(false);
 
   const [areas, setAreas] = useState<Area[]>([]);
+  const [areasLoading, setAreasLoading] = useState(true);
   const [areaId, setAreaId] = useState("");
 
   const selectedAreaName = useMemo(
@@ -42,6 +43,9 @@ export default function Page() {
   const readerRef = useRef<BrowserMultiFormatReader | null>(null);
   const lastScanRef = useRef<string>("");
 
+  // 🔧 Set this to true if you want camera to start automatically on Transaction tab
+  const AUTO_START_SCANNER = true;
+
   useEffect(() => {
     try {
       setLocked((localStorage.getItem(LS.LOCKED) ?? "1") === "1");
@@ -62,14 +66,18 @@ export default function Page() {
     } catch {}
   }, [areaId]);
 
+  // ✅ LOAD storage_areas via /api/locations
   useEffect(() => {
     (async () => {
+      setAreasLoading(true);
       try {
         const res = await fetch("/api/locations", {
           method: "GET",
           cache: "no-store",
           headers: { "Cache-Control": "no-cache" },
         });
+
+        // If this is not JSON, it will throw — we catch below.
         const json = await res.json();
 
         if (!json.ok) {
@@ -86,16 +94,25 @@ export default function Page() {
           if (!list.length) return "";
           return list.some((a) => a.id === prev) ? prev : list[0].id;
         });
+
+        setStatus(list.length ? "" : "No locations are ACTIVE in storage_areas.");
       } catch (e: any) {
         setStatus(`Locations fetch failed: ${e?.message ?? "unknown"}`);
         setAreas([]);
         setAreaId("");
+      } finally {
+        setAreasLoading(false);
       }
     })();
   }, []);
 
   useEffect(() => {
     if (tab !== "Transaction") stopScanner();
+    if (tab === "Transaction" && AUTO_START_SCANNER) {
+      // small delay so Safari has time to render video element
+      const t = setTimeout(() => startScanner(), 250);
+      return () => clearTimeout(t);
+    }
     return () => stopScanner();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab]);
@@ -116,22 +133,26 @@ export default function Page() {
         if (!result) return;
         const text = result.getText?.() ?? "";
         if (!text) return;
-        if (text === lastScanRef.current) return;
 
+        // prevent repeat spam
+        if (text === lastScanRef.current) return;
         lastScanRef.current = text;
+
         setQuery(text);
         await lookupBarcode(text);
       });
     } catch {
-      alert("Camera blocked. Allow camera permissions in Safari.");
+      setStatus("Camera blocked. Allow camera permissions (Safari/iOS settings).");
     }
   }
 
   function stopScanner() {
     try {
+      // @zxing/browser supports reset() in many builds; keep safe.
       (readerRef.current as any)?.reset?.();
     } catch {}
     readerRef.current = null;
+    lastScanRef.current = "";
   }
 
   async function lookupBarcode(barcode: string) {
@@ -141,6 +162,7 @@ export default function Page() {
     const res = await fetch("/api/items/lookup", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
+      cache: "no-store",
       body: JSON.stringify({ barcode }),
     });
 
@@ -172,14 +194,28 @@ export default function Page() {
     return pinInput.trim() === real;
   }
 
-  function onPinConfirm() {
+  async function onPinConfirm() {
     if (!checkPin()) return alert("Wrong PIN");
     setPinOpen(false);
 
-    if (pinPurpose === "unlock") setLocked(false);
+    if (pinPurpose === "unlock") {
+      setLocked(false);
+      return;
+    }
+
     if (pinPurpose === "changeLocation") {
       if (pendingArea) setAreaId(pendingArea);
       setPendingArea("");
+      return;
+    }
+
+    // ✅ THIS WAS MISSING IN YOUR CODE:
+    // After entering PIN for addItem, actually add the item.
+    if (pinPurpose === "addItem") {
+      // once PIN passes, allow add
+      setLocked(false); // unlock for this action; you can re-lock after if you want
+      await addItemNow(true);
+      return;
     }
   }
 
@@ -192,8 +228,8 @@ export default function Page() {
     openPin("changeLocation");
   }
 
-  async function addItemNow() {
-    if (locked) {
+  async function addItemNow(pinAlreadyPassed = false) {
+    if (locked && !pinAlreadyPassed) {
       openPin("addItem");
       return;
     }
@@ -206,6 +242,7 @@ export default function Page() {
     const res = await fetch("/api/items/create", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
+      cache: "no-store",
       body: JSON.stringify({
         name: addName.trim(),
         barcode,
@@ -230,6 +267,7 @@ export default function Page() {
     const res = await fetch("/api/transaction", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
+      cache: "no-store",
       body: JSON.stringify({ area_id: areaId, mode, item_id: item.id, qty, mainOverride }),
     });
 
@@ -250,7 +288,10 @@ export default function Page() {
 
   return (
     <div className="min-h-screen w-full flex justify-center">
-      <div className="w-full max-w-md px-3 pb-4 overflow-x-hidden" style={{ paddingTop: "env(safe-area-inset-top)" }}>
+      <div
+        className="w-full max-w-md px-3 pb-4 overflow-x-hidden"
+        style={{ paddingTop: "env(safe-area-inset-top)" }}
+      >
         <div className="rounded-3xl bg-white/5 p-3 ring-1 ring-white/10">
           <div className="grid grid-cols-[1fr_auto] gap-3 items-start">
             <div className="min-w-0">
@@ -279,13 +320,16 @@ export default function Page() {
         {tab === "Transaction" ? (
           <div className="mt-2 rounded-3xl bg-white/5 p-4 ring-1 ring-white/10">
             <div className="text-sm text-white/70">Select location</div>
+
             <select
               value={areaId}
               onChange={(e) => requestLocationChange(e.target.value)}
               className="mt-2 w-full rounded-2xl bg-black/40 px-4 py-3 ring-1 ring-white/10"
             >
-              {areas.length === 0 ? (
-                <option>No locations found</option>
+              {areasLoading ? (
+                <option value="">Loading locations…</option>
+              ) : areas.length === 0 ? (
+                <option value="">No locations found</option>
               ) : (
                 areas.map((a) => (
                   <option key={a.id} value={a.id}>{a.name}</option>
@@ -293,7 +337,11 @@ export default function Page() {
               )}
             </select>
 
-            {locked && <div className="mt-2 text-xs text-white/50">Locked: PIN required to change location & add items.</div>}
+            {locked && (
+              <div className="mt-2 text-xs text-white/50">
+                Locked: PIN required to change location & add items.
+              </div>
+            )}
 
             <div className="mt-2 rounded-2xl bg-black/30 p-4 ring-1 ring-white/10">
               <div className="flex items-center justify-between gap-3">
@@ -309,7 +357,9 @@ export default function Page() {
                   ].join(" ")}
                 >
                   <div className="text-xs opacity-80">⚡</div>
-                  <div className="text-sm font-semibold">MAIN <span className="opacity-70">(1x)</span></div>
+                  <div className="text-sm font-semibold">
+                    MAIN <span className="opacity-70">(1x)</span>
+                  </div>
                 </button>
               </div>
             </div>
@@ -371,32 +421,58 @@ export default function Page() {
               <QtyBtn onClick={() => setQty((q) => q + 1)}>+</QtyBtn>
             </div>
 
-            <button className="mt-2 w-full rounded-2xl bg-black/80 px-4 py-4 text-white font-semibold disabled:opacity-60"
-              disabled={!item || locked} onClick={submit}>
+            <button
+              className="mt-2 w-full rounded-2xl bg-black/80 px-4 py-4 text-white font-semibold disabled:opacity-60"
+              disabled={!item || locked}
+              onClick={submit}
+            >
               Submit
             </button>
 
             {addOpen && (
-              <Modal title="Item not found" okText={locked ? "Enter PIN" : "Add Item"} onCancel={() => setAddOpen(false)} onOk={addItemNow}>
+              <Modal
+                title="Item not found"
+                okText={locked ? "Enter PIN" : "Add Item"}
+                onCancel={() => setAddOpen(false)}
+                onOk={() => addItemNow()}
+              >
                 <div className="mt-1 text-sm text-white/70 break-all">Barcode: {query}</div>
                 <div className="mt-3">
                   <div className="text-xs text-white/60 mb-1">Item name</div>
-                  <input value={addName} onChange={(e) => setAddName(e.target.value)}
-                    className="w-full rounded-2xl bg-white text-black px-4 py-3" placeholder="Type item name…" />
+                  <input
+                    value={addName}
+                    onChange={(e) => setAddName(e.target.value)}
+                    className="w-full rounded-2xl bg-white text-black px-4 py-3"
+                    placeholder="Type item name…"
+                  />
                 </div>
                 <div className="mt-3">
                   <div className="text-xs text-white/60 mb-1">Par level (optional)</div>
-                  <input value={String(addPar)} onChange={(e) => setAddPar(Number(e.target.value || 0))}
-                    inputMode="numeric" className="w-full rounded-2xl bg-white text-black px-4 py-3" placeholder="0" />
+                  <input
+                    value={String(addPar)}
+                    onChange={(e) => setAddPar(Number(e.target.value || 0))}
+                    inputMode="numeric"
+                    className="w-full rounded-2xl bg-white text-black px-4 py-3"
+                    placeholder="0"
+                  />
                 </div>
               </Modal>
             )}
 
             {pinOpen && (
               <Modal
-                title={pinPurpose === "unlock" ? "Enter PIN to unlock" : pinPurpose === "changeLocation" ? "Enter PIN to change location" : "Enter PIN to add item"}
+                title={
+                  pinPurpose === "unlock"
+                    ? "Enter PIN to unlock"
+                    : pinPurpose === "changeLocation"
+                      ? "Enter PIN to change location"
+                      : "Enter PIN to add item"
+                }
                 okText="OK"
-                onCancel={() => { setPinOpen(false); setPendingArea(""); }}
+                onCancel={() => {
+                  setPinOpen(false);
+                  setPendingArea("");
+                }}
                 onOk={onPinConfirm}
               >
                 <input
@@ -406,7 +482,9 @@ export default function Page() {
                   className="mt-3 w-full rounded-2xl bg-white text-black px-4 py-3"
                   placeholder="PIN"
                 />
-                <div className="mt-2 text-xs text-white/50">Default PIN is <span className="font-semibold">1234</span> until set in Settings.</div>
+                <div className="mt-2 text-xs text-white/50">
+                  Default PIN is <span className="font-semibold">1234</span> until set in Settings.
+                </div>
               </Modal>
             )}
           </div>
@@ -445,7 +523,10 @@ function ModeBtn({ active, danger, onClick, children }: any) {
   const activeCls = danger ? "bg-red-600 text-white ring-red-500/30" : "bg-white text-black ring-white/20";
   const inactiveCls = "bg-black/30 text-white ring-white/10";
   return (
-    <button onClick={onClick} className={["rounded-2xl px-3 py-2 text-sm font-bold ring-1", active ? activeCls : inactiveCls].join(" ")}>
+    <button
+      onClick={onClick}
+      className={["rounded-2xl px-3 py-2 text-sm font-bold ring-1", active ? activeCls : inactiveCls].join(" ")}
+    >
       {children}
     </button>
   );
@@ -478,8 +559,13 @@ function PinSetter({ onSave }: any) {
   const [pin, setPin] = useState("");
   return (
     <div className="mt-2">
-      <input value={pin} onChange={(e) => setPin(e.target.value.replace(/\D/g, "").slice(0, 6))}
-        className="w-full rounded-2xl bg-white text-black px-4 py-3" placeholder="New PIN (e.g. 1234)" inputMode="numeric" />
+      <input
+        value={pin}
+        onChange={(e) => setPin(e.target.value.replace(/\D/g, "").slice(0, 6))}
+        className="w-full rounded-2xl bg-white text-black px-4 py-3"
+        placeholder="New PIN (e.g. 1234)"
+        inputMode="numeric"
+      />
       <button onClick={() => onSave(pin)} className="mt-3 w-full rounded-2xl bg-white px-4 py-3 font-semibold text-black">
         Save PIN
       </button>
