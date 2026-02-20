@@ -3,11 +3,8 @@
 @tailwind utilities;
 
 html, body {
-  width: 100%;
-  height: 100%;
   margin: 0;
+  padding: 0;
+  height: 100%;
   overflow-x: hidden;
 }
-
-/* Prevent iOS zooming inputs */
-input, select, textarea, button { font-size: 16px; }
