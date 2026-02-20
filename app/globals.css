@@ -8,14 +8,8 @@ html, body {
 }
 
 /* iOS safe-area helpers */
-.safe-top {
-  padding-top: env(safe-area-inset-top);
-}
-.safe-bottom {
-  padding-bottom: env(safe-area-inset-bottom);
-}
+.safe-top { padding-top: env(safe-area-inset-top); }
+.safe-bottom { padding-bottom: env(safe-area-inset-bottom); }
 
 /* Prevent iOS zoom glitch on inputs */
-input, select, textarea, button {
-  font-size: 16px;
-}
+input, select, textarea, button { font-size: 16px; }
