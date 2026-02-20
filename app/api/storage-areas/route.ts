@@ -7,35 +7,22 @@ export async function GET() {
   };
 
   try {
-    const supaUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
-
     const { data, error } = await supabaseAdmin
       .from("storage_areas")
       .select("id,name,active")
+      .eq("active", true)
       .order("name", { ascending: true });
 
     if (error) {
       console.error("❌ /api/locations:", error);
-      return NextResponse.json(
-        { ok: false, where: "supabase", error: error.message, supaUrl },
-        { status: 500, headers }
-      );
+      return NextResponse.json({ ok: false, error: error.message }, { status: 500, headers });
     }
 
-    return NextResponse.json(
-      {
-        ok: true,
-        supaUrl,
-        count: (data ?? []).length,
-        sample: (data ?? []).slice(0, 5),
-        locations: data ?? [],
-      },
-      { headers }
-    );
+    return NextResponse.json({ ok: true, locations: data ?? [] }, { headers });
   } catch (e: any) {
     console.error("❌ /api/locations crash:", e);
     return NextResponse.json(
-      { ok: false, where: "crash", error: e?.message ?? "unknown" },
+      { ok: false, error: e?.message ?? "Unknown error" },
       { status: 500, headers }
     );
   }
