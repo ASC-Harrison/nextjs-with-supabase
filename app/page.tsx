@@ -5,7 +5,6 @@ import type { BrowserMultiFormatReader } from "@zxing/browser";
 
 type Tab = "Transaction" | "Totals" | "Settings";
 type Mode = "USE" | "RESTOCK";
-
 type AreaRow = { id: string; name: string };
 type ItemRow = { id: string; name: string; barcode: string };
 
@@ -49,12 +48,6 @@ export default function Page() {
   const [pinInput, setPinInput] = useState("");
   const [pendingAreaId, setPendingAreaId] = useState<string>("");
 
-  const storedPin = useMemo(() => {
-    // Default PIN is 1234 if user hasn't set one yet
-    if (typeof window === "undefined") return "1234";
-    return localStorage.getItem(LS.PIN) || "1234";
-  }, []);
-
   // Scanner
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const readerRef = useRef<BrowserMultiFormatReader | null>(null);
@@ -68,7 +61,7 @@ export default function Page() {
     [mode]
   );
 
-  // Load persisted locked + area
+  // Load persisted lock + area
   useEffect(() => {
     try {
       const l = localStorage.getItem(LS.LOCKED);
@@ -83,18 +76,23 @@ export default function Page() {
   // Load areas
   useEffect(() => {
     (async () => {
-      const res = await fetch("/api/locations", { cache: "no-store" });
-      const json = await res.json();
-      if (!json.ok) {
-        setStatus(`Location load failed: ${json.error}`);
-        return;
+      try {
+        const res = await fetch("/api/locations", { cache: "no-store" });
+        const json = await res.json();
+
+        if (!json.ok) {
+          setStatus(`Locations API error: ${json.error}`);
+          setAreas([]);
+          return;
+        }
+
+        const list: AreaRow[] = json.locations ?? [];
+        setAreas(list);
+        setAreaId((prev) => prev || list?.[0]?.id || "");
+      } catch (e: any) {
+        setStatus(`Locations fetch failed: ${e?.message ?? "unknown"}`);
+        setAreas([]);
       }
-
-      const list: AreaRow[] = json.locations ?? [];
-      setAreas(list);
-
-      // If no saved area, pick first
-      setAreaId((prev) => prev || list?.[0]?.id || "");
     })();
   }, []);
 
@@ -253,7 +251,6 @@ export default function Page() {
       return;
     }
 
-    // changeLocation
     if (pendingAreaId) {
       setAreaId(pendingAreaId);
       setPendingAreaId("");
@@ -265,18 +262,15 @@ export default function Page() {
       setAreaId(newId);
       return;
     }
-    // locked → require PIN
     setPendingAreaId(newId);
     openPinModal("changeLocation");
   }
 
   function lockTogglePressed() {
     if (!locked) {
-      // lock immediately
       setLocked(true);
       return;
     }
-    // locked → need PIN to unlock
     openPinModal("unlock");
   }
 
@@ -291,44 +285,48 @@ export default function Page() {
   }
 
   return (
-    <div className="mx-auto w-full max-w-md px-4 pb-6 safe-bottom">
-      {/* BUILD PROOF TAG (shows whether phone is on newest code) */}
+    <div className="mx-auto w-full max-w-md px-4 pb-6 safe-bottom overflow-x-hidden">
+      {/* BUILD TAG */}
       <div className="fixed bottom-2 left-2 z-[9999] rounded bg-green-500 px-2 py-1 text-[11px] font-bold text-black">
         BUILD: {BUILD}
       </div>
 
-      {/* HEADER CARD */}
-      <div className="pt-4 safe-top">
-        <div className="rounded-3xl bg-white/5 p-5 ring-1 ring-white/10">
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <div className="text-5xl font-extrabold leading-none">Baxter</div>
-              <div className="text-5xl font-extrabold leading-none">ASC</div>
-              <div className="text-5xl font-extrabold leading-none">Inventory</div>
+      {/* HEADER CARD - RESPONSIVE */}
+      <div className="pt-3 safe-top">
+        <div className="rounded-3xl bg-white/5 p-4 ring-1 ring-white/10">
+          <div className="grid grid-cols-[1fr_auto] gap-3 items-start">
+            <div className="min-w-0">
+              {/* responsive title sizing */}
+              <div className="text-4xl sm:text-5xl font-extrabold leading-none">Baxter</div>
+              <div className="text-4xl sm:text-5xl font-extrabold leading-none">ASC</div>
+              <div className="text-4xl sm:text-5xl font-extrabold leading-none">Inventory</div>
 
-              <div className="mt-3 text-sm text-white/70">
-                Cabinet tracking +<br />
-                building totals + low<br />
-                stock alerts
+              <div className="mt-2 text-sm text-white/70">
+                Cabinet tracking + building totals + low stock alerts
               </div>
             </div>
 
-            <div className="text-right">
-              <div className="text-white/60 text-sm">Location:</div>
-              <div className="font-semibold">{selectedAreaName}</div>
+            {/* Right column never overflows */}
+            <div className="min-w-[120px] text-right">
+              <div className="text-white/60 text-xs">Location:</div>
+              <div className="font-semibold text-sm leading-tight break-words">
+                {selectedAreaName}
+              </div>
 
               <button
                 onClick={lockTogglePressed}
-                className="mt-3 inline-flex items-center gap-2 rounded-2xl bg-white/10 px-4 py-3 ring-1 ring-white/10"
+                className="mt-2 inline-flex items-center justify-center gap-2 w-full rounded-2xl bg-white/10 px-3 py-2 ring-1 ring-white/10"
               >
-                <span className="text-lg">🔒</span>
-                <span className="font-semibold">{locked ? "Locked" : "Unlocked"}</span>
+                <span className="text-base">🔒</span>
+                <span className="font-semibold text-sm">
+                  {locked ? "Locked" : "Unlocked"}
+                </span>
               </button>
             </div>
           </div>
 
           {/* TABS */}
-          <div className="mt-5 flex gap-3">
+          <div className="mt-4 flex gap-2">
             <TabButton active={tab === "Transaction"} onClick={() => setTab("Transaction")}>
               Transaction
             </TabButton>
@@ -344,7 +342,7 @@ export default function Page() {
 
       {/* CONTENT */}
       {tab === "Transaction" ? (
-        <div className="mt-5 rounded-3xl bg-white/5 p-4 ring-1 ring-white/10">
+        <div className="mt-4 rounded-3xl bg-white/5 p-4 ring-1 ring-white/10">
           {/* Select location */}
           <div className="text-sm text-white/70">Select location</div>
           <div className="mt-2">
@@ -363,6 +361,7 @@ export default function Page() {
                 ))
               )}
             </select>
+
             {locked ? (
               <div className="mt-2 text-xs text-white/50">
                 Locked: enter PIN to change location.
@@ -373,7 +372,7 @@ export default function Page() {
           {/* One-time override */}
           <div className="mt-4 rounded-2xl bg-black/30 p-4 ring-1 ring-white/10">
             <div className="flex items-center justify-between gap-3">
-              <div>
+              <div className="min-w-0">
                 <div className="text-lg font-semibold">One-time override</div>
                 <div className="mt-1 text-sm text-white/70">
                   Grabbed it from <span className="font-semibold text-white/85">MAIN</span> supply room? Tap once.
@@ -400,7 +399,7 @@ export default function Page() {
           {/* Mode */}
           <div className="mt-4 rounded-2xl bg-black/30 p-4 ring-1 ring-white/10">
             <div className="flex items-center justify-between gap-3">
-              <div>
+              <div className="min-w-0">
                 <div className="text-lg font-semibold">Mode</div>
                 <div className="mt-1 text-sm text-white/70">{modeHelp}</div>
               </div>
@@ -432,9 +431,7 @@ export default function Page() {
               />
               <button
                 type="button"
-                onClick={() =>
-                  startScanner().catch(() => setStatus("Camera permission blocked. Try again."))
-                }
+                onClick={() => startScanner().catch(() => setStatus("Camera permission blocked. Try again."))}
                 className="absolute right-2 top-1/2 -translate-y-1/2 rounded-xl bg-black/10 px-3 py-2 text-black hover:bg-black/20"
                 aria-label="Start scanner"
               >
@@ -443,7 +440,7 @@ export default function Page() {
             </div>
           </div>
 
-          {/* hidden video for scanning */}
+          {/* hidden video */}
           <video
             ref={videoRef}
             className="absolute w-px h-px opacity-0 pointer-events-none"
@@ -451,7 +448,9 @@ export default function Page() {
             playsInline
           />
 
-          <div className="mt-3 text-sm text-white/70">{status || "Ready."}</div>
+          <div className="mt-3 text-sm text-white/70 break-words">
+            {status || "Ready."}
+          </div>
 
           {resolvedItem ? (
             <div className="mt-2 rounded-2xl bg-black/30 p-3 ring-1 ring-white/10">
@@ -480,108 +479,68 @@ export default function Page() {
 
           {/* Add item modal */}
           {addOpen ? (
-            <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 p-4">
-              <div className="w-full max-w-md rounded-3xl bg-[#111] p-4 ring-1 ring-white/10">
-                <div className="text-lg font-semibold">Item not found</div>
-                <div className="mt-1 text-sm text-white/70 break-all">Barcode: {barcodeOrText}</div>
+            <Modal title="Item not found" onCancel={() => setAddOpen(false)} onOk={addItemNow} okText="Add Item">
+              <div className="mt-1 text-sm text-white/70 break-all">Barcode: {barcodeOrText}</div>
 
-                <div className="mt-3">
-                  <div className="text-xs text-white/60 mb-1">Item name</div>
-                  <input
-                    value={addName}
-                    onChange={(e) => setAddName(e.target.value)}
-                    className="w-full rounded-2xl bg-white text-black px-4 py-3"
-                    placeholder="Type item name…"
-                  />
-                </div>
-
-                <div className="mt-3">
-                  <div className="text-xs text-white/60 mb-1">Par level (optional)</div>
-                  <input
-                    value={String(addPar)}
-                    onChange={(e) => setAddPar(Number(e.target.value || 0))}
-                    className="w-full rounded-2xl bg-white text-black px-4 py-3"
-                    inputMode="numeric"
-                    placeholder="0"
-                  />
-                </div>
-
-                <div className="mt-4 flex gap-2">
-                  <button
-                    onClick={() => setAddOpen(false)}
-                    className="flex-1 rounded-2xl bg-white/10 px-4 py-3 font-semibold"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={addItemNow}
-                    className="flex-1 rounded-2xl bg-white px-4 py-3 font-semibold text-black"
-                  >
-                    Add Item
-                  </button>
-                </div>
+              <div className="mt-3">
+                <div className="text-xs text-white/60 mb-1">Item name</div>
+                <input
+                  value={addName}
+                  onChange={(e) => setAddName(e.target.value)}
+                  className="w-full rounded-2xl bg-white text-black px-4 py-3"
+                  placeholder="Type item name…"
+                />
               </div>
-            </div>
+
+              <div className="mt-3">
+                <div className="text-xs text-white/60 mb-1">Par level (optional)</div>
+                <input
+                  value={String(addPar)}
+                  onChange={(e) => setAddPar(Number(e.target.value || 0))}
+                  className="w-full rounded-2xl bg-white text-black px-4 py-3"
+                  inputMode="numeric"
+                  placeholder="0"
+                />
+              </div>
+            </Modal>
           ) : null}
 
           {/* PIN modal */}
           {pinModalOpen ? (
-            <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 p-4">
-              <div className="w-full max-w-md rounded-3xl bg-[#111] p-4 ring-1 ring-white/10">
-                <div className="text-lg font-semibold">
-                  {pinModalMode === "unlock" ? "Enter PIN to unlock" : "Enter PIN to change location"}
-                </div>
-
-                <input
-                  value={pinInput}
-                  onChange={(e) => setPinInput(e.target.value.replace(/\D/g, "").slice(0, 6))}
-                  className="mt-3 w-full rounded-2xl bg-white text-black px-4 py-3"
-                  placeholder="PIN"
-                  inputMode="numeric"
-                />
-
-                <div className="mt-4 flex gap-2">
-                  <button
-                    onClick={() => {
-                      setPinModalOpen(false);
-                      setPendingAreaId("");
-                    }}
-                    className="flex-1 rounded-2xl bg-white/10 px-4 py-3 font-semibold"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={checkPinAndProceed}
-                    className="flex-1 rounded-2xl bg-white px-4 py-3 font-semibold text-black"
-                  >
-                    OK
-                  </button>
-                </div>
-
-                <div className="mt-2 text-xs text-white/50">
-                  Default PIN is <span className="font-semibold">1234</span> until you set it in Settings.
-                </div>
+            <Modal
+              title={pinModalMode === "unlock" ? "Enter PIN to unlock" : "Enter PIN to change location"}
+              onCancel={() => {
+                setPinModalOpen(false);
+                setPendingAreaId("");
+              }}
+              onOk={checkPinAndProceed}
+              okText="OK"
+            >
+              <input
+                value={pinInput}
+                onChange={(e) => setPinInput(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                className="mt-3 w-full rounded-2xl bg-white text-black px-4 py-3"
+                placeholder="PIN"
+                inputMode="numeric"
+              />
+              <div className="mt-2 text-xs text-white/50">
+                Default PIN is <span className="font-semibold">1234</span> until you set it in Settings.
               </div>
-            </div>
+            </Modal>
           ) : null}
         </div>
       ) : tab === "Totals" ? (
-        <div className="mt-5 rounded-3xl bg-white/5 p-4 ring-1 ring-white/10">
+        <div className="mt-4 rounded-3xl bg-white/5 p-4 ring-1 ring-white/10">
           <div className="text-lg font-semibold">Totals</div>
-          <div className="mt-2 text-sm text-white/70">(Next: build totals view from storage_inventory.)</div>
+          <div className="mt-2 text-sm text-white/70">(Next: totals view from storage_inventory.)</div>
         </div>
       ) : (
-        <div className="mt-5 rounded-3xl bg-white/5 p-4 ring-1 ring-white/10">
+        <div className="mt-4 rounded-3xl bg-white/5 p-4 ring-1 ring-white/10">
           <div className="text-lg font-semibold">Settings</div>
-
-          <div className="mt-3 text-sm text-white/70">
-            Set/Change PIN (digits only, min 4):
-          </div>
-
+          <div className="mt-3 text-sm text-white/70">Set/Change PIN (min 4 digits):</div>
           <PinSetter onSave={setNewPin} />
-
           <div className="mt-4 text-xs text-white/50">
-            Note: Lock state and selected location are stored on this device.
+            Lock + selected location are stored on this device.
           </div>
         </div>
       )}
@@ -589,24 +548,15 @@ export default function Page() {
   );
 }
 
-/* UI helpers */
-function TabButton({
-  active,
-  children,
-  onClick,
-}: {
-  active: boolean;
-  children: React.ReactNode;
-  onClick: () => void;
-}) {
+/* ------- UI components ------- */
+
+function TabButton({ active, children, onClick }: { active: boolean; children: React.ReactNode; onClick: () => void }) {
   return (
     <button
       onClick={onClick}
       className={[
         "flex-1 rounded-2xl px-4 py-3 text-sm font-semibold ring-1 transition",
-        active
-          ? "bg-white text-black ring-white/20"
-          : "bg-white/5 text-white ring-white/10 hover:ring-white/20",
+        active ? "bg-white text-black ring-white/20" : "bg-white/5 text-white ring-white/10 hover:ring-white/20",
       ].join(" ")}
     >
       {children}
@@ -625,19 +575,12 @@ function ModeButton({
   children: React.ReactNode;
   onClick: () => void;
 }) {
-  const activeCls =
-    tone === "danger"
-      ? "bg-red-600 text-white ring-red-500/30"
-      : "bg-white text-black ring-white/20";
+  const activeCls = tone === "danger" ? "bg-red-600 text-white ring-red-500/30" : "bg-white text-black ring-white/20";
   const inactiveCls = "bg-black/30 text-white ring-white/10 hover:ring-white/20";
-
   return (
     <button
       onClick={onClick}
-      className={[
-        "rounded-2xl px-4 py-3 text-sm font-bold ring-1 transition",
-        active ? activeCls : inactiveCls,
-      ].join(" ")}
+      className={["rounded-2xl px-4 py-3 text-sm font-bold ring-1 transition", active ? activeCls : inactiveCls].join(" ")}
       aria-pressed={active}
     >
       {children}
@@ -645,13 +588,7 @@ function ModeButton({
   );
 }
 
-function QtyButton({
-  children,
-  onClick,
-}: {
-  children: React.ReactNode;
-  onClick: () => void;
-}) {
+function QtyButton({ children, onClick }: { children: React.ReactNode; onClick: () => void }) {
   return (
     <button
       onClick={onClick}
@@ -662,9 +599,39 @@ function QtyButton({
   );
 }
 
+function Modal({
+  title,
+  children,
+  onCancel,
+  onOk,
+  okText,
+}: {
+  title: string;
+  children: React.ReactNode;
+  onCancel: () => void;
+  onOk: () => void;
+  okText: string;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 p-4">
+      <div className="w-full max-w-md rounded-3xl bg-[#111] p-4 ring-1 ring-white/10">
+        <div className="text-lg font-semibold">{title}</div>
+        {children}
+        <div className="mt-4 flex gap-2">
+          <button onClick={onCancel} className="flex-1 rounded-2xl bg-white/10 px-4 py-3 font-semibold">
+            Cancel
+          </button>
+          <button onClick={onOk} className="flex-1 rounded-2xl bg-white px-4 py-3 font-semibold text-black">
+            {okText}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function PinSetter({ onSave }: { onSave: (pin: string) => void }) {
   const [pin, setPin] = useState("");
-
   return (
     <div className="mt-2">
       <input
@@ -674,10 +641,7 @@ function PinSetter({ onSave }: { onSave: (pin: string) => void }) {
         placeholder="New PIN (e.g. 1234)"
         inputMode="numeric"
       />
-      <button
-        onClick={() => onSave(pin)}
-        className="mt-3 w-full rounded-2xl bg-white px-4 py-3 font-semibold text-black"
-      >
+      <button onClick={() => onSave(pin)} className="mt-3 w-full rounded-2xl bg-white px-4 py-3 font-semibold text-black">
         Save PIN
       </button>
     </div>
