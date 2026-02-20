@@ -102,11 +102,11 @@ export default function Page() {
   }
 
   function stopScanner() {
-    try {
-      readerRef.current?.reset();
-    } catch {}
-    readerRef.current = null;
-  }
+  try {
+    (readerRef.current as any)?.reset?.();
+  } catch {}
+  readerRef.current = null;
+}
 
   async function lookupBarcode(code: string) {
     setResolvedItem(null);
