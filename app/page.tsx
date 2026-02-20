@@ -1,103 +1,192 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { createClient } from "@supabase/supabase-js";
+import { useEffect, useMemo, useRef, useState } from "react";
+import type { BrowserMultiFormatReader } from "@zxing/browser";
 
+type Tab = "Transaction" | "Totals" | "Settings";
 type Mode = "USE" | "RESTOCK";
 
-type LocationRow = {
-  id: string;
-  name: string;
-};
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-);
+type AreaRow = { id: string; name: string };
+type ItemRow = { id: string; name: string; barcode: string };
 
 export default function Page() {
-  const [tab, setTab] = useState<"Transaction" | "Totals" | "Settings">(
-    "Transaction"
-  );
-
-  // Locations from YOUR existing data
-  const [locations, setLocations] = useState<LocationRow[]>([]);
-  const [locationId, setLocationId] = useState<string>("");
-
+  const [tab, setTab] = useState<Tab>("Transaction");
   const [mode, setMode] = useState<Mode>("USE");
+  const [qty, setQty] = useState(1);
   const [mainOverride, setMainOverride] = useState(false);
-  const [query, setQuery] = useState("");
-  const [qty, setQty] = useState<number>(1);
-  const [loadingLocations, setLoadingLocations] = useState(true);
 
-  // Load locations (your existing ones)
+  const [areas, setAreas] = useState<AreaRow[]>([]);
+  const [areaId, setAreaId] = useState<string>("");
+
+  const [barcode, setBarcode] = useState("");
+  const [resolvedItem, setResolvedItem] = useState<ItemRow | null>(null);
+
+  const [status, setStatus] = useState<string>("");
+
+  // Add-item modal state
+  const [addOpen, setAddOpen] = useState(false);
+  const [addName, setAddName] = useState("");
+  const [addPar, setAddPar] = useState<number>(0);
+
+  // Camera scanning
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const readerRef = useRef<BrowserMultiFormatReader | null>(null);
+  const lastScanRef = useRef<string>("");
+
+  const modeHelp = useMemo(() => {
+    return mode === "USE" ? "Use removes items from on-hand." : "Restock adds items to on-hand.";
+  }, [mode]);
+
+  // Load areas from API
   useEffect(() => {
-    let mounted = true;
+    (async () => {
+      const res = await fetch("/api/locations");
+      const json = await res.json();
 
-    async function load() {
-      setLoadingLocations(true);
-
-      // 🔥 CHANGE THIS TABLE NAME ONLY IF YOURS IS DIFFERENT
-      const { data, error } = await supabase
-        .from("locations")
-        .select("id,name")
-        .order("name", { ascending: true });
-
-      if (!mounted) return;
-
-      if (error) {
-        console.error("Failed to load locations:", error);
-        setLocations([]);
-        setLocationId("");
-        setLoadingLocations(false);
+      if (!json.ok) {
+        setStatus(`Area load failed: ${json.error}`);
+        setAreas([]);
+        setAreaId("");
         return;
       }
 
-      const rows = (data ?? []) as LocationRow[];
-      setLocations(rows);
-      setLocationId(rows[0]?.id ?? "");
-      setLoadingLocations(false);
-    }
-
-    load();
-
-    return () => {
-      mounted = false;
-    };
+      setAreas(json.locations);
+      setAreaId(json.locations?.[0]?.id ?? "");
+    })();
   }, []);
 
-  const modeHelp = useMemo(() => {
-    if (mode === "USE") return "Use removes items from on-hand.";
-    return "Restock adds items to on-hand.";
-  }, [mode]);
-
-  async function submit() {
-    if (!locationId) {
-      alert("No location selected.");
+  // Start scanner automatically on Transaction tab
+  useEffect(() => {
+    if (tab !== "Transaction") {
+      stopScanner();
       return;
     }
-    if (!query.trim()) {
-      alert("Type an item or scan a barcode first.");
+    startScanner();
+    return () => stopScanner();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab]);
+
+  async function startScanner() {
+    try {
+      if (!videoRef.current) return;
+
+      // Stop any existing session
+      stopScanner();
+
+      const mod = await import("@zxing/browser");
+      const Reader = mod.BrowserMultiFormatReader;
+      const reader = new Reader();
+      readerRef.current = reader;
+
+      setStatus("Scanning…");
+
+      await reader.decodeFromVideoDevice(
+        undefined,
+        videoRef.current,
+        async (result) => {
+          if (!result) return;
+          const text = result.getText?.() ?? "";
+          if (!text) return;
+
+          // prevent rapid duplicate scans
+          if (text === lastScanRef.current) return;
+          lastScanRef.current = text;
+
+          setBarcode(text);
+          await lookupBarcode(text);
+        }
+      );
+    } catch (e: any) {
+      setStatus(`Scanner error: ${e?.message ?? "unknown"}`);
+    }
+  }
+
+  function stopScanner() {
+    try {
+      readerRef.current?.reset();
+    } catch {}
+    readerRef.current = null;
+  }
+
+  async function lookupBarcode(code: string) {
+    setResolvedItem(null);
+    setStatus("Looking up item…");
+
+    const res = await fetch("/api/items/lookup", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ barcode: code }),
+    });
+
+    const json = await res.json();
+    if (!json.ok) {
+      setStatus(`Lookup failed: ${json.error}`);
       return;
     }
 
-    const payload = { locationId, mode, mainOverride, query, qty };
+    if (!json.item) {
+      setStatus("NOT FOUND — add it now.");
+      setAddOpen(true);
+      setAddName("");
+      return;
+    }
+
+    setResolvedItem(json.item);
+    setStatus(`Found: ${json.item.name}`);
+  }
+
+  async function addItemNow() {
+    if (!barcode.trim()) return alert("No barcode scanned.");
+    if (!addName.trim()) return alert("Enter item name.");
+    if (!areaId) return alert("Select an area.");
+
+    const res = await fetch("/api/items/create", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: addName.trim(),
+        barcode: barcode.trim(),
+        area_id: areaId,
+        par_level: addPar,
+      }),
+    });
+
+    const json = await res.json();
+    if (!json.ok) {
+      alert(`Add failed: ${json.error}`);
+      return;
+    }
+
+    setResolvedItem(json.item);
+    setAddOpen(false);
+    setStatus(`Added: ${json.item.name}`);
+  }
+
+  async function submitTransaction() {
+    if (!resolvedItem?.id) return alert("Scan an item first.");
+    if (!areaId && !mainOverride) return alert("Select an area.");
 
     const res = await fetch("/api/transaction", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
+      body: JSON.stringify({
+        area_id: areaId,
+        mode,
+        item_id: resolvedItem.id,
+        qty,
+        mainOverride,
+      }),
     });
 
-    if (!res.ok) {
-      alert("Transaction failed. Check Vercel logs.");
+    const json = await res.json();
+    if (!json.ok) {
+      alert(`Transaction failed: ${json.error}`);
       return;
     }
 
-    setMainOverride(false); // one-time reset
-    setQuery("");
+    setMainOverride(false);
     setQty(1);
-    alert("Transaction sent ✅");
+    setStatus(`✅ Updated on-hand to ${json.on_hand}`);
   }
 
   return (
@@ -113,152 +202,192 @@ export default function Page() {
 
       {/* Tabs */}
       <div className="mt-4 flex gap-3">
-        <TabButton
-          active={tab === "Transaction"}
-          onClick={() => setTab("Transaction")}
-        >
+        <TabButton active={tab === "Transaction"} onClick={() => setTab("Transaction")}>
           Transaction
         </TabButton>
         <TabButton active={tab === "Totals"} onClick={() => setTab("Totals")}>
           Totals
         </TabButton>
-        <TabButton
-          active={tab === "Settings"}
-          onClick={() => setTab("Settings")}
-        >
+        <TabButton active={tab === "Settings"} onClick={() => setTab("Settings")}>
           Settings
         </TabButton>
       </div>
 
-      {/* Card */}
-      <div className="mt-5 rounded-3xl bg-white/5 p-4 ring-1 ring-white/10">
-        {/* Location */}
-        <div className="text-sm text-white/70">Select location</div>
-
-        <div className="mt-2">
-          <select
-            value={locationId}
-            onChange={(e) => setLocationId(e.target.value)}
-            disabled={loadingLocations || locations.length === 0}
-            className="w-full rounded-2xl bg-black/40 px-4 py-3 text-white ring-1 ring-white/10 focus:outline-none focus:ring-2 focus:ring-white/20 disabled:opacity-60"
-          >
-            {loadingLocations ? (
-              <option>Loading…</option>
-            ) : locations.length === 0 ? (
-              <option>No locations found</option>
-            ) : (
-              locations.map((l) => (
-                <option key={l.id} value={l.id}>
-                  {l.name}
-                </option>
-              ))
-            )}
-          </select>
-        </div>
-
-        {/* One-time override */}
-        <div className="mt-4 rounded-2xl bg-black/30 p-4 ring-1 ring-white/10">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <div className="text-lg font-semibold">One-time override</div>
-              <div className="mt-1 text-sm text-white/70">
-                Grabbed it from{" "}
-                <span className="font-semibold text-white/85">MAIN</span> supply
-                room? Tap once.
-              </div>
-            </div>
-
-            <button
-              onClick={() => setMainOverride((v) => !v)}
-              className={[
-                "shrink-0 rounded-2xl px-4 py-3 ring-1 transition",
-                mainOverride
-                  ? "bg-white text-black ring-white/20"
-                  : "bg-black/40 text-white ring-white/10 hover:ring-white/20",
-              ].join(" ")}
-              aria-pressed={mainOverride}
+      {/* Content */}
+      {tab === "Transaction" ? (
+        <div className="mt-5 rounded-3xl bg-white/5 p-4 ring-1 ring-white/10">
+          {/* Area select */}
+          <div className="text-sm text-white/70">Select location</div>
+          <div className="mt-2">
+            <select
+              value={areaId}
+              onChange={(e) => setAreaId(e.target.value)}
+              className="w-full rounded-2xl bg-black/40 px-4 py-3 text-white ring-1 ring-white/10 focus:outline-none focus:ring-2 focus:ring-white/20"
             >
-              <div className="text-xs opacity-80">⚡</div>
-              <div className="text-sm font-semibold">
-                MAIN <span className="opacity-70">(1x)</span>
+              {areas.length === 0 ? (
+                <option>No locations found</option>
+              ) : (
+                areas.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.name}
+                  </option>
+                ))
+              )}
+            </select>
+          </div>
+
+          {/* One-time override */}
+          <div className="mt-4 rounded-2xl bg-black/30 p-4 ring-1 ring-white/10">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <div className="text-lg font-semibold">One-time override</div>
+                <div className="mt-1 text-sm text-white/70">
+                  Grabbed it from <span className="font-semibold text-white/85">MAIN</span> supply room? Tap once.
+                </div>
               </div>
-            </button>
-          </div>
-        </div>
 
-        {/* Mode */}
-        <div className="mt-4 rounded-2xl bg-black/30 p-4 ring-1 ring-white/10">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <div className="text-lg font-semibold">Mode</div>
-              <div className="mt-1 text-sm text-white/70">{modeHelp}</div>
-            </div>
-
-            <div className="flex gap-2">
-              <ModeButton
-                active={mode === "USE"}
-                tone="danger"
-                onClick={() => setMode("USE")}
+              <button
+                onClick={() => setMainOverride((v) => !v)}
+                className={[
+                  "shrink-0 rounded-2xl px-4 py-3 ring-1 transition",
+                  mainOverride
+                    ? "bg-white text-black ring-white/20"
+                    : "bg-black/40 text-white ring-white/10 hover:ring-white/20",
+                ].join(" ")}
               >
-                USE
-              </ModeButton>
-              <ModeButton
-                active={mode === "RESTOCK"}
-                tone="neutral"
-                onClick={() => setMode("RESTOCK")}
-              >
-                RESTOCK
-              </ModeButton>
+                <div className="text-xs opacity-80">⚡</div>
+                <div className="text-sm font-semibold">
+                  MAIN <span className="opacity-70">(1x)</span>
+                </div>
+              </button>
             </div>
           </div>
-        </div>
 
-        {/* Search / Scan */}
-        <div className="mt-4">
-          <div className="relative w-full">
-            <input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Scan barcode or type item"
-              className="w-full rounded-2xl bg-white text-black placeholder-black/50 px-4 py-3 pr-14 ring-1 ring-black/10 focus:outline-none focus:ring-2 focus:ring-black/20"
-              inputMode="search"
-              autoCapitalize="none"
-              autoCorrect="off"
+          {/* Mode */}
+          <div className="mt-4 rounded-2xl bg-black/30 p-4 ring-1 ring-white/10">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <div className="text-lg font-semibold">Mode</div>
+                <div className="mt-1 text-sm text-white/70">{modeHelp}</div>
+              </div>
+
+              <div className="flex gap-2">
+                <ModeButton active={mode === "USE"} tone="danger" onClick={() => setMode("USE")}>
+                  USE
+                </ModeButton>
+                <ModeButton active={mode === "RESTOCK"} tone="neutral" onClick={() => setMode("RESTOCK")}>
+                  RESTOCK
+                </ModeButton>
+              </div>
+            </div>
+          </div>
+
+          {/* Live camera preview (auto scan) */}
+          <div className="mt-4 rounded-2xl bg-black/30 p-3 ring-1 ring-white/10">
+            <div className="text-xs text-white/60 mb-2">Auto-scan camera</div>
+            <video
+              ref={videoRef}
+              className="w-full rounded-xl bg-black"
+              muted
+              playsInline
             />
-
-            <button
-              type="button"
-              onClick={() => alert("Camera scan hook goes here")}
-              className="absolute right-2 top-1/2 -translate-y-1/2 rounded-xl bg-black/10 px-3 py-2 text-black hover:bg-black/20"
-              aria-label="Open camera scanner"
-            >
-              📷
-            </button>
-          </div>
-        </div>
-
-        {/* Qty */}
-        <div className="mt-4 flex items-center gap-3">
-          <QtyButton onClick={() => setQty((q) => Math.max(1, q - 1))}>
-            −
-          </QtyButton>
-
-          <div className="flex-1 rounded-2xl bg-white px-4 py-3 text-center text-black ring-1 ring-black/10">
-            <span className="text-lg font-semibold">{qty}</span>
+            <div className="mt-2 text-xs text-white/60 break-all">
+              Barcode: {barcode || "—"}
+            </div>
           </div>
 
-          <QtyButton onClick={() => setQty((q) => q + 1)}>+</QtyButton>
-        </div>
+          {/* Status + Found item */}
+          <div className="mt-3 text-sm text-white/70">
+            {status || "Ready."}
+          </div>
+          {resolvedItem ? (
+            <div className="mt-2 rounded-2xl bg-black/30 p-3 ring-1 ring-white/10">
+              <div className="text-sm font-semibold">{resolvedItem.name}</div>
+              <div className="text-xs text-white/60 break-all">{resolvedItem.barcode}</div>
+            </div>
+          ) : null}
 
-        {/* Confirm */}
-        <button
-          className="mt-4 w-full rounded-2xl bg-white px-4 py-3 text-black font-semibold hover:bg-white/90 disabled:opacity-60"
-          onClick={submit}
-          disabled={!query.trim() || !locationId}
-        >
-          Confirm {mode === "USE" ? "Use" : "Restock"}
-        </button>
-      </div>
+          {/* Qty */}
+          <div className="mt-4 flex items-center gap-3">
+            <QtyButton onClick={() => setQty((q) => Math.max(1, q - 1))}>−</QtyButton>
+            <div className="flex-1 rounded-2xl bg-white px-4 py-3 text-center text-black ring-1 ring-black/10">
+              <span className="text-lg font-semibold">{qty}</span>
+            </div>
+            <QtyButton onClick={() => setQty((q) => q + 1)}>+</QtyButton>
+          </div>
+
+          {/* Confirm */}
+          <button
+            className="mt-4 w-full rounded-2xl bg-white px-4 py-3 text-black font-semibold hover:bg-white/90 disabled:opacity-60"
+            onClick={submitTransaction}
+            disabled={!resolvedItem}
+          >
+            Confirm {mode === "USE" ? "Use" : "Restock"}
+          </button>
+
+          {/* Add modal */}
+          {addOpen ? (
+            <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 p-4">
+              <div className="w-full max-w-md rounded-3xl bg-[#111] p-4 ring-1 ring-white/10">
+                <div className="text-lg font-semibold">Item not found</div>
+                <div className="mt-1 text-sm text-white/70 break-all">
+                  Barcode: {barcode}
+                </div>
+
+                <div className="mt-3">
+                  <div className="text-xs text-white/60 mb-1">Item name</div>
+                  <input
+                    value={addName}
+                    onChange={(e) => setAddName(e.target.value)}
+                    className="w-full rounded-2xl bg-white text-black px-4 py-3"
+                    placeholder="Type item name…"
+                  />
+                </div>
+
+                <div className="mt-3">
+                  <div className="text-xs text-white/60 mb-1">Par level (optional)</div>
+                  <input
+                    value={String(addPar)}
+                    onChange={(e) => setAddPar(Number(e.target.value || 0))}
+                    className="w-full rounded-2xl bg-white text-black px-4 py-3"
+                    inputMode="numeric"
+                    placeholder="0"
+                  />
+                </div>
+
+                <div className="mt-4 flex gap-2">
+                  <button
+                    onClick={() => setAddOpen(false)}
+                    className="flex-1 rounded-2xl bg-white/10 px-4 py-3 font-semibold"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={addItemNow}
+                    className="flex-1 rounded-2xl bg-white px-4 py-3 font-semibold text-black"
+                  >
+                    Add Item
+                  </button>
+                </div>
+              </div>
+            </div>
+          ) : null}
+        </div>
+      ) : tab === "Totals" ? (
+        <div className="mt-5 rounded-3xl bg-white/5 p-4 ring-1 ring-white/10">
+          <div className="text-lg font-semibold">Totals</div>
+          <div className="mt-2 text-sm text-white/70">
+            (Next: build totals view from storage_inventory.)
+          </div>
+        </div>
+      ) : (
+        <div className="mt-5 rounded-3xl bg-white/5 p-4 ring-1 ring-white/10">
+          <div className="text-lg font-semibold">Settings</div>
+          <div className="mt-2 text-sm text-white/70">
+            (Next: lock/unlock, main supply area, staff PIN, etc.)
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -302,8 +431,7 @@ function ModeButton({
     tone === "danger"
       ? "bg-red-600 text-white ring-red-500/30"
       : "bg-white text-black ring-white/20";
-  const inactiveCls =
-    "bg-black/30 text-white ring-white/10 hover:ring-white/20";
+  const inactiveCls = "bg-black/30 text-white ring-white/10 hover:ring-white/20";
 
   return (
     <button
@@ -319,13 +447,7 @@ function ModeButton({
   );
 }
 
-function QtyButton({
-  children,
-  onClick,
-}: {
-  children: React.ReactNode;
-  onClick: () => void;
-}) {
+function QtyButton({ children, onClick }: { children: React.ReactNode; onClick: () => void }) {
   return (
     <button
       onClick={onClick}
