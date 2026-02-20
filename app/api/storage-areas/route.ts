@@ -1,24 +1,21 @@
 import { NextResponse } from "next/server";
-import { createAdminClient } from "@/lib/supabase/admin";
+import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 export async function GET() {
-  try {
-    const supabase = createAdminClient();
+  const { data, error } = await supabaseAdmin
+    .from("storage_areas")   // ✅ YOUR REAL TABLE
+    .select("id,name")
+    .order("name", { ascending: true });
 
-    const { data, error } = await supabase
-      .from("storage_areas")
-      .select("id,name")
-      .order("name", { ascending: true });
-
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 });
-    }
-
-    return NextResponse.json({ locations: data ?? [] }, { status: 200 });
-  } catch (e: any) {
+  if (error) {
     return NextResponse.json(
-      { error: e?.message ?? "Unknown server error" },
+      { ok: false, error: error.message },
       { status: 500 }
     );
   }
+
+  return NextResponse.json({
+    ok: true,
+    locations: data ?? [],
+  });
 }
