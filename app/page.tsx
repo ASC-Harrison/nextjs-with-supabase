@@ -9,7 +9,15 @@ type Mode = "USE" | "RESTOCK";
 type AreaRow = { id: string; name: string };
 type ItemRow = { id: string; name: string; barcode: string };
 
+const LS = {
+  PIN: "asc_pin_v1",
+  LOCKED: "asc_locked_v1",
+  AREA: "asc_area_id_v1",
+};
+
 export default function Page() {
+  const BUILD = process.env.NEXT_PUBLIC_BUILD_ID || "no-build-id";
+
   const [tab, setTab] = useState<Tab>("Transaction");
   const [mode, setMode] = useState<Mode>("USE");
   const [qty, setQty] = useState(1);
@@ -18,40 +26,93 @@ export default function Page() {
   const [areas, setAreas] = useState<AreaRow[]>([]);
   const [areaId, setAreaId] = useState<string>("");
 
+  const selectedAreaName = useMemo(
+    () => areas.find((a) => a.id === areaId)?.name ?? "—",
+    [areas, areaId]
+  );
+
   const [barcodeOrText, setBarcodeOrText] = useState("");
   const [resolvedItem, setResolvedItem] = useState<ItemRow | null>(null);
   const [status, setStatus] = useState("");
 
-  // add-item modal
+  // Add-item modal
   const [addOpen, setAddOpen] = useState(false);
   const [addName, setAddName] = useState("");
   const [addPar, setAddPar] = useState<number>(0);
 
-  // scanner
+  // PIN / lock
+  const [locked, setLocked] = useState<boolean>(true);
+  const [pinModalOpen, setPinModalOpen] = useState(false);
+  const [pinModalMode, setPinModalMode] = useState<"unlock" | "changeLocation">(
+    "unlock"
+  );
+  const [pinInput, setPinInput] = useState("");
+  const [pendingAreaId, setPendingAreaId] = useState<string>("");
+
+  const storedPin = useMemo(() => {
+    // Default PIN is 1234 if user hasn't set one yet
+    if (typeof window === "undefined") return "1234";
+    return localStorage.getItem(LS.PIN) || "1234";
+  }, []);
+
+  // Scanner
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const readerRef = useRef<BrowserMultiFormatReader | null>(null);
   const lastScanRef = useRef<string>("");
 
   const modeHelp = useMemo(
-    () => (mode === "USE" ? "Use removes items from on-hand." : "Restock adds items to on-hand."),
+    () =>
+      mode === "USE"
+        ? "Use removes items from on-hand."
+        : "Restock adds items to on-hand.",
     [mode]
   );
 
-  // load areas
+  // Load persisted locked + area
+  useEffect(() => {
+    try {
+      const l = localStorage.getItem(LS.LOCKED);
+      if (l === "0") setLocked(false);
+      if (l === "1") setLocked(true);
+
+      const savedArea = localStorage.getItem(LS.AREA);
+      if (savedArea) setAreaId(savedArea);
+    } catch {}
+  }, []);
+
+  // Load areas
   useEffect(() => {
     (async () => {
-      const res = await fetch("/api/locations");
+      const res = await fetch("/api/locations", { cache: "no-store" });
       const json = await res.json();
       if (!json.ok) {
-        setStatus(`Area load failed: ${json.error}`);
+        setStatus(`Location load failed: ${json.error}`);
         return;
       }
-      setAreas(json.locations);
-      setAreaId(json.locations?.[0]?.id ?? "");
+
+      const list: AreaRow[] = json.locations ?? [];
+      setAreas(list);
+
+      // If no saved area, pick first
+      setAreaId((prev) => prev || list?.[0]?.id || "");
     })();
   }, []);
 
-  // auto-start scanner on Transaction tab (iPhone may require user gesture; button also starts it)
+  // Persist areaId
+  useEffect(() => {
+    try {
+      if (areaId) localStorage.setItem(LS.AREA, areaId);
+    } catch {}
+  }, [areaId]);
+
+  // Persist locked
+  useEffect(() => {
+    try {
+      localStorage.setItem(LS.LOCKED, locked ? "1" : "0");
+    } catch {}
+  }, [locked]);
+
+  // Auto-attempt scanner on Transaction tab (iPhone may require tap)
   useEffect(() => {
     if (tab !== "Transaction") {
       stopScanner();
@@ -68,7 +129,6 @@ export default function Page() {
     if (!videoRef.current) return;
 
     stopScanner();
-
     const mod = await import("@zxing/browser");
     const Reader = mod.BrowserMultiFormatReader;
     const reader = new Reader();
@@ -91,7 +151,6 @@ export default function Page() {
 
   function stopScanner() {
     try {
-      // typings differ by version; this avoids TS build failures
       (readerRef.current as any)?.reset?.();
     } catch {}
     readerRef.current = null;
@@ -150,6 +209,7 @@ export default function Page() {
   }
 
   async function submitTransaction() {
+    if (locked) return alert("Locked. Unlock first.");
     if (!resolvedItem?.id) return alert("Scan an item first.");
     if (!areaId && !mainOverride) return alert("Select a location.");
 
@@ -173,31 +233,116 @@ export default function Page() {
     setStatus(`✅ Updated on-hand to ${json.on_hand}`);
   }
 
+  function openPinModal(mode: "unlock" | "changeLocation") {
+    setPinModalMode(mode);
+    setPinInput("");
+    setPinModalOpen(true);
+  }
+
+  function checkPinAndProceed() {
+    const realPin = localStorage.getItem(LS.PIN) || "1234";
+    if (pinInput.trim() !== realPin) {
+      alert("Wrong PIN");
+      return;
+    }
+
+    setPinModalOpen(false);
+
+    if (pinModalMode === "unlock") {
+      setLocked(false);
+      return;
+    }
+
+    // changeLocation
+    if (pendingAreaId) {
+      setAreaId(pendingAreaId);
+      setPendingAreaId("");
+    }
+  }
+
+  function onChangeLocationRequest(newId: string) {
+    if (!locked) {
+      setAreaId(newId);
+      return;
+    }
+    // locked → require PIN
+    setPendingAreaId(newId);
+    openPinModal("changeLocation");
+  }
+
+  function lockTogglePressed() {
+    if (!locked) {
+      // lock immediately
+      setLocked(true);
+      return;
+    }
+    // locked → need PIN to unlock
+    openPinModal("unlock");
+  }
+
+  function setNewPin(newPin: string) {
+    const cleaned = newPin.replace(/\D/g, "").slice(0, 6);
+    if (cleaned.length < 4) {
+      alert("PIN must be at least 4 digits.");
+      return;
+    }
+    localStorage.setItem(LS.PIN, cleaned);
+    alert("PIN saved ✅");
+  }
+
   return (
     <div className="mx-auto w-full max-w-md px-4 pb-6 safe-bottom">
-      {/* Header */}
+      {/* BUILD PROOF TAG (shows whether phone is on newest code) */}
+      <div className="fixed bottom-2 left-2 z-[9999] rounded bg-green-500 px-2 py-1 text-[11px] font-bold text-black">
+        BUILD: {BUILD}
+      </div>
+
+      {/* HEADER CARD */}
       <div className="pt-4 safe-top">
-        <div className="text-sm text-white/70">ASC</div>
-        <div className="text-4xl font-bold leading-tight">Inventory</div>
-        <div className="mt-2 text-sm text-white/70">
-          Cabinet tracking + building totals + low stock alerts
+        <div className="rounded-3xl bg-white/5 p-5 ring-1 ring-white/10">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <div className="text-5xl font-extrabold leading-none">Baxter</div>
+              <div className="text-5xl font-extrabold leading-none">ASC</div>
+              <div className="text-5xl font-extrabold leading-none">Inventory</div>
+
+              <div className="mt-3 text-sm text-white/70">
+                Cabinet tracking +<br />
+                building totals + low<br />
+                stock alerts
+              </div>
+            </div>
+
+            <div className="text-right">
+              <div className="text-white/60 text-sm">Location:</div>
+              <div className="font-semibold">{selectedAreaName}</div>
+
+              <button
+                onClick={lockTogglePressed}
+                className="mt-3 inline-flex items-center gap-2 rounded-2xl bg-white/10 px-4 py-3 ring-1 ring-white/10"
+              >
+                <span className="text-lg">🔒</span>
+                <span className="font-semibold">{locked ? "Locked" : "Unlocked"}</span>
+              </button>
+            </div>
+          </div>
+
+          {/* TABS */}
+          <div className="mt-5 flex gap-3">
+            <TabButton active={tab === "Transaction"} onClick={() => setTab("Transaction")}>
+              Transaction
+            </TabButton>
+            <TabButton active={tab === "Totals"} onClick={() => setTab("Totals")}>
+              Totals
+            </TabButton>
+            <TabButton active={tab === "Settings"} onClick={() => setTab("Settings")}>
+              Settings
+            </TabButton>
+          </div>
         </div>
       </div>
 
-      {/* Tabs */}
-      <div className="mt-4 flex gap-3">
-        <TabButton active={tab === "Transaction"} onClick={() => setTab("Transaction")}>
-          Transaction
-        </TabButton>
-        <TabButton active={tab === "Totals"} onClick={() => setTab("Totals")}>
-          Totals
-        </TabButton>
-        <TabButton active={tab === "Settings"} onClick={() => setTab("Settings")}>
-          Settings
-        </TabButton>
-      </div>
-
-      {/* Transaction */}
+      {/* CONTENT */}
       {tab === "Transaction" ? (
         <div className="mt-5 rounded-3xl bg-white/5 p-4 ring-1 ring-white/10">
           {/* Select location */}
@@ -205,7 +350,7 @@ export default function Page() {
           <div className="mt-2">
             <select
               value={areaId}
-              onChange={(e) => setAreaId(e.target.value)}
+              onChange={(e) => onChangeLocationRequest(e.target.value)}
               className="w-full rounded-2xl bg-black/40 px-4 py-3 text-white ring-1 ring-white/10 focus:outline-none focus:ring-2 focus:ring-white/20"
             >
               {areas.length === 0 ? (
@@ -218,6 +363,11 @@ export default function Page() {
                 ))
               )}
             </select>
+            {locked ? (
+              <div className="mt-2 text-xs text-white/50">
+                Locked: enter PIN to change location.
+              </div>
+            ) : null}
           </div>
 
           {/* One-time override */}
@@ -226,7 +376,7 @@ export default function Page() {
               <div>
                 <div className="text-lg font-semibold">One-time override</div>
                 <div className="mt-1 text-sm text-white/70">
-                  Grabbed it from <span className="font-semibold text-white/85">MAIN</span> supply room? Tap this once.
+                  Grabbed it from <span className="font-semibold text-white/85">MAIN</span> supply room? Tap once.
                 </div>
               </div>
 
@@ -265,7 +415,7 @@ export default function Page() {
             </div>
           </div>
 
-          {/* Scan input (camera button INSIDE input — matches desktop look) */}
+          {/* Scan input */}
           <div className="mt-4">
             <div className="relative w-full">
               <input
@@ -282,7 +432,9 @@ export default function Page() {
               />
               <button
                 type="button"
-                onClick={() => startScanner().catch(() => setStatus("Camera permission blocked. Try again."))}
+                onClick={() =>
+                  startScanner().catch(() => setStatus("Camera permission blocked. Try again."))
+                }
                 className="absolute right-2 top-1/2 -translate-y-1/2 rounded-xl bg-black/10 px-3 py-2 text-black hover:bg-black/20"
                 aria-label="Start scanner"
               >
@@ -291,7 +443,7 @@ export default function Page() {
             </div>
           </div>
 
-          {/* Hidden video for scanning so UI stays identical */}
+          {/* hidden video for scanning */}
           <video
             ref={videoRef}
             className="absolute w-px h-px opacity-0 pointer-events-none"
@@ -299,8 +451,8 @@ export default function Page() {
             playsInline
           />
 
-          {/* Status */}
           <div className="mt-3 text-sm text-white/70">{status || "Ready."}</div>
+
           {resolvedItem ? (
             <div className="mt-2 rounded-2xl bg-black/30 p-3 ring-1 ring-white/10">
               <div className="text-sm font-semibold">{resolvedItem.name}</div>
@@ -321,7 +473,7 @@ export default function Page() {
           <button
             className="mt-4 w-full rounded-2xl bg-black/80 px-4 py-4 text-white font-semibold hover:bg-black disabled:opacity-60"
             onClick={submitTransaction}
-            disabled={!resolvedItem}
+            disabled={!resolvedItem || locked}
           >
             Submit
           </button>
@@ -371,16 +523,66 @@ export default function Page() {
               </div>
             </div>
           ) : null}
+
+          {/* PIN modal */}
+          {pinModalOpen ? (
+            <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 p-4">
+              <div className="w-full max-w-md rounded-3xl bg-[#111] p-4 ring-1 ring-white/10">
+                <div className="text-lg font-semibold">
+                  {pinModalMode === "unlock" ? "Enter PIN to unlock" : "Enter PIN to change location"}
+                </div>
+
+                <input
+                  value={pinInput}
+                  onChange={(e) => setPinInput(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                  className="mt-3 w-full rounded-2xl bg-white text-black px-4 py-3"
+                  placeholder="PIN"
+                  inputMode="numeric"
+                />
+
+                <div className="mt-4 flex gap-2">
+                  <button
+                    onClick={() => {
+                      setPinModalOpen(false);
+                      setPendingAreaId("");
+                    }}
+                    className="flex-1 rounded-2xl bg-white/10 px-4 py-3 font-semibold"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={checkPinAndProceed}
+                    className="flex-1 rounded-2xl bg-white px-4 py-3 font-semibold text-black"
+                  >
+                    OK
+                  </button>
+                </div>
+
+                <div className="mt-2 text-xs text-white/50">
+                  Default PIN is <span className="font-semibold">1234</span> until you set it in Settings.
+                </div>
+              </div>
+            </div>
+          ) : null}
         </div>
       ) : tab === "Totals" ? (
         <div className="mt-5 rounded-3xl bg-white/5 p-4 ring-1 ring-white/10">
           <div className="text-lg font-semibold">Totals</div>
-          <div className="mt-2 text-sm text-white/70">(Hook this to storage_inventory totals next.)</div>
+          <div className="mt-2 text-sm text-white/70">(Next: build totals view from storage_inventory.)</div>
         </div>
       ) : (
         <div className="mt-5 rounded-3xl bg-white/5 p-4 ring-1 ring-white/10">
           <div className="text-lg font-semibold">Settings</div>
-          <div className="mt-2 text-sm text-white/70">(Lock/unlock, staff PIN, etc. next.)</div>
+
+          <div className="mt-3 text-sm text-white/70">
+            Set/Change PIN (digits only, min 4):
+          </div>
+
+          <PinSetter onSave={setNewPin} />
+
+          <div className="mt-4 text-xs text-white/50">
+            Note: Lock state and selected location are stored on this device.
+          </div>
         </div>
       )}
     </div>
@@ -388,13 +590,23 @@ export default function Page() {
 }
 
 /* UI helpers */
-function TabButton({ active, children, onClick }: { active: boolean; children: React.ReactNode; onClick: () => void }) {
+function TabButton({
+  active,
+  children,
+  onClick,
+}: {
+  active: boolean;
+  children: React.ReactNode;
+  onClick: () => void;
+}) {
   return (
     <button
       onClick={onClick}
       className={[
         "flex-1 rounded-2xl px-4 py-3 text-sm font-semibold ring-1 transition",
-        active ? "bg-white text-black ring-white/20" : "bg-white/5 text-white ring-white/10 hover:ring-white/20",
+        active
+          ? "bg-white text-black ring-white/20"
+          : "bg-white/5 text-white ring-white/10 hover:ring-white/20",
       ].join(" ")}
     >
       {children}
@@ -414,13 +626,18 @@ function ModeButton({
   onClick: () => void;
 }) {
   const activeCls =
-    tone === "danger" ? "bg-red-600 text-white ring-red-500/30" : "bg-white text-black ring-white/20";
+    tone === "danger"
+      ? "bg-red-600 text-white ring-red-500/30"
+      : "bg-white text-black ring-white/20";
   const inactiveCls = "bg-black/30 text-white ring-white/10 hover:ring-white/20";
 
   return (
     <button
       onClick={onClick}
-      className={["rounded-2xl px-4 py-3 text-sm font-bold ring-1 transition", active ? activeCls : inactiveCls].join(" ")}
+      className={[
+        "rounded-2xl px-4 py-3 text-sm font-bold ring-1 transition",
+        active ? activeCls : inactiveCls,
+      ].join(" ")}
       aria-pressed={active}
     >
       {children}
@@ -428,7 +645,13 @@ function ModeButton({
   );
 }
 
-function QtyButton({ children, onClick }: { children: React.ReactNode; onClick: () => void }) {
+function QtyButton({
+  children,
+  onClick,
+}: {
+  children: React.ReactNode;
+  onClick: () => void;
+}) {
   return (
     <button
       onClick={onClick}
@@ -436,5 +659,27 @@ function QtyButton({ children, onClick }: { children: React.ReactNode; onClick: 
     >
       {children}
     </button>
+  );
+}
+
+function PinSetter({ onSave }: { onSave: (pin: string) => void }) {
+  const [pin, setPin] = useState("");
+
+  return (
+    <div className="mt-2">
+      <input
+        value={pin}
+        onChange={(e) => setPin(e.target.value.replace(/\D/g, "").slice(0, 6))}
+        className="w-full rounded-2xl bg-white text-black px-4 py-3"
+        placeholder="New PIN (e.g. 1234)"
+        inputMode="numeric"
+      />
+      <button
+        onClick={() => onSave(pin)}
+        className="mt-3 w-full rounded-2xl bg-white px-4 py-3 font-semibold text-black"
+      >
+        Save PIN
+      </button>
+    </div>
   );
 }
