@@ -3,19 +3,13 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 export async function GET() {
   const { data, error } = await supabaseAdmin
-    .from("storage_areas")   // ✅ YOUR REAL TABLE
+    .from("storage_areas")
     .select("id,name")
     .order("name", { ascending: true });
 
   if (error) {
-    return NextResponse.json(
-      { ok: false, error: error.message },
-      { status: 500 }
-    );
+    return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
   }
 
-  return NextResponse.json({
-    ok: true,
-    locations: data ?? [],
-  });
+  return NextResponse.json({ ok: true, locations: data ?? [] });
 }
