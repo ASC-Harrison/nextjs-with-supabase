@@ -2,7 +2,6 @@
 @tailwind components;
 @tailwind utilities;
 
-/* HARD stop horizontal overflow (iPhone gray strip fix) */
 html, body {
   width: 100%;
   max-width: 100%;
@@ -18,5 +17,5 @@ img, video, canvas, svg {
   height: auto;
 }
 
-/* iOS: avoid zooming inputs */
+/* prevent iOS zoom on inputs */
 input, select, textarea, button { font-size: 16px; }
