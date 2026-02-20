@@ -18,95 +18,84 @@ export default function Page() {
   const [areas, setAreas] = useState<AreaRow[]>([]);
   const [areaId, setAreaId] = useState<string>("");
 
-  const [barcode, setBarcode] = useState("");
+  const [barcodeOrText, setBarcodeOrText] = useState("");
   const [resolvedItem, setResolvedItem] = useState<ItemRow | null>(null);
+  const [status, setStatus] = useState("");
 
-  const [status, setStatus] = useState<string>("");
-
-  // Add-item modal state
+  // add-item modal
   const [addOpen, setAddOpen] = useState(false);
   const [addName, setAddName] = useState("");
   const [addPar, setAddPar] = useState<number>(0);
 
-  // Camera scanning
+  // scanner
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const readerRef = useRef<BrowserMultiFormatReader | null>(null);
   const lastScanRef = useRef<string>("");
 
-  const modeHelp = useMemo(() => {
-    return mode === "USE" ? "Use removes items from on-hand." : "Restock adds items to on-hand.";
-  }, [mode]);
+  const modeHelp = useMemo(
+    () => (mode === "USE" ? "Use removes items from on-hand." : "Restock adds items to on-hand."),
+    [mode]
+  );
 
-  // Load areas from API
+  // load areas
   useEffect(() => {
     (async () => {
       const res = await fetch("/api/locations");
       const json = await res.json();
-
       if (!json.ok) {
         setStatus(`Area load failed: ${json.error}`);
-        setAreas([]);
-        setAreaId("");
         return;
       }
-
       setAreas(json.locations);
       setAreaId(json.locations?.[0]?.id ?? "");
     })();
   }, []);
 
-  // Start scanner automatically on Transaction tab
+  // auto-start scanner on Transaction tab (iPhone may require user gesture; button also starts it)
   useEffect(() => {
     if (tab !== "Transaction") {
       stopScanner();
       return;
     }
-    startScanner();
+    startScanner().catch(() => {
+      setStatus("Tap the camera button to start scanning (iPhone permission).");
+    });
     return () => stopScanner();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab]);
 
   async function startScanner() {
-    try {
-      if (!videoRef.current) return;
+    if (!videoRef.current) return;
 
-      // Stop any existing session
-      stopScanner();
+    stopScanner();
 
-      const mod = await import("@zxing/browser");
-      const Reader = mod.BrowserMultiFormatReader;
-      const reader = new Reader();
-      readerRef.current = reader;
+    const mod = await import("@zxing/browser");
+    const Reader = mod.BrowserMultiFormatReader;
+    const reader = new Reader();
+    readerRef.current = reader;
 
-      setStatus("Scanning…");
+    setStatus("Scanning…");
 
-      await reader.decodeFromVideoDevice(
-        undefined,
-        videoRef.current,
-        async (result) => {
-          if (!result) return;
-          const text = result.getText?.() ?? "";
-          if (!text) return;
+    await reader.decodeFromVideoDevice(undefined, videoRef.current, async (result) => {
+      if (!result) return;
+      const text = result.getText?.() ?? "";
+      if (!text) return;
 
-          // prevent rapid duplicate scans
-          if (text === lastScanRef.current) return;
-          lastScanRef.current = text;
+      if (text === lastScanRef.current) return;
+      lastScanRef.current = text;
 
-          setBarcode(text);
-          await lookupBarcode(text);
-        }
-      );
-    } catch (e: any) {
-      setStatus(`Scanner error: ${e?.message ?? "unknown"}`);
-    }
+      setBarcodeOrText(text);
+      await lookupBarcode(text);
+    });
   }
 
   function stopScanner() {
-  try {
-    (readerRef.current as any)?.reset?.();
-  } catch {}
-  readerRef.current = null;
-}
+    try {
+      // typings differ by version; this avoids TS build failures
+      (readerRef.current as any)?.reset?.();
+    } catch {}
+    readerRef.current = null;
+  }
 
   async function lookupBarcode(code: string) {
     setResolvedItem(null);
@@ -136,26 +125,24 @@ export default function Page() {
   }
 
   async function addItemNow() {
-    if (!barcode.trim()) return alert("No barcode scanned.");
+    const barcode = barcodeOrText.trim();
+    if (!barcode) return alert("No barcode scanned.");
     if (!addName.trim()) return alert("Enter item name.");
-    if (!areaId) return alert("Select an area.");
+    if (!areaId) return alert("Select a location.");
 
     const res = await fetch("/api/items/create", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         name: addName.trim(),
-        barcode: barcode.trim(),
+        barcode,
         area_id: areaId,
         par_level: addPar,
       }),
     });
 
     const json = await res.json();
-    if (!json.ok) {
-      alert(`Add failed: ${json.error}`);
-      return;
-    }
+    if (!json.ok) return alert(`Add failed: ${json.error}`);
 
     setResolvedItem(json.item);
     setAddOpen(false);
@@ -164,7 +151,7 @@ export default function Page() {
 
   async function submitTransaction() {
     if (!resolvedItem?.id) return alert("Scan an item first.");
-    if (!areaId && !mainOverride) return alert("Select an area.");
+    if (!areaId && !mainOverride) return alert("Select a location.");
 
     const res = await fetch("/api/transaction", {
       method: "POST",
@@ -179,10 +166,7 @@ export default function Page() {
     });
 
     const json = await res.json();
-    if (!json.ok) {
-      alert(`Transaction failed: ${json.error}`);
-      return;
-    }
+    if (!json.ok) return alert(`Transaction failed: ${json.error}`);
 
     setMainOverride(false);
     setQty(1);
@@ -213,10 +197,10 @@ export default function Page() {
         </TabButton>
       </div>
 
-      {/* Content */}
+      {/* Transaction */}
       {tab === "Transaction" ? (
         <div className="mt-5 rounded-3xl bg-white/5 p-4 ring-1 ring-white/10">
-          {/* Area select */}
+          {/* Select location */}
           <div className="text-sm text-white/70">Select location</div>
           <div className="mt-2">
             <select
@@ -242,7 +226,7 @@ export default function Page() {
               <div>
                 <div className="text-lg font-semibold">One-time override</div>
                 <div className="mt-1 text-sm text-white/70">
-                  Grabbed it from <span className="font-semibold text-white/85">MAIN</span> supply room? Tap once.
+                  Grabbed it from <span className="font-semibold text-white/85">MAIN</span> supply room? Tap this once.
                 </div>
               </div>
 
@@ -270,7 +254,6 @@ export default function Page() {
                 <div className="text-lg font-semibold">Mode</div>
                 <div className="mt-1 text-sm text-white/70">{modeHelp}</div>
               </div>
-
               <div className="flex gap-2">
                 <ModeButton active={mode === "USE"} tone="danger" onClick={() => setMode("USE")}>
                   USE
@@ -282,24 +265,42 @@ export default function Page() {
             </div>
           </div>
 
-          {/* Live camera preview (auto scan) */}
-          <div className="mt-4 rounded-2xl bg-black/30 p-3 ring-1 ring-white/10">
-            <div className="text-xs text-white/60 mb-2">Auto-scan camera</div>
-            <video
-              ref={videoRef}
-              className="w-full rounded-xl bg-black"
-              muted
-              playsInline
-            />
-            <div className="mt-2 text-xs text-white/60 break-all">
-              Barcode: {barcode || "—"}
+          {/* Scan input (camera button INSIDE input — matches desktop look) */}
+          <div className="mt-4">
+            <div className="relative w-full">
+              <input
+                value={barcodeOrText}
+                onChange={(e) => setBarcodeOrText(e.target.value)}
+                onKeyDown={async (e) => {
+                  if (e.key === "Enter") {
+                    const v = barcodeOrText.trim();
+                    if (v) await lookupBarcode(v);
+                  }
+                }}
+                placeholder="Scan barcode or type item"
+                className="w-full rounded-2xl bg-white text-black placeholder-black/50 px-4 py-3 pr-14 ring-1 ring-black/10 focus:outline-none focus:ring-2 focus:ring-black/20"
+              />
+              <button
+                type="button"
+                onClick={() => startScanner().catch(() => setStatus("Camera permission blocked. Try again."))}
+                className="absolute right-2 top-1/2 -translate-y-1/2 rounded-xl bg-black/10 px-3 py-2 text-black hover:bg-black/20"
+                aria-label="Start scanner"
+              >
+                📷
+              </button>
             </div>
           </div>
 
-          {/* Status + Found item */}
-          <div className="mt-3 text-sm text-white/70">
-            {status || "Ready."}
-          </div>
+          {/* Hidden video for scanning so UI stays identical */}
+          <video
+            ref={videoRef}
+            className="absolute w-px h-px opacity-0 pointer-events-none"
+            muted
+            playsInline
+          />
+
+          {/* Status */}
+          <div className="mt-3 text-sm text-white/70">{status || "Ready."}</div>
           {resolvedItem ? (
             <div className="mt-2 rounded-2xl bg-black/30 p-3 ring-1 ring-white/10">
               <div className="text-sm font-semibold">{resolvedItem.name}</div>
@@ -316,23 +317,21 @@ export default function Page() {
             <QtyButton onClick={() => setQty((q) => q + 1)}>+</QtyButton>
           </div>
 
-          {/* Confirm */}
+          {/* Submit */}
           <button
-            className="mt-4 w-full rounded-2xl bg-white px-4 py-3 text-black font-semibold hover:bg-white/90 disabled:opacity-60"
+            className="mt-4 w-full rounded-2xl bg-black/80 px-4 py-4 text-white font-semibold hover:bg-black disabled:opacity-60"
             onClick={submitTransaction}
             disabled={!resolvedItem}
           >
-            Confirm {mode === "USE" ? "Use" : "Restock"}
+            Submit
           </button>
 
-          {/* Add modal */}
+          {/* Add item modal */}
           {addOpen ? (
             <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 p-4">
               <div className="w-full max-w-md rounded-3xl bg-[#111] p-4 ring-1 ring-white/10">
                 <div className="text-lg font-semibold">Item not found</div>
-                <div className="mt-1 text-sm text-white/70 break-all">
-                  Barcode: {barcode}
-                </div>
+                <div className="mt-1 text-sm text-white/70 break-all">Barcode: {barcodeOrText}</div>
 
                 <div className="mt-3">
                   <div className="text-xs text-white/60 mb-1">Item name</div>
@@ -376,39 +375,26 @@ export default function Page() {
       ) : tab === "Totals" ? (
         <div className="mt-5 rounded-3xl bg-white/5 p-4 ring-1 ring-white/10">
           <div className="text-lg font-semibold">Totals</div>
-          <div className="mt-2 text-sm text-white/70">
-            (Next: build totals view from storage_inventory.)
-          </div>
+          <div className="mt-2 text-sm text-white/70">(Hook this to storage_inventory totals next.)</div>
         </div>
       ) : (
         <div className="mt-5 rounded-3xl bg-white/5 p-4 ring-1 ring-white/10">
           <div className="text-lg font-semibold">Settings</div>
-          <div className="mt-2 text-sm text-white/70">
-            (Next: lock/unlock, main supply area, staff PIN, etc.)
-          </div>
+          <div className="mt-2 text-sm text-white/70">(Lock/unlock, staff PIN, etc. next.)</div>
         </div>
       )}
     </div>
   );
 }
 
-function TabButton({
-  active,
-  children,
-  onClick,
-}: {
-  active: boolean;
-  children: React.ReactNode;
-  onClick: () => void;
-}) {
+/* UI helpers */
+function TabButton({ active, children, onClick }: { active: boolean; children: React.ReactNode; onClick: () => void }) {
   return (
     <button
       onClick={onClick}
       className={[
         "flex-1 rounded-2xl px-4 py-3 text-sm font-semibold ring-1 transition",
-        active
-          ? "bg-white text-black ring-white/20"
-          : "bg-white/5 text-white ring-white/10 hover:ring-white/20",
+        active ? "bg-white text-black ring-white/20" : "bg-white/5 text-white ring-white/10 hover:ring-white/20",
       ].join(" ")}
     >
       {children}
@@ -428,18 +414,13 @@ function ModeButton({
   onClick: () => void;
 }) {
   const activeCls =
-    tone === "danger"
-      ? "bg-red-600 text-white ring-red-500/30"
-      : "bg-white text-black ring-white/20";
+    tone === "danger" ? "bg-red-600 text-white ring-red-500/30" : "bg-white text-black ring-white/20";
   const inactiveCls = "bg-black/30 text-white ring-white/10 hover:ring-white/20";
 
   return (
     <button
       onClick={onClick}
-      className={[
-        "rounded-2xl px-4 py-3 text-sm font-bold ring-1 transition",
-        active ? activeCls : inactiveCls,
-      ].join(" ")}
+      className={["rounded-2xl px-4 py-3 text-sm font-bold ring-1 transition", active ? activeCls : inactiveCls].join(" ")}
       aria-pressed={active}
     >
       {children}
