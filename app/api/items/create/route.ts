@@ -11,7 +11,7 @@ export async function POST(req: Request) {
     );
   }
 
-  // 1) Create item
+  // Create the item
   const { data: item, error: itemErr } = await supabaseAdmin
     .from("items")
     .insert({ name, barcode })
@@ -22,7 +22,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: itemErr.message }, { status: 500 });
   }
 
-  // 2) Ensure inventory row exists for this area
+  // Ensure inventory row exists for that area
   const { error: invErr } = await supabaseAdmin
     .from("storage_inventory")
     .upsert(
