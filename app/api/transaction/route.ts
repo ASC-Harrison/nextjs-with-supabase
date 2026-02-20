@@ -19,7 +19,6 @@ export async function POST(req: Request) {
     );
   }
 
-  // Get current row
   const { data: row, error: rowErr } = await supabaseAdmin
     .from("storage_inventory")
     .select("on_hand,par_level")
