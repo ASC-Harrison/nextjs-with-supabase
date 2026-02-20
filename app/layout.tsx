@@ -2,13 +2,17 @@ import "./globals.css";
 
 export const metadata = {
   title: "Baxter ASC Inventory",
-  description: "Cabinet tracking + building totals + low stock alerts",
+  description: "Inventory system",
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default function RootLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   return (
-    <html lang="en" className="h-full">
-      <body className="h-full bg-black text-white antialiased">
+    <html lang="en">
+      <body className="bg-black text-white min-h-screen">
         {children}
       </body>
     </html>
