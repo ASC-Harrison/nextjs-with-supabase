@@ -1,358 +1,305 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import type { BrowserMultiFormatReader } from "@zxing/browser";
+import { useEffect, useMemo, useState } from "react";
+import { supabase } from "@/lib/supabase";
 
-type Tab = "Transaction" | "Totals" | "Settings";
-type Mode = "USE" | "RESTOCK";
-type AreaRow = { id: string; name: string };
-type ItemRow = { id: string; name: string; barcode: string };
-
-const LS = {
-  PIN: "asc_pin_v1",
-  LOCKED: "asc_locked_v1",
-  AREA: "asc_area_id_v1",
+type StorageAreaRow = {
+  id: string;
+  name: string;
+  active?: boolean | null;
+  sort_order?: number | null;
 };
 
-export default function Page() {
-  const BUILD = process.env.NEXT_PUBLIC_BUILD_ID || "no-build-id";
+type ItemRow = { id: string; name: string; barcode: string | null };
+type InventoryRow = {
+  id: string;
+  item_id: string;
+  location_id: string; // NOTE: keep this as your inventory column name
+  on_hand: number;
+  par_level: number;
+};
 
-  const [tab, setTab] = useState<Tab>("Transaction");
-  const [mode, setMode] = useState<Mode>("USE");
-  const [qty, setQty] = useState(1);
-  const [mainOverride, setMainOverride] = useState(false);
+type Tab = "transaction" | "totals" | "settings";
 
-  const [areas, setAreas] = useState<AreaRow[]>([]);
+const DEFAULT_PIN = "2580";
+
+export default function Home() {
+  const [tab, setTab] = useState<Tab>("transaction");
+
+  // storage areas (locations)
+  const [areas, setAreas] = useState<StorageAreaRow[]>([]);
   const [areaId, setAreaId] = useState<string>("");
+  const [locked, setLocked] = useState<boolean>(true);
+  const [pin, setPin] = useState("");
 
-  const selectedAreaName = useMemo(
-    () => areas.find((a) => a.id === areaId)?.name ?? "—",
+  // one-time main override
+  const [mainOverride, setMainOverride] = useState<boolean>(false);
+
+  // item search / transaction
+  const [query, setQuery] = useState("");
+  const [searching, setSearching] = useState(false);
+  const [foundItem, setFoundItem] = useState<ItemRow | null>(null);
+  const [foundInventory, setFoundInventory] = useState<InventoryRow | null>(null);
+
+  // qty
+  const [qty, setQty] = useState<number>(1);
+
+  // add item
+  const [newName, setNewName] = useState("");
+  const [newBarcode, setNewBarcode] = useState("");
+
+  const currentArea = useMemo(
+    () => areas.find((a) => a.id === areaId) || null,
     [areas, areaId]
   );
 
-  const [barcodeOrText, setBarcodeOrText] = useState("");
-  const [resolvedItem, setResolvedItem] = useState<ItemRow | null>(null);
-  const [status, setStatus] = useState("");
+  // Find MAIN supply area by name
+  const mainAreaId = useMemo(() => {
+    const main = areas.find((a) => (a.name || "").toLowerCase().includes("main"));
+    return main?.id || "";
+  }, [areas]);
 
-  // Add-item modal
-  const [addOpen, setAddOpen] = useState(false);
-  const [addName, setAddName] = useState("");
-  const [addPar, setAddPar] = useState<number>(0);
+  // Effective location for this ONE transaction
+  const effectiveAreaId = useMemo(() => {
+    if (mainOverride && mainAreaId) return mainAreaId;
+    return areaId;
+  }, [mainOverride, mainAreaId, areaId]);
 
-  // PIN / lock
-  const [locked, setLocked] = useState<boolean>(true);
-  const [pinModalOpen, setPinModalOpen] = useState(false);
-  const [pinModalMode, setPinModalMode] = useState<"unlock" | "changeLocation">(
-    "unlock"
-  );
-  const [pinInput, setPinInput] = useState("");
-  const [pendingAreaId, setPendingAreaId] = useState<string>("");
-
-  // Scanner
-  const videoRef = useRef<HTMLVideoElement | null>(null);
-  const readerRef = useRef<BrowserMultiFormatReader | null>(null);
-  const lastScanRef = useRef<string>("");
-
-  const modeHelp = useMemo(
-    () =>
-      mode === "USE"
-        ? "Use removes items from on-hand."
-        : "Restock adds items to on-hand.",
-    [mode]
-  );
-
-  // Load persisted lock + area
-  useEffect(() => {
-    try {
-      const l = localStorage.getItem(LS.LOCKED);
-      if (l === "0") setLocked(false);
-      if (l === "1") setLocked(true);
-
-      const savedArea = localStorage.getItem(LS.AREA);
-      if (savedArea) setAreaId(savedArea);
-    } catch {}
-  }, []);
-
-  // Load areas
+  // Load storage areas
   useEffect(() => {
     (async () => {
-      try {
-        const res = await fetch("/api/locations", { cache: "no-store" });
-        const json = await res.json();
+      // Try to select optional columns if they exist
+      const { data, error } = await supabase
+        .from("storage_areas")
+        .select("id,name,active,sort_order")
+        .order("sort_order", { ascending: true, nullsFirst: false })
+        .order("name", { ascending: true });
 
-        if (!json.ok) {
-          setStatus(`Locations API error: ${json.error}`);
-          setAreas([]);
-          return;
-        }
-
-        const list: AreaRow[] = json.locations ?? [];
-        setAreas(list);
-        setAreaId((prev) => prev || list?.[0]?.id || "");
-      } catch (e: any) {
-        setStatus(`Locations fetch failed: ${e?.message ?? "unknown"}`);
+      if (error) {
+        console.error("storage_areas load error:", error);
         setAreas([]);
+        return;
+      }
+
+      const activeOnly = (data || []).filter((r) => r.active !== false);
+      setAreas(activeOnly);
+
+      if (!areaId && activeOnly.length) {
+        const nonMain = activeOnly.find((a) => !a.name.toLowerCase().includes("main"));
+        setAreaId(nonMain?.id || activeOnly[0].id);
       }
     })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Persist areaId
-  useEffect(() => {
-    try {
-      if (areaId) localStorage.setItem(LS.AREA, areaId);
-    } catch {}
-  }, [areaId]);
-
-  // Persist locked
-  useEffect(() => {
-    try {
-      localStorage.setItem(LS.LOCKED, locked ? "1" : "0");
-    } catch {}
-  }, [locked]);
-
-  // Auto-attempt scanner on Transaction tab (iPhone may require tap)
-  useEffect(() => {
-    if (tab !== "Transaction") {
-      stopScanner();
-      return;
-    }
-    startScanner().catch(() => {
-      setStatus("Tap the camera button to start scanning (iPhone permission).");
-    });
-    return () => stopScanner();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab]);
-
-  async function startScanner() {
-    if (!videoRef.current) return;
-
-    stopScanner();
-    const mod = await import("@zxing/browser");
-    const Reader = mod.BrowserMultiFormatReader;
-    const reader = new Reader();
-    readerRef.current = reader;
-
-    setStatus("Scanning…");
-
-    await reader.decodeFromVideoDevice(undefined, videoRef.current, async (result) => {
-      if (!result) return;
-      const text = result.getText?.() ?? "";
-      if (!text) return;
-
-      if (text === lastScanRef.current) return;
-      lastScanRef.current = text;
-
-      setBarcodeOrText(text);
-      await lookupBarcode(text);
-    });
-  }
-
-  function stopScanner() {
-    try {
-      (readerRef.current as any)?.reset?.();
-    } catch {}
-    readerRef.current = null;
-  }
-
-  async function lookupBarcode(code: string) {
-    setResolvedItem(null);
-    setStatus("Looking up item…");
-
-    const res = await fetch("/api/items/lookup", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ barcode: code }),
-    });
-
-    const json = await res.json();
-    if (!json.ok) {
-      setStatus(`Lookup failed: ${json.error}`);
-      return;
-    }
-
-    if (!json.item) {
-      setStatus("NOT FOUND — add it now.");
-      setAddOpen(true);
-      setAddName("");
-      return;
-    }
-
-    setResolvedItem(json.item);
-    setStatus(`Found: ${json.item.name}`);
-  }
-
-  async function addItemNow() {
-    const barcode = barcodeOrText.trim();
-    if (!barcode) return alert("No barcode scanned.");
-    if (!addName.trim()) return alert("Enter item name.");
-    if (!areaId) return alert("Select a location.");
-
-    const res = await fetch("/api/items/create", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        name: addName.trim(),
-        barcode,
-        area_id: areaId,
-        par_level: addPar,
-      }),
-    });
-
-    const json = await res.json();
-    if (!json.ok) return alert(`Add failed: ${json.error}`);
-
-    setResolvedItem(json.item);
-    setAddOpen(false);
-    setStatus(`Added: ${json.item.name}`);
-  }
-
-  async function submitTransaction() {
-    if (locked) return alert("Locked. Unlock first.");
-    if (!resolvedItem?.id) return alert("Scan an item first.");
-    if (!areaId && !mainOverride) return alert("Select a location.");
-
-    const res = await fetch("/api/transaction", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        area_id: areaId,
-        mode,
-        item_id: resolvedItem.id,
-        qty,
-        mainOverride,
-      }),
-    });
-
-    const json = await res.json();
-    if (!json.ok) return alert(`Transaction failed: ${json.error}`);
-
-    setMainOverride(false);
-    setQty(1);
-    setStatus(`✅ Updated on-hand to ${json.on_hand}`);
-  }
-
-  function openPinModal(mode: "unlock" | "changeLocation") {
-    setPinModalMode(mode);
-    setPinInput("");
-    setPinModalOpen(true);
-  }
-
-  function checkPinAndProceed() {
-    const realPin = localStorage.getItem(LS.PIN) || "1234";
-    if (pinInput.trim() !== realPin) {
-      alert("Wrong PIN");
-      return;
-    }
-
-    setPinModalOpen(false);
-
-    if (pinModalMode === "unlock") {
+  function unlockIfPinValid() {
+    if (pin.trim() === DEFAULT_PIN) {
       setLocked(false);
+      setPin("");
+      return true;
+    }
+    alert("Wrong PIN");
+    return false;
+  }
+
+  function clearTransaction() {
+    setFoundItem(null);
+    setFoundInventory(null);
+    setQuery("");
+    setQty(1);
+    setNewName("");
+    setNewBarcode("");
+  }
+
+  function handleChangeArea(nextId: string) {
+    if (locked) {
+      alert("Locked. Enter PIN in Settings to unlock location changes.");
+      return;
+    }
+    setAreaId(nextId);
+    setMainOverride(false);
+    clearTransaction();
+  }
+
+  async function runSearch() {
+    setSearching(true);
+    setFoundItem(null);
+    setFoundInventory(null);
+
+    const q = query.trim();
+    if (!q) {
+      setSearching(false);
       return;
     }
 
-    if (pendingAreaId) {
-      setAreaId(pendingAreaId);
-      setPendingAreaId("");
+    // 1) find item
+    const { data: items, error: itemErr } = await supabase
+      .from("items")
+      .select("id,name,barcode")
+      .ilike("name", `%${q}%`)
+      .order("name", { ascending: true })
+      .limit(1);
+
+    if (itemErr) {
+      console.error("item search error:", itemErr);
+      setSearching(false);
+      return;
+    }
+
+    const item = items?.[0] || null;
+    setFoundItem(item);
+
+    if (!item) {
+      setSearching(false);
+      return;
+    }
+
+    // 2) load inventory for effective area
+    if (!effectiveAreaId) {
+      setSearching(false);
+      return;
+    }
+
+    const { data: inv, error: invErr } = await supabase
+      .from("inventory")
+      .select("id,item_id,location_id,on_hand,par_level")
+      .eq("item_id", item.id)
+      .eq("location_id", effectiveAreaId)
+      .maybeSingle();
+
+    if (invErr) {
+      console.error("inventory load error:", invErr);
+      setSearching(false);
+      return;
+    }
+
+    setFoundInventory(inv || null);
+    setSearching(false);
+  }
+
+  async function ensureInventoryRow(itemId: string, locId: string) {
+    const { data: existing, error: exErr } = await supabase
+      .from("inventory")
+      .select("id,item_id,location_id,on_hand,par_level")
+      .eq("item_id", itemId)
+      .eq("location_id", locId)
+      .maybeSingle();
+
+    if (exErr) throw exErr;
+    if (existing) return existing;
+
+    const { data: created, error: cErr } = await supabase
+      .from("inventory")
+      .insert({ item_id: itemId, location_id: locId, on_hand: 0, par_level: 0 })
+      .select("id,item_id,location_id,on_hand,par_level")
+      .single();
+
+    if (cErr) throw cErr;
+    return created;
+  }
+
+  async function applyTransaction(kind: "pull" | "restock") {
+    if (!foundItem) return alert("Search an item first.");
+    if (!effectiveAreaId) return alert("Pick a location first.");
+
+    const amount = Number(qty);
+    if (!Number.isFinite(amount) || amount <= 0) return alert("Enter a valid quantity.");
+
+    try {
+      const row = await ensureInventoryRow(foundItem.id, effectiveAreaId);
+      const next = kind === "pull" ? row.on_hand - amount : row.on_hand + amount;
+
+      const { data: updated, error } = await supabase
+        .from("inventory")
+        .update({ on_hand: next })
+        .eq("id", row.id)
+        .select("id,item_id,location_id,on_hand,par_level")
+        .single();
+
+      if (error) throw error;
+
+      setFoundInventory(updated);
+
+      // auto-reset MAIN override after one transaction
+      if (mainOverride) setMainOverride(false);
+
+      alert(kind === "pull" ? "Used ✅" : "Restocked ✅");
+    } catch (e: any) {
+      console.error(e);
+      alert(`Transaction failed: ${e?.message || "unknown error"}`);
     }
   }
 
-  function onChangeLocationRequest(newId: string) {
-    if (!locked) {
-      setAreaId(newId);
-      return;
-    }
-    setPendingAreaId(newId);
-    openPinModal("changeLocation");
-  }
+  async function addNewItemAndPrepare() {
+    const name = (newName || query).trim();
+    if (!name) return alert("Enter an item name.");
 
-  function lockTogglePressed() {
-    if (!locked) {
-      setLocked(true);
-      return;
-    }
-    openPinModal("unlock");
-  }
+    try {
+      const { data: created, error } = await supabase
+        .from("items")
+        .insert({ name, barcode: newBarcode.trim() ? newBarcode.trim() : null })
+        .select("id,name,barcode")
+        .single();
 
-  function setNewPin(newPin: string) {
-    const cleaned = newPin.replace(/\D/g, "").slice(0, 6);
-    if (cleaned.length < 4) {
-      alert("PIN must be at least 4 digits.");
-      return;
+      if (error) throw error;
+
+      setFoundItem(created);
+      setQuery(created.name);
+
+      if (effectiveAreaId) {
+        const row = await ensureInventoryRow(created.id, effectiveAreaId);
+        setFoundInventory(row);
+      }
+
+      alert("Item added ✅");
+    } catch (e: any) {
+      console.error(e);
+      alert(`Add failed: ${e?.message || "unknown error"}`);
     }
-    localStorage.setItem(LS.PIN, cleaned);
-    alert("PIN saved ✅");
   }
 
   return (
-    <div className="mx-auto w-full max-w-md px-4 pb-6 safe-bottom overflow-x-hidden">
-      {/* BUILD TAG */}
-      <div className="fixed bottom-2 left-2 z-[9999] rounded bg-green-500 px-2 py-1 text-[11px] font-bold text-black">
-        BUILD: {BUILD}
-      </div>
-
-      {/* HEADER CARD - RESPONSIVE */}
-      <div className="pt-3 safe-top">
-        <div className="rounded-3xl bg-white/5 p-4 ring-1 ring-white/10">
-          <div className="grid grid-cols-[1fr_auto] gap-3 items-start">
-            <div className="min-w-0">
-              {/* responsive title sizing */}
-              <div className="text-4xl sm:text-5xl font-extrabold leading-none">Baxter</div>
-              <div className="text-4xl sm:text-5xl font-extrabold leading-none">ASC</div>
-              <div className="text-4xl sm:text-5xl font-extrabold leading-none">Inventory</div>
-
-              <div className="mt-2 text-sm text-white/70">
-                Cabinet tracking + building totals + low stock alerts
-              </div>
-            </div>
-
-            {/* Right column never overflows */}
-            <div className="min-w-[120px] text-right">
-              <div className="text-white/60 text-xs">Location:</div>
-              <div className="font-semibold text-sm leading-tight break-words">
-                {selectedAreaName}
-              </div>
-
-              <button
-                onClick={lockTogglePressed}
-                className="mt-2 inline-flex items-center justify-center gap-2 w-full rounded-2xl bg-white/10 px-3 py-2 ring-1 ring-white/10"
-              >
-                <span className="text-base">🔒</span>
-                <span className="font-semibold text-sm">
-                  {locked ? "Locked" : "Unlocked"}
-                </span>
-              </button>
-            </div>
+    <div className="container">
+      <div className="card">
+        <div className="row" style={{ alignItems: "flex-start" }}>
+          <div>
+            <h1 className="h1">Baxter<br />ASC<br />Inventory</h1>
+            <p className="sub">Cabinet tracking +<br />building totals + low<br />stock alerts</p>
           </div>
 
-          {/* TABS */}
-          <div className="mt-4 flex gap-2">
-            <TabButton active={tab === "Transaction"} onClick={() => setTab("Transaction")}>
-              Transaction
-            </TabButton>
-            <TabButton active={tab === "Totals"} onClick={() => setTab("Totals")}>
-              Totals
-            </TabButton>
-            <TabButton active={tab === "Settings"} onClick={() => setTab("Settings")}>
-              Settings
-            </TabButton>
+          <div style={{ textAlign: "right" }}>
+            <div className="label" style={{ margin: 0, marginBottom: 8 }}>Location:</div>
+            <div className="badge">{currentArea?.name || "—"}</div>
+
+            <div style={{ marginTop: 10, display: "flex", justifyContent: "flex-end" }}>
+              <div className="pill">
+                <span style={{ fontSize: 18 }}>{locked ? "🔒" : "🔓"}</span>
+                <span style={{ fontWeight: 800 }}>{locked ? "Locked" : "Unlocked"}</span>
+              </div>
+            </div>
           </div>
+        </div>
+
+        <div className="btnRow">
+          <button className={`tab ${tab === "transaction" ? "tabActive" : ""}`} onClick={() => setTab("transaction")}>
+            Transaction
+          </button>
+          <button className={`tab ${tab === "totals" ? "tabActive" : ""}`} onClick={() => setTab("totals")}>
+            Totals
+          </button>
+          <button className={`tab ${tab === "settings" ? "tabActive" : ""}`} onClick={() => setTab("settings")}>
+            Settings
+          </button>
         </div>
       </div>
 
-      {/* CONTENT */}
-      {tab === "Transaction" ? (
-        <div className="mt-4 rounded-3xl bg-white/5 p-4 ring-1 ring-white/10">
-          {/* Select location */}
-          <div className="text-sm text-white/70">Select location</div>
-          <div className="mt-2">
-            <select
-              value={areaId}
-              onChange={(e) => onChangeLocationRequest(e.target.value)}
-              className="w-full rounded-2xl bg-black/40 px-4 py-3 text-white ring-1 ring-white/10 focus:outline-none focus:ring-2 focus:ring-white/20"
-            >
+      {tab === "transaction" && (
+        <>
+          <div className="card section">
+            <div className="label">Select location</div>
+            <select className="select" value={areaId} onChange={(e) => handleChangeArea(e.target.value)} disabled={locked || areas.length === 0}>
               {areas.length === 0 ? (
-                <option>No locations found</option>
+                <option value="">No locations found</option>
               ) : (
                 areas.map((a) => (
                   <option key={a.id} value={a.id}>
@@ -361,186 +308,109 @@ export default function Page() {
                 ))
               )}
             </select>
-
-            {locked ? (
-              <div className="mt-2 text-xs text-white/50">
-                Locked: enter PIN to change location.
-              </div>
-            ) : null}
+            <div className="helper">
+              {locked ? "Locked: enter PIN in Settings to change location." : "Unlocked: you can change location."}
+            </div>
           </div>
 
-          {/* One-time override */}
-          <div className="mt-4 rounded-2xl bg-black/30 p-4 ring-1 ring-white/10">
-            <div className="flex items-center justify-between gap-3">
-              <div className="min-w-0">
-                <div className="text-lg font-semibold">One-time override</div>
-                <div className="mt-1 text-sm text-white/70">
-                  Grabbed it from <span className="font-semibold text-white/85">MAIN</span> supply room? Tap once.
+          <div className="bigCard">
+            <div className="split">
+              <div>
+                <div className="bigTitle">One-time<br />override</div>
+                <div className="sub" style={{ margin: 0 }}>
+                  Grabbed it from <b>MAIN</b> supply room? Tap once.
                 </div>
               </div>
 
               <button
-                onClick={() => setMainOverride((v) => !v)}
-                className={[
-                  "shrink-0 rounded-2xl px-4 py-3 ring-1 transition",
-                  mainOverride
-                    ? "bg-white text-black ring-white/20"
-                    : "bg-black/40 text-white ring-white/10 hover:ring-white/20",
-                ].join(" ")}
-              >
-                <div className="text-xs opacity-80">⚡</div>
-                <div className="text-sm font-semibold">
-                  MAIN <span className="opacity-70">(1x)</span>
-                </div>
-              </button>
-            </div>
-          </div>
-
-          {/* Mode */}
-          <div className="mt-4 rounded-2xl bg-black/30 p-4 ring-1 ring-white/10">
-            <div className="flex items-center justify-between gap-3">
-              <div className="min-w-0">
-                <div className="text-lg font-semibold">Mode</div>
-                <div className="mt-1 text-sm text-white/70">{modeHelp}</div>
-              </div>
-              <div className="flex gap-2">
-                <ModeButton active={mode === "USE"} tone="danger" onClick={() => setMode("USE")}>
-                  USE
-                </ModeButton>
-                <ModeButton active={mode === "RESTOCK"} tone="neutral" onClick={() => setMode("RESTOCK")}>
-                  RESTOCK
-                </ModeButton>
-              </div>
-            </div>
-          </div>
-
-          {/* Scan input */}
-          <div className="mt-4">
-            <div className="relative w-full">
-              <input
-                value={barcodeOrText}
-                onChange={(e) => setBarcodeOrText(e.target.value)}
-                onKeyDown={async (e) => {
-                  if (e.key === "Enter") {
-                    const v = barcodeOrText.trim();
-                    if (v) await lookupBarcode(v);
-                  }
+                className="actionBtn"
+                onClick={() => {
+                  if (!mainAreaId) return alert("No MAIN area found. Make sure one storage_areas row includes 'Main' in the name.");
+                  setMainOverride((v) => !v);
                 }}
-                placeholder="Scan barcode or type item"
-                className="w-full rounded-2xl bg-white text-black placeholder-black/50 px-4 py-3 pr-14 ring-1 ring-black/10 focus:outline-none focus:ring-2 focus:ring-black/20"
-              />
-              <button
-                type="button"
-                onClick={() => startScanner().catch(() => setStatus("Camera permission blocked. Try again."))}
-                className="absolute right-2 top-1/2 -translate-y-1/2 rounded-xl bg-black/10 px-3 py-2 text-black hover:bg-black/20"
-                aria-label="Start scanner"
               >
-                📷
+                ⚡ {mainOverride ? "MAIN (1x) ✅" : "MAIN (1x)"}
               </button>
             </div>
           </div>
 
-          {/* hidden video */}
-          <video
-            ref={videoRef}
-            className="absolute w-px h-px opacity-0 pointer-events-none"
-            muted
-            playsInline
-          />
+          <div className="card section">
+            <div className="label">Find item</div>
+            <div className="split">
+              <input className="input" placeholder="Scan barcode or type item..." value={query} onChange={(e) => setQuery(e.target.value)} />
+              <button className="actionBtn actionBtnPrimary" onClick={runSearch} disabled={searching}>
+                {searching ? "..." : "Search"}
+              </button>
+            </div>
 
-          <div className="mt-3 text-sm text-white/70 break-words">
-            {status || "Ready."}
+            {foundItem && (
+              <>
+                <div className="hr" />
+                <div style={{ fontSize: 18, fontWeight: 800 }}>{foundItem.name}</div>
+                <div className="helper">
+                  Location used: <b>{(mainOverride ? "MAIN (1x)" : currentArea?.name) || "—"}</b>
+                </div>
+
+                <div className="hr" />
+
+                <div className="label">Quantity</div>
+                <input className="input" type="number" min={1} value={qty} onChange={(e) => setQty(Number(e.target.value))} />
+                <div className="helper">
+                  On hand: <b>{foundInventory?.on_hand ?? 0}</b> &nbsp;|&nbsp; Par: <b>{foundInventory?.par_level ?? 0}</b>
+                </div>
+
+                <div className="btnRow">
+                  <button className="tab" onClick={() => applyTransaction("pull")}>Use</button>
+                  <button className="tab" onClick={() => applyTransaction("restock")}>Restock</button>
+                </div>
+              </>
+            )}
+
+            {!foundItem && query.trim().length > 0 && !searching && (
+              <>
+                <div className="hr" />
+                <div style={{ fontSize: 18, fontWeight: 800 }}>Not found</div>
+                <div className="helper">Add it once, then you can use/restock it.</div>
+
+                <div className="section">
+                  <div className="label">New item name</div>
+                  <input className="input" placeholder="Item name" value={newName} onChange={(e) => setNewName(e.target.value)} />
+                </div>
+
+                <div className="section">
+                  <div className="label">Barcode (optional)</div>
+                  <input className="input" placeholder="Scan/type barcode (optional)" value={newBarcode} onChange={(e) => setNewBarcode(e.target.value)} />
+                </div>
+
+                <div className="btnRow">
+                  <button className="tab tabActive" onClick={addNewItemAndPrepare}>Add New Item</button>
+                  <button className="tab" onClick={clearTransaction}>Clear</button>
+                </div>
+              </>
+            )}
+          </div>
+        </>
+      )}
+
+      {tab === "totals" && <TotalsView />}
+      {tab === "settings" && (
+        <div className="card section">
+          <div className="bigTitle" style={{ marginBottom: 10 }}>Settings</div>
+
+          <div className="label">Location Lock PIN</div>
+          <div className="helper" style={{ marginTop: -2, marginBottom: 10 }}>
+            Enter PIN to unlock location changes.
           </div>
 
-          {resolvedItem ? (
-            <div className="mt-2 rounded-2xl bg-black/30 p-3 ring-1 ring-white/10">
-              <div className="text-sm font-semibold">{resolvedItem.name}</div>
-              <div className="text-xs text-white/60 break-all">{resolvedItem.barcode}</div>
-            </div>
-          ) : null}
-
-          {/* Qty */}
-          <div className="mt-4 flex items-center gap-3">
-            <QtyButton onClick={() => setQty((q) => Math.max(1, q - 1))}>−</QtyButton>
-            <div className="flex-1 rounded-2xl bg-white px-4 py-3 text-center text-black ring-1 ring-black/10">
-              <span className="text-lg font-semibold">{qty}</span>
-            </div>
-            <QtyButton onClick={() => setQty((q) => q + 1)}>+</QtyButton>
+          <div className="split">
+            <input className="input" placeholder="Enter PIN" value={pin} onChange={(e) => setPin(e.target.value)} style={{ flex: 1 }} />
+            <button className="actionBtn actionBtnPrimary" onClick={() => (locked ? unlockIfPinValid() : alert("Already unlocked."))}>
+              Unlock
+            </button>
           </div>
 
-          {/* Submit */}
-          <button
-            className="mt-4 w-full rounded-2xl bg-black/80 px-4 py-4 text-white font-semibold hover:bg-black disabled:opacity-60"
-            onClick={submitTransaction}
-            disabled={!resolvedItem || locked}
-          >
-            Submit
-          </button>
-
-          {/* Add item modal */}
-          {addOpen ? (
-            <Modal title="Item not found" onCancel={() => setAddOpen(false)} onOk={addItemNow} okText="Add Item">
-              <div className="mt-1 text-sm text-white/70 break-all">Barcode: {barcodeOrText}</div>
-
-              <div className="mt-3">
-                <div className="text-xs text-white/60 mb-1">Item name</div>
-                <input
-                  value={addName}
-                  onChange={(e) => setAddName(e.target.value)}
-                  className="w-full rounded-2xl bg-white text-black px-4 py-3"
-                  placeholder="Type item name…"
-                />
-              </div>
-
-              <div className="mt-3">
-                <div className="text-xs text-white/60 mb-1">Par level (optional)</div>
-                <input
-                  value={String(addPar)}
-                  onChange={(e) => setAddPar(Number(e.target.value || 0))}
-                  className="w-full rounded-2xl bg-white text-black px-4 py-3"
-                  inputMode="numeric"
-                  placeholder="0"
-                />
-              </div>
-            </Modal>
-          ) : null}
-
-          {/* PIN modal */}
-          {pinModalOpen ? (
-            <Modal
-              title={pinModalMode === "unlock" ? "Enter PIN to unlock" : "Enter PIN to change location"}
-              onCancel={() => {
-                setPinModalOpen(false);
-                setPendingAreaId("");
-              }}
-              onOk={checkPinAndProceed}
-              okText="OK"
-            >
-              <input
-                value={pinInput}
-                onChange={(e) => setPinInput(e.target.value.replace(/\D/g, "").slice(0, 6))}
-                className="mt-3 w-full rounded-2xl bg-white text-black px-4 py-3"
-                placeholder="PIN"
-                inputMode="numeric"
-              />
-              <div className="mt-2 text-xs text-white/50">
-                Default PIN is <span className="font-semibold">1234</span> until you set it in Settings.
-              </div>
-            </Modal>
-          ) : null}
-        </div>
-      ) : tab === "Totals" ? (
-        <div className="mt-4 rounded-3xl bg-white/5 p-4 ring-1 ring-white/10">
-          <div className="text-lg font-semibold">Totals</div>
-          <div className="mt-2 text-sm text-white/70">(Next: totals view from storage_inventory.)</div>
-        </div>
-      ) : (
-        <div className="mt-4 rounded-3xl bg-white/5 p-4 ring-1 ring-white/10">
-          <div className="text-lg font-semibold">Settings</div>
-          <div className="mt-3 text-sm text-white/70">Set/Change PIN (min 4 digits):</div>
-          <PinSetter onSave={setNewPin} />
-          <div className="mt-4 text-xs text-white/50">
-            Lock + selected location are stored on this device.
+          <div className="btnRow">
+            <button className="tab" onClick={() => setLocked(true)}>Lock</button>
           </div>
         </div>
       )}
@@ -548,102 +418,67 @@ export default function Page() {
   );
 }
 
-/* ------- UI components ------- */
+function TotalsView() {
+  const [rows, setRows] = useState<{ area: string; count: number }[]>([]);
+  const [loading, setLoading] = useState(false);
 
-function TabButton({ active, children, onClick }: { active: boolean; children: React.ReactNode; onClick: () => void }) {
-  return (
-    <button
-      onClick={onClick}
-      className={[
-        "flex-1 rounded-2xl px-4 py-3 text-sm font-semibold ring-1 transition",
-        active ? "bg-white text-black ring-white/20" : "bg-white/5 text-white ring-white/10 hover:ring-white/20",
-      ].join(" ")}
-    >
-      {children}
-    </button>
-  );
-}
+  useEffect(() => {
+    (async () => {
+      setLoading(true);
 
-function ModeButton({
-  active,
-  tone,
-  children,
-  onClick,
-}: {
-  active: boolean;
-  tone: "danger" | "neutral";
-  children: React.ReactNode;
-  onClick: () => void;
-}) {
-  const activeCls = tone === "danger" ? "bg-red-600 text-white ring-red-500/30" : "bg-white text-black ring-white/20";
-  const inactiveCls = "bg-black/30 text-white ring-white/10 hover:ring-white/20";
-  return (
-    <button
-      onClick={onClick}
-      className={["rounded-2xl px-4 py-3 text-sm font-bold ring-1 transition", active ? activeCls : inactiveCls].join(" ")}
-      aria-pressed={active}
-    >
-      {children}
-    </button>
-  );
-}
+      const { data: areas, error: aErr } = await supabase
+        .from("storage_areas")
+        .select("id,name,active");
 
-function QtyButton({ children, onClick }: { children: React.ReactNode; onClick: () => void }) {
-  return (
-    <button
-      onClick={onClick}
-      className="h-12 w-12 rounded-2xl bg-white/5 text-white text-xl font-semibold ring-1 ring-white/10 hover:ring-white/20"
-    >
-      {children}
-    </button>
-  );
-}
+      if (aErr) {
+        console.error(aErr);
+        setLoading(false);
+        return;
+      }
 
-function Modal({
-  title,
-  children,
-  onCancel,
-  onOk,
-  okText,
-}: {
-  title: string;
-  children: React.ReactNode;
-  onCancel: () => void;
-  onOk: () => void;
-  okText: string;
-}) {
+      const activeAreas = (areas || []).filter((r) => r.active !== false);
+
+      const { data: inv, error: iErr } = await supabase
+        .from("inventory")
+        .select("location_id");
+
+      if (iErr) {
+        console.error(iErr);
+        setLoading(false);
+        return;
+      }
+
+      const counts = new Map<string, number>();
+      (inv || []).forEach((r) => counts.set(r.location_id, (counts.get(r.location_id) || 0) + 1));
+
+      const out = activeAreas.map((a) => ({
+        area: a.name,
+        count: counts.get(a.id) || 0,
+      }));
+
+      out.sort((x, y) => y.count - x.count);
+      setRows(out);
+      setLoading(false);
+    })();
+  }, []);
+
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 p-4">
-      <div className="w-full max-w-md rounded-3xl bg-[#111] p-4 ring-1 ring-white/10">
-        <div className="text-lg font-semibold">{title}</div>
-        {children}
-        <div className="mt-4 flex gap-2">
-          <button onClick={onCancel} className="flex-1 rounded-2xl bg-white/10 px-4 py-3 font-semibold">
-            Cancel
-          </button>
-          <button onClick={onOk} className="flex-1 rounded-2xl bg-white px-4 py-3 font-semibold text-black">
-            {okText}
-          </button>
+    <div className="card section">
+      <div className="bigTitle" style={{ marginBottom: 8 }}>Totals</div>
+      <div className="helper">Inventory rows per storage area.</div>
+      <div className="hr" />
+      {loading ? (
+        <div className="helper">Loading...</div>
+      ) : (
+        <div style={{ display: "grid", gap: 10 }}>
+          {rows.map((r) => (
+            <div key={r.area} className="pill" style={{ justifyContent: "space-between" }}>
+              <span style={{ fontWeight: 800 }}>{r.area}</span>
+              <span style={{ opacity: 0.8 }}>{r.count}</span>
+            </div>
+          ))}
         </div>
-      </div>
-    </div>
-  );
-}
-
-function PinSetter({ onSave }: { onSave: (pin: string) => void }) {
-  const [pin, setPin] = useState("");
-  return (
-    <div className="mt-2">
-      <input
-        value={pin}
-        onChange={(e) => setPin(e.target.value.replace(/\D/g, "").slice(0, 6))}
-        className="w-full rounded-2xl bg-white text-black px-4 py-3"
-        placeholder="New PIN (e.g. 1234)"
-        inputMode="numeric"
-      />
-      <button onClick={() => onSave(pin)} className="mt-3 w-full rounded-2xl bg-white px-4 py-3 font-semibold text-black">
-        Save PIN
-      </button>
+      )}
     </div>
   );
 }
