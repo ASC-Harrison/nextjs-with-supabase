@@ -4,12 +4,12 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 export async function POST(req: Request) {
   const { area_id, mode, item_id, qty, mainOverride } = await req.json();
 
-  if (!item_id || !mode || !qty) {
-    return NextResponse.json({ ok: false, error: "Missing item_id/mode/qty" }, { status: 400 });
+  if (!item_id || !mode) {
+    return NextResponse.json({ ok: false, error: "Missing item_id/mode" }, { status: 400 });
   }
 
-  const finalArea =
-    mainOverride === true ? process.env.MAIN_SUPPLY_AREA_ID : area_id;
+  const n = Math.max(1, Math.abs(Number(qty ?? 1)));
+  const finalArea = mainOverride === true ? process.env.MAIN_SUPPLY_AREA_ID : area_id;
 
   if (!finalArea) {
     return NextResponse.json({ ok: false, error: "No area selected" }, { status: 400 });
@@ -27,19 +27,13 @@ export async function POST(req: Request) {
   }
 
   const onHand = row?.on_hand ?? 0;
-  const n = Math.abs(Number(qty) || 1);
   const delta = mode === "USE" ? -n : n;
   const newOnHand = onHand + delta;
 
   const { error: upErr } = await supabaseAdmin
     .from("storage_inventory")
     .upsert(
-      {
-        item_id,
-        area_id: finalArea,
-        on_hand: newOnHand,
-        par_level: row?.par_level ?? 0,
-      },
+      { item_id, area_id: finalArea, on_hand: newOnHand, par_level: row?.par_level ?? 0 },
       { onConflict: "item_id,area_id" }
     );
 
