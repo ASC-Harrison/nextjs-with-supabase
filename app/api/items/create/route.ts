@@ -6,12 +6,12 @@ export async function POST(req: Request) {
 
   if (!name || !barcode || !area_id) {
     return NextResponse.json(
-      { ok: false, error: "Missing required fields (name, barcode, area_id)" },
+      { ok: false, error: "Missing required fields: name, barcode, area_id" },
       { status: 400 }
     );
   }
 
-  // Create the item
+  // create item
   const { data: item, error: itemErr } = await supabaseAdmin
     .from("items")
     .insert({ name, barcode })
@@ -22,7 +22,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: itemErr.message }, { status: 500 });
   }
 
-  // Ensure inventory row exists for that area
+  // ensure inventory row exists at that location
   const { error: invErr } = await supabaseAdmin
     .from("storage_inventory")
     .upsert(
@@ -30,7 +30,7 @@ export async function POST(req: Request) {
         item_id: item.id,
         area_id,
         on_hand: 0,
-        par_level: Number.isFinite(par_level) ? par_level : 0,
+        par_level: Number(par_level ?? 0),
       },
       { onConflict: "item_id,area_id" }
     );
