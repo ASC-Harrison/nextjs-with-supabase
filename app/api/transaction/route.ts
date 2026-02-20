@@ -1,128 +1,135 @@
-import { NextResponse } from "next/server";
-import { createAdminClient } from "@/lib/supabase/admin";
+"use client";
 
-type Body = {
-  mode: "USE" | "RESTOCK";
-  itemQuery: string; // barcode or name text
-  qty: number;
-  storageAreaId: string; // where to apply it (room cabinet / main)
-};
+import { useState } from "react";
 
-export async function POST(req: Request) {
-  try {
-    const supabase = createAdminClient();
-    const body = (await req.json()) as Body;
+export default function Page() {
+  const [mode, setMode] = useState<"USE" | "RESTOCK">("USE");
+  const [qty, setQty] = useState(1);
+  const [mainOverride, setMainOverride] = useState(false);
 
-    const mode = body.mode;
-    const itemQuery = (body.itemQuery ?? "").trim();
-    const qty = Number(body.qty ?? 0);
-    const storageAreaId = body.storageAreaId;
+  return (
+    <div className="mx-auto w-full max-w-md px-4 pb-8">
+      
+      {/* HEADER */}
+      <div className="pt-6 safe-top">
+        <h1 className="text-4xl font-bold">ASC Inventory</h1>
+        <p className="mt-2 text-white/70">
+          Cabinet tracking + building totals + low stock alerts
+        </p>
+      </div>
 
-    if (!itemQuery) {
-      return NextResponse.json({ error: "Missing itemQuery" }, { status: 400 });
-    }
-    if (!storageAreaId) {
-      return NextResponse.json({ error: "Missing storageAreaId" }, { status: 400 });
-    }
-    if (!Number.isFinite(qty) || qty <= 0) {
-      return NextResponse.json({ error: "Qty must be > 0" }, { status: 400 });
-    }
-    if (mode !== "USE" && mode !== "RESTOCK") {
-      return NextResponse.json({ error: "Invalid mode" }, { status: 400 });
-    }
+      {/* TABS */}
+      <div className="mt-6 flex gap-3">
+        <button className="flex-1 rounded-2xl bg-white text-black py-3 font-semibold">
+          Transaction
+        </button>
+        <button className="flex-1 rounded-2xl bg-white/10 py-3">
+          Totals
+        </button>
+        <button className="flex-1 rounded-2xl bg-white/10 py-3">
+          Settings
+        </button>
+      </div>
 
-    // 1) Find item by barcode exact match OR name ilike
-    const isProbablyBarcode = /^[0-9A-Za-z\-\._]{4,}$/.test(itemQuery);
+      {/* CARD */}
+      <div className="mt-6 rounded-3xl bg-white/5 p-5 ring-1 ring-white/10">
 
-    let itemId: string | null = null;
+        {/* LOCATION */}
+        <p className="text-sm text-white/70">Select location</p>
+        <select className="mt-2 w-full rounded-2xl bg-black/40 px-4 py-3 ring-1 ring-white/10">
+          <option>Anesthesia Cart 1</option>
+          <option>OR 1 Cabinet A</option>
+          <option>Main Supply</option>
+        </select>
 
-    if (isProbablyBarcode) {
-      const { data: byBarcode } = await supabase
-        .from("items")
-        .select("id")
-        .eq("barcode", itemQuery)
-        .limit(1);
+        {/* MAIN OVERRIDE */}
+        <div className="mt-5 rounded-2xl bg-black/30 p-4 ring-1 ring-white/10 flex justify-between items-center">
+          <div>
+            <p className="text-lg font-semibold">One-time override</p>
+            <p className="text-sm text-white/70">
+              Grabbed from MAIN supply room?
+            </p>
+          </div>
 
-      if (byBarcode && byBarcode.length) itemId = byBarcode[0].id;
-    }
+          <button
+            onClick={() => setMainOverride(!mainOverride)}
+            className={`rounded-2xl px-4 py-3 ring-1 ${
+              mainOverride
+                ? "bg-white text-black"
+                : "bg-black/40 text-white ring-white/10"
+            }`}
+          >
+            ⚡ MAIN (1x)
+          </button>
+        </div>
 
-    if (!itemId) {
-      const { data: byName } = await supabase
-        .from("items")
-        .select("id")
-        .ilike("name", `%${itemQuery}%`)
-        .limit(1);
+        {/* MODE */}
+        <div className="mt-5 rounded-2xl bg-black/30 p-4 ring-1 ring-white/10">
+          <p className="text-lg font-semibold mb-3">Mode</p>
 
-      if (byName && byName.length) itemId = byName[0].id;
-    }
+          <div className="flex gap-3">
+            <button
+              onClick={() => setMode("USE")}
+              className={`flex-1 rounded-2xl py-3 font-bold ${
+                mode === "USE"
+                  ? "bg-red-600 text-white"
+                  : "bg-black/40 text-white"
+              }`}
+            >
+              USE
+            </button>
 
-    if (!itemId) {
-      return NextResponse.json(
-        { code: "ITEM_NOT_FOUND", scanned: itemQuery },
-        { status: 404 }
-      );
-    }
+            <button
+              onClick={() => setMode("RESTOCK")}
+              className={`flex-1 rounded-2xl py-3 font-bold ${
+                mode === "RESTOCK"
+                  ? "bg-white text-black"
+                  : "bg-black/40 text-white"
+              }`}
+            >
+              RESTOCK
+            </button>
+          </div>
+        </div>
 
-    // 2) Upsert storage_inventory row if missing, then adjust on_hand
-    // storage_inventory: storage_area_id, item_id, on_hand
-    const { data: existing, error: existingErr } = await supabase
-      .from("storage_inventory")
-      .select("storage_area_id,item_id,on_hand")
-      .eq("storage_area_id", storageAreaId)
-      .eq("item_id", itemId)
-      .limit(1);
+        {/* SEARCH */}
+        <div className="mt-5 relative w-full">
+          <input
+            placeholder="Scan barcode or type item"
+            className="w-full rounded-2xl bg-white text-black px-4 py-3 pr-14 ring-1 ring-black/10"
+          />
 
-    if (existingErr) {
-      return NextResponse.json({ error: existingErr.message }, { status: 500 });
-    }
+          <button className="absolute right-2 top-1/2 -translate-y-1/2 rounded-xl bg-black/10 px-3 py-2 text-black">
+            📷
+          </button>
+        </div>
 
-    const currentOnHand = existing?.[0]?.on_hand ?? 0;
-    const delta = mode === "USE" ? -qty : qty;
-    const nextOnHand = Math.max(0, Number(currentOnHand) + delta);
+        {/* QTY */}
+        <div className="mt-5 flex items-center gap-3">
+          <button
+            onClick={() => setQty(Math.max(1, qty - 1))}
+            className="h-12 w-12 rounded-2xl bg-white/10 text-xl"
+          >
+            -
+          </button>
 
-    if (!existing || existing.length === 0) {
-      const { error: insErr } = await supabase.from("storage_inventory").insert({
-        storage_area_id: storageAreaId,
-        item_id: itemId,
-        on_hand: nextOnHand,
-      });
-      if (insErr) return NextResponse.json({ error: insErr.message }, { status: 500 });
-    } else {
-      const { error: upErr } = await supabase
-        .from("storage_inventory")
-        .update({ on_hand: nextOnHand })
-        .eq("storage_area_id", storageAreaId)
-        .eq("item_id", itemId);
+          <div className="flex-1 rounded-2xl bg-white text-black text-center py-3 font-semibold">
+            {qty}
+          </div>
 
-      if (upErr) return NextResponse.json({ error: upErr.message }, { status: 500 });
-    }
+          <button
+            onClick={() => setQty(qty + 1)}
+            className="h-12 w-12 rounded-2xl bg-white/10 text-xl"
+          >
+            +
+          </button>
+        </div>
 
-    // Optional: write a transaction row if you have a transactions table
-    // (won't break if the table doesn't exist - we just skip it)
-    try {
-      await supabase.from("transactions").insert({
-        storage_area_id: storageAreaId,
-        item_id: itemId,
-        qty: qty,
-        mode: mode,
-      });
-    } catch {
-      // ignore
-    }
-
-    return NextResponse.json(
-      {
-        ok: true,
-        item_id: itemId,
-        storage_area_id: storageAreaId,
-        on_hand: nextOnHand,
-      },
-      { status: 200 }
-    );
-  } catch (e: any) {
-    return NextResponse.json(
-      { error: e?.message ?? "Unknown server error" },
-      { status: 500 }
-    );
-  }
+        {/* CONFIRM */}
+        <button className="mt-6 w-full rounded-2xl bg-white text-black py-3 font-bold">
+          Confirm {mode}
+        </button>
+      </div>
+    </div>
+  );
 }
