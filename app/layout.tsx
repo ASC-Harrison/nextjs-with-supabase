@@ -1,27 +1,17 @@
-// app/layout.tsx
 import "./globals.css";
-import type { Metadata } from "next";
 
-export const metadata: Metadata = {
-  title: "Baxter ASC Inventory",
-  description: "Cabinet tracking + building totals + low stock alerts",
-  applicationName: "Baxter ASC Inventory",
-  appleWebApp: {
-    capable: true,
-    statusBarStyle: "default",
-    title: "Baxter ASC Inventory",
-  },
-  icons: {
-    icon: [{ url: "/asc-icon-192.png", sizes: "192x192", type: "image/png" }],
-    apple: [{ url: "/asc-icon-192.png", sizes: "192x192", type: "image/png" }],
-  },
-  manifest: "/manifest.webmanifest",
-};
-
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default function RootLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   return (
-    <html lang="en">
-      <body>{children}</body>
+    <html lang="en" className="h-full">
+      <body className="h-full bg-black text-white antialiased overflow-x-hidden">
+        <div className="min-h-dvh w-full overflow-x-hidden">
+          {children}
+        </div>
+      </body>
     </html>
   );
 }
