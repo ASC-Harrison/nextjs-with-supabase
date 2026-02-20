@@ -27,13 +27,19 @@ export async function POST(req: Request) {
   }
 
   const onHand = row?.on_hand ?? 0;
-  const delta = mode === "USE" ? -Math.abs(qty) : Math.abs(qty);
+  const n = Math.abs(Number(qty) || 1);
+  const delta = mode === "USE" ? -n : n;
   const newOnHand = onHand + delta;
 
   const { error: upErr } = await supabaseAdmin
     .from("storage_inventory")
     .upsert(
-      { item_id, area_id: finalArea, on_hand: newOnHand, par_level: row?.par_level ?? 0 },
+      {
+        item_id,
+        area_id: finalArea,
+        on_hand: newOnHand,
+        par_level: row?.par_level ?? 0,
+      },
       { onConflict: "item_id,area_id" }
     );
 
