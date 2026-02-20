@@ -8,11 +8,7 @@ type Mode = "USE" | "RESTOCK";
 type Area = { id: string; name: string };
 type Item = { id: string; name: string; barcode: string };
 
-const LS = {
-  PIN: "asc_pin_v1",
-  LOCKED: "asc_locked_v1",
-  AREA: "asc_area_id_v1",
-};
+const LS = { PIN: "asc_pin_v1", LOCKED: "asc_locked_v1", AREA: "asc_area_id_v1" };
 
 export default function Page() {
   const [tab, setTab] = useState<Tab>("Transaction");
@@ -46,7 +42,6 @@ export default function Page() {
   const readerRef = useRef<BrowserMultiFormatReader | null>(null);
   const lastScanRef = useRef<string>("");
 
-  // load saved lock + area
   useEffect(() => {
     try {
       setLocked((localStorage.getItem(LS.LOCKED) ?? "1") === "1");
@@ -67,7 +62,6 @@ export default function Page() {
     } catch {}
   }, [areaId]);
 
-  // load locations (NO CACHE) + fix stale saved id on desktop
   useEffect(() => {
     (async () => {
       try {
@@ -100,7 +94,6 @@ export default function Page() {
     })();
   }, []);
 
-  // stop scanner when leaving Transaction tab
   useEffect(() => {
     if (tab !== "Transaction") stopScanner();
     return () => stopScanner();
@@ -183,16 +176,11 @@ export default function Page() {
     if (!checkPin()) return alert("Wrong PIN");
     setPinOpen(false);
 
-    if (pinPurpose === "unlock") {
-      setLocked(false);
-      return;
-    }
+    if (pinPurpose === "unlock") setLocked(false);
     if (pinPurpose === "changeLocation") {
       if (pendingArea) setAreaId(pendingArea);
       setPendingArea("");
-      return;
     }
-    // addItem = authorize; user taps Add again
   }
 
   function requestLocationChange(newId: string) {
@@ -242,13 +230,7 @@ export default function Page() {
     const res = await fetch("/api/transaction", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        area_id: areaId,
-        mode,
-        item_id: item.id,
-        qty,
-        mainOverride,
-      }),
+      body: JSON.stringify({ area_id: areaId, mode, item_id: item.id, qty, mainOverride }),
     });
 
     const json = await res.json();
@@ -268,24 +250,16 @@ export default function Page() {
 
   return (
     <div className="min-h-screen w-full flex justify-center">
-      <div
-        className="w-full max-w-md px-3 pb-4 overflow-x-hidden"
-        style={{ paddingTop: "env(safe-area-inset-top)" }}
-      >
-        {/* Header */}
+      <div className="w-full max-w-md px-3 pb-4 overflow-x-hidden" style={{ paddingTop: "env(safe-area-inset-top)" }}>
         <div className="rounded-3xl bg-white/5 p-3 ring-1 ring-white/10">
           <div className="grid grid-cols-[1fr_auto] gap-3 items-start">
             <div className="min-w-0">
               <div className="text-3xl font-extrabold leading-none">Baxter ASC Inventory</div>
-              <div className="mt-1 text-xs text-white/60">
-                Cabinet tracking + building totals + low stock alerts
-              </div>
+              <div className="mt-1 text-xs text-white/60">Cabinet tracking + building totals + low stock alerts</div>
             </div>
-
             <div className="text-right min-w-[140px]">
               <div className="text-[11px] text-white/60">Location</div>
               <div className="text-sm font-semibold leading-tight break-words">{selectedAreaName}</div>
-
               <button
                 onClick={() => (locked ? openPin("unlock") : setLocked(true))}
                 className="mt-2 w-full rounded-2xl bg-white/10 px-3 py-2 ring-1 ring-white/10 text-sm font-semibold"
@@ -295,23 +269,15 @@ export default function Page() {
             </div>
           </div>
 
-          {/* Tabs */}
           <div className="mt-2 flex gap-2">
-            <TabBtn active={tab === "Transaction"} onClick={() => setTab("Transaction")}>
-              Transaction
-            </TabBtn>
-            <TabBtn active={tab === "Totals"} onClick={() => setTab("Totals")}>
-              Totals
-            </TabBtn>
-            <TabBtn active={tab === "Settings"} onClick={() => setTab("Settings")}>
-              Settings
-            </TabBtn>
+            <TabBtn active={tab === "Transaction"} onClick={() => setTab("Transaction")}>Transaction</TabBtn>
+            <TabBtn active={tab === "Totals"} onClick={() => setTab("Totals")}>Totals</TabBtn>
+            <TabBtn active={tab === "Settings"} onClick={() => setTab("Settings")}>Settings</TabBtn>
           </div>
         </div>
 
         {tab === "Transaction" ? (
           <div className="mt-2 rounded-3xl bg-white/5 p-4 ring-1 ring-white/10">
-            {/* Location dropdown */}
             <div className="text-sm text-white/70">Select location</div>
             <select
               value={areaId}
@@ -322,27 +288,18 @@ export default function Page() {
                 <option>No locations found</option>
               ) : (
                 areas.map((a) => (
-                  <option key={a.id} value={a.id}>
-                    {a.name}
-                  </option>
+                  <option key={a.id} value={a.id}>{a.name}</option>
                 ))
               )}
             </select>
 
-            {locked && (
-              <div className="mt-2 text-xs text-white/50">
-                Locked: PIN required to change location & add items.
-              </div>
-            )}
+            {locked && <div className="mt-2 text-xs text-white/50">Locked: PIN required to change location & add items.</div>}
 
-            {/* Override */}
             <div className="mt-2 rounded-2xl bg-black/30 p-4 ring-1 ring-white/10">
               <div className="flex items-center justify-between gap-3">
                 <div className="min-w-0">
                   <div className="text-lg font-semibold">One-time override</div>
-                  <div className="mt-1 text-sm text-white/70">
-                    Grabbed it from MAIN supply room? Tap once.
-                  </div>
+                  <div className="mt-1 text-sm text-white/70">Grabbed it from MAIN supply room? Tap once.</div>
                 </div>
                 <button
                   onClick={() => setMainOverride((v) => !v)}
@@ -352,14 +309,11 @@ export default function Page() {
                   ].join(" ")}
                 >
                   <div className="text-xs opacity-80">⚡</div>
-                  <div className="text-sm font-semibold">
-                    MAIN <span className="opacity-70">(1x)</span>
-                  </div>
+                  <div className="text-sm font-semibold">MAIN <span className="opacity-70">(1x)</span></div>
                 </button>
               </div>
             </div>
 
-            {/* Mode */}
             <div className="mt-2 rounded-2xl bg-black/30 p-4 ring-1 ring-white/10">
               <div className="flex items-center justify-between gap-2">
                 <div className="min-w-0">
@@ -369,17 +323,12 @@ export default function Page() {
                   </div>
                 </div>
                 <div className="flex gap-2">
-                  <ModeBtn active={mode === "USE"} danger onClick={() => setMode("USE")}>
-                    USE
-                  </ModeBtn>
-                  <ModeBtn active={mode === "RESTOCK"} onClick={() => setMode("RESTOCK")}>
-                    RESTOCK
-                  </ModeBtn>
+                  <ModeBtn active={mode === "USE"} danger onClick={() => setMode("USE")}>USE</ModeBtn>
+                  <ModeBtn active={mode === "RESTOCK"} onClick={() => setMode("RESTOCK")}>RESTOCK</ModeBtn>
                 </div>
               </div>
             </div>
 
-            {/* Scan/search */}
             <div className="mt-2">
               <div className="relative">
                 <input
@@ -414,7 +363,6 @@ export default function Page() {
               </div>
             )}
 
-            {/* Qty */}
             <div className="mt-2 flex items-center gap-3">
               <QtyBtn onClick={() => setQty((q) => Math.max(1, q - 1))}>−</QtyBtn>
               <div className="flex-1 rounded-2xl bg-white px-4 py-3 text-center text-black">
@@ -423,62 +371,32 @@ export default function Page() {
               <QtyBtn onClick={() => setQty((q) => q + 1)}>+</QtyBtn>
             </div>
 
-            <button
-              className="mt-2 w-full rounded-2xl bg-black/80 px-4 py-4 text-white font-semibold disabled:opacity-60"
-              disabled={!item || locked}
-              onClick={submit}
-            >
+            <button className="mt-2 w-full rounded-2xl bg-black/80 px-4 py-4 text-white font-semibold disabled:opacity-60"
+              disabled={!item || locked} onClick={submit}>
               Submit
             </button>
 
-            {/* Add Item Modal */}
             {addOpen && (
-              <Modal
-                title="Item not found"
-                okText={locked ? "Enter PIN" : "Add Item"}
-                onCancel={() => setAddOpen(false)}
-                onOk={addItemNow}
-              >
+              <Modal title="Item not found" okText={locked ? "Enter PIN" : "Add Item"} onCancel={() => setAddOpen(false)} onOk={addItemNow}>
                 <div className="mt-1 text-sm text-white/70 break-all">Barcode: {query}</div>
-
                 <div className="mt-3">
                   <div className="text-xs text-white/60 mb-1">Item name</div>
-                  <input
-                    value={addName}
-                    onChange={(e) => setAddName(e.target.value)}
-                    className="w-full rounded-2xl bg-white text-black px-4 py-3"
-                    placeholder="Type item name…"
-                  />
+                  <input value={addName} onChange={(e) => setAddName(e.target.value)}
+                    className="w-full rounded-2xl bg-white text-black px-4 py-3" placeholder="Type item name…" />
                 </div>
-
                 <div className="mt-3">
                   <div className="text-xs text-white/60 mb-1">Par level (optional)</div>
-                  <input
-                    value={String(addPar)}
-                    onChange={(e) => setAddPar(Number(e.target.value || 0))}
-                    inputMode="numeric"
-                    className="w-full rounded-2xl bg-white text-black px-4 py-3"
-                    placeholder="0"
-                  />
+                  <input value={String(addPar)} onChange={(e) => setAddPar(Number(e.target.value || 0))}
+                    inputMode="numeric" className="w-full rounded-2xl bg-white text-black px-4 py-3" placeholder="0" />
                 </div>
               </Modal>
             )}
 
-            {/* PIN Modal */}
             {pinOpen && (
               <Modal
-                title={
-                  pinPurpose === "unlock"
-                    ? "Enter PIN to unlock"
-                    : pinPurpose === "changeLocation"
-                    ? "Enter PIN to change location"
-                    : "Enter PIN to add item"
-                }
+                title={pinPurpose === "unlock" ? "Enter PIN to unlock" : pinPurpose === "changeLocation" ? "Enter PIN to change location" : "Enter PIN to add item"}
                 okText="OK"
-                onCancel={() => {
-                  setPinOpen(false);
-                  setPendingArea("");
-                }}
+                onCancel={() => { setPinOpen(false); setPendingArea(""); }}
                 onOk={onPinConfirm}
               >
                 <input
@@ -488,18 +406,14 @@ export default function Page() {
                   className="mt-3 w-full rounded-2xl bg-white text-black px-4 py-3"
                   placeholder="PIN"
                 />
-                <div className="mt-2 text-xs text-white/50">
-                  Default PIN is <span className="font-semibold">1234</span> until set in Settings.
-                </div>
+                <div className="mt-2 text-xs text-white/50">Default PIN is <span className="font-semibold">1234</span> until set in Settings.</div>
               </Modal>
             )}
           </div>
         ) : tab === "Totals" ? (
           <div className="mt-2 rounded-3xl bg-white/5 p-4 ring-1 ring-white/10">
             <div className="text-lg font-semibold">Totals</div>
-            <div className="mt-2 text-sm text-white/70">
-              (Next) Pull totals from storage_inventory.
-            </div>
+            <div className="mt-2 text-sm text-white/70">(Next) Pull totals from storage_inventory.</div>
           </div>
         ) : (
           <div className="mt-2 rounded-3xl bg-white/5 p-4 ring-1 ring-white/10">
@@ -531,10 +445,7 @@ function ModeBtn({ active, danger, onClick, children }: any) {
   const activeCls = danger ? "bg-red-600 text-white ring-red-500/30" : "bg-white text-black ring-white/20";
   const inactiveCls = "bg-black/30 text-white ring-white/10";
   return (
-    <button
-      onClick={onClick}
-      className={["rounded-2xl px-3 py-2 text-sm font-bold ring-1", active ? activeCls : inactiveCls].join(" ")}
-    >
+    <button onClick={onClick} className={["rounded-2xl px-3 py-2 text-sm font-bold ring-1", active ? activeCls : inactiveCls].join(" ")}>
       {children}
     </button>
   );
@@ -542,10 +453,7 @@ function ModeBtn({ active, danger, onClick, children }: any) {
 
 function QtyBtn({ onClick, children }: any) {
   return (
-    <button
-      onClick={onClick}
-      className="h-12 w-12 rounded-2xl bg-white/5 text-white text-xl font-semibold ring-1 ring-white/10"
-    >
+    <button onClick={onClick} className="h-12 w-12 rounded-2xl bg-white/5 text-white text-xl font-semibold ring-1 ring-white/10">
       {children}
     </button>
   );
@@ -558,12 +466,8 @@ function Modal({ title, children, okText, onOk, onCancel }: any) {
         <div className="text-lg font-semibold">{title}</div>
         {children}
         <div className="mt-4 flex gap-2">
-          <button onClick={onCancel} className="flex-1 rounded-2xl bg-white/10 px-4 py-3 font-semibold">
-            Cancel
-          </button>
-          <button onClick={onOk} className="flex-1 rounded-2xl bg-white px-4 py-3 font-semibold text-black">
-            {okText}
-          </button>
+          <button onClick={onCancel} className="flex-1 rounded-2xl bg-white/10 px-4 py-3 font-semibold">Cancel</button>
+          <button onClick={onOk} className="flex-1 rounded-2xl bg-white px-4 py-3 font-semibold text-black">{okText}</button>
         </div>
       </div>
     </div>
@@ -574,17 +478,9 @@ function PinSetter({ onSave }: any) {
   const [pin, setPin] = useState("");
   return (
     <div className="mt-2">
-      <input
-        value={pin}
-        onChange={(e) => setPin(e.target.value.replace(/\D/g, "").slice(0, 6))}
-        className="w-full rounded-2xl bg-white text-black px-4 py-3"
-        placeholder="New PIN (e.g. 1234)"
-        inputMode="numeric"
-      />
-      <button
-        onClick={() => onSave(pin)}
-        className="mt-3 w-full rounded-2xl bg-white px-4 py-3 font-semibold text-black"
-      >
+      <input value={pin} onChange={(e) => setPin(e.target.value.replace(/\D/g, "").slice(0, 6))}
+        className="w-full rounded-2xl bg-white text-black px-4 py-3" placeholder="New PIN (e.g. 1234)" inputMode="numeric" />
+      <button onClick={() => onSave(pin)} className="mt-3 w-full rounded-2xl bg-white px-4 py-3 font-semibold text-black">
         Save PIN
       </button>
     </div>
