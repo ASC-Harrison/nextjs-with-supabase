@@ -22,8 +22,9 @@ export default function Page() {
 
   const [areas, setAreas] = useState<Area[]>([]);
   const [areaId, setAreaId] = useState("");
+
   const selectedAreaName = useMemo(
-    () => areas.find(a => a.id === areaId)?.name ?? "—",
+    () => areas.find((a) => a.id === areaId)?.name ?? "—",
     [areas, areaId]
   );
 
@@ -59,44 +60,63 @@ export default function Page() {
   }, []);
 
   useEffect(() => {
-    try { localStorage.setItem(LS.LOCKED, locked ? "1" : "0"); } catch {}
+    try {
+      localStorage.setItem(LS.LOCKED, locked ? "1" : "0");
+    } catch {}
   }, [locked]);
 
   useEffect(() => {
-    try { if (areaId) localStorage.setItem(LS.AREA, areaId); } catch {}
+    try {
+      if (areaId) localStorage.setItem(LS.AREA, areaId);
+    } catch {}
   }, [areaId]);
 
   // load locations
   useEffect(() => {
     (async () => {
-      const res = await fetch("/api/locations", { cache: "no-store" });
-      const json = await res.json();
-      if (!json.ok) {
-        setStatus(`Locations error: ${json.error}`);
+      try {
+        const res = await fetch("/api/locations", { cache: "no-store" });
+        const json = await res.json();
+
+        if (!json.ok) {
+          setStatus(`Locations error: ${json.error}`);
+          setAreas([]);
+          return;
+        }
+
+        const list: Area[] = json.locations ?? [];
+        setAreas(list);
+        setAreaId((prev) => prev || list?.[0]?.id || "");
+      } catch (e: any) {
+        setStatus(`Locations fetch failed: ${e?.message ?? "unknown"}`);
         setAreas([]);
-        return;
       }
-      setAreas(json.locations ?? []);
-      setAreaId(prev => prev || json.locations?.[0]?.id || "");
     })();
   }, []);
 
-  // camera scan helpers
+  // stop scanner when leaving Transaction tab
+  useEffect(() => {
+    if (tab !== "Transaction") stopScanner();
+    return () => stopScanner();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab]);
+
   async function startScanner() {
     if (!videoRef.current) return;
-    stopScanner();
 
+    stopScanner();
     const mod = await import("@zxing/browser");
     const Reader = mod.BrowserMultiFormatReader;
     const reader = new Reader();
     readerRef.current = reader;
 
-    setStatus("Scanning…");
+    setStatus("Scanning… (if iPhone blocks, tap allow camera)");
 
     await reader.decodeFromVideoDevice(undefined, videoRef.current, async (result) => {
       if (!result) return;
       const text = result.getText?.() ?? "";
       if (!text) return;
+
       if (text === lastScanRef.current) return;
       lastScanRef.current = text;
 
@@ -106,19 +126,11 @@ export default function Page() {
   }
 
   function stopScanner() {
-    try { (readerRef.current as any)?.reset?.(); } catch {}
+    try {
+      (readerRef.current as any)?.reset?.();
+    } catch {}
     readerRef.current = null;
   }
-
-  // only run scanner on Transaction tab
-  useEffect(() => {
-    if (tab !== "Transaction") {
-      stopScanner();
-      return;
-    }
-    return () => stopScanner();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab]);
 
   async function lookupBarcode(barcode: string) {
     setItem(null);
@@ -137,7 +149,7 @@ export default function Page() {
     }
 
     if (!json.item) {
-      setStatus("NOT FOUND — tap Add Item");
+      setStatus("NOT FOUND — Add Item");
       setAddOpen(true);
       setAddName("");
       return;
@@ -147,7 +159,6 @@ export default function Page() {
     setStatus(`Found: ${json.item.name}`);
   }
 
-  // PIN handling
   function openPin(purpose: typeof pinPurpose) {
     setPinPurpose(purpose);
     setPinInput("");
@@ -172,10 +183,7 @@ export default function Page() {
       setPendingArea("");
       return;
     }
-    if (pinPurpose === "addItem") {
-      // allow add item action (modal already open)
-      return;
-    }
+    // addItem just authorizes action (user taps Add again)
   }
 
   function requestLocationChange(newId: string) {
@@ -187,13 +195,11 @@ export default function Page() {
     openPin("changeLocation");
   }
 
-  // Add item (PIN-gated)
   async function addItemNow() {
     if (locked) {
       openPin("addItem");
       return;
     }
-    // If they just unlocked for add, they’ll tap Add again — simple and reliable.
 
     const barcode = query.trim();
     if (!barcode) return alert("No barcode scanned.");
@@ -252,12 +258,12 @@ export default function Page() {
   }
 
   return (
-    <div className="mx-auto w-full max-w-md px-4 pb-5" style={{ paddingTop: "env(safe-area-inset-top)" }}>
-      {/* Compact header to fit phone */}
-      <div className="rounded-3xl bg-white/5 p-4 ring-1 ring-white/10">
+    <div className="mx-auto w-full max-w-md px-3 pb-4 overflow-x-hidden" style={{ paddingTop: "env(safe-area-inset-top)" }}>
+      {/* HEADER (compact to fit phone) */}
+      <div className="rounded-3xl bg-white/5 p-3 ring-1 ring-white/10">
         <div className="grid grid-cols-[1fr_auto] gap-3 items-start">
           <div className="min-w-0">
-            <div className="text-4xl font-extrabold leading-none">Inventory</div>
+            <div className="text-3xl font-extrabold leading-none">Inventory</div>
             <div className="mt-1 text-xs text-white/60">
               Cabinet tracking + building totals + low stock alerts
             </div>
@@ -277,7 +283,7 @@ export default function Page() {
         </div>
 
         {/* Tabs */}
-        <div className="mt-3 flex gap-2">
+        <div className="mt-2 flex gap-2">
           <TabBtn active={tab === "Transaction"} onClick={() => setTab("Transaction")}>Transaction</TabBtn>
           <TabBtn active={tab === "Totals"} onClick={() => setTab("Totals")}>Totals</TabBtn>
           <TabBtn active={tab === "Settings"} onClick={() => setTab("Settings")}>Settings</TabBtn>
@@ -285,7 +291,7 @@ export default function Page() {
       </div>
 
       {tab === "Transaction" ? (
-        <div className="mt-3 rounded-3xl bg-white/5 p-4 ring-1 ring-white/10">
+        <div className="mt-2 rounded-3xl bg-white/5 p-4 ring-1 ring-white/10">
           {/* Location */}
           <div className="text-sm text-white/70">Select location</div>
           <select
@@ -301,19 +307,25 @@ export default function Page() {
               ))
             )}
           </select>
-          {locked && <div className="mt-2 text-xs text-white/50">Locked: PIN required to change location & add items.</div>}
+
+          {locked && (
+            <div className="mt-2 text-xs text-white/50">
+              Locked: PIN required to change location & add items.
+            </div>
+          )}
 
           {/* Override */}
-          <div className="mt-3 rounded-2xl bg-black/30 p-4 ring-1 ring-white/10">
+          <div className="mt-2 rounded-2xl bg-black/30 p-4 ring-1 ring-white/10">
             <div className="flex items-center justify-between gap-3">
               <div className="min-w-0">
                 <div className="text-lg font-semibold">One-time override</div>
                 <div className="mt-1 text-sm text-white/70">Grabbed it from MAIN supply room? Tap once.</div>
               </div>
               <button
-                onClick={() => setMainOverride(v => !v)}
-                className={["shrink-0 rounded-2xl px-4 py-3 ring-1",
-                  mainOverride ? "bg-white text-black ring-white/20" : "bg-black/40 text-white ring-white/10"
+                onClick={() => setMainOverride((v) => !v)}
+                className={[
+                  "shrink-0 rounded-2xl px-4 py-3 ring-1",
+                  mainOverride ? "bg-white text-black ring-white/20" : "bg-black/40 text-white ring-white/10",
                 ].join(" ")}
               >
                 <div className="text-xs opacity-80">⚡</div>
@@ -323,7 +335,7 @@ export default function Page() {
           </div>
 
           {/* Mode */}
-          <div className="mt-3 rounded-2xl bg-black/30 p-4 ring-1 ring-white/10">
+          <div className="mt-2 rounded-2xl bg-black/30 p-4 ring-1 ring-white/10">
             <div className="flex items-center justify-between gap-2">
               <div className="min-w-0">
                 <div className="text-lg font-semibold">Mode</div>
@@ -338,8 +350,8 @@ export default function Page() {
             </div>
           </div>
 
-          {/* Scan / search */}
-          <div className="mt-3">
+          {/* Scan/search */}
+          <div className="mt-2">
             <div className="relative">
               <input
                 value={query}
@@ -362,37 +374,37 @@ export default function Page() {
               </button>
             </div>
 
-            {/* hidden video feed */}
+            {/* hidden video */}
             <video ref={videoRef} className="absolute w-px h-px opacity-0 pointer-events-none" muted playsInline />
           </div>
 
           <div className="mt-2 text-sm text-white/70">{status || "Ready."}</div>
 
-          {item ? (
+          {item && (
             <div className="mt-2 rounded-2xl bg-black/30 p-3 ring-1 ring-white/10">
               <div className="text-sm font-semibold">{item.name}</div>
               <div className="text-xs text-white/60 break-all">{item.barcode}</div>
             </div>
-          ) : null}
+          )}
 
           {/* Qty */}
-          <div className="mt-3 flex items-center gap-3">
-            <QtyBtn onClick={() => setQty(q => Math.max(1, q - 1))}>−</QtyBtn>
+          <div className="mt-2 flex items-center gap-3">
+            <QtyBtn onClick={() => setQty((q) => Math.max(1, q - 1))}>−</QtyBtn>
             <div className="flex-1 rounded-2xl bg-white px-4 py-3 text-center text-black">
               <span className="text-lg font-semibold">{qty}</span>
             </div>
-            <QtyBtn onClick={() => setQty(q => q + 1)}>+</QtyBtn>
+            <QtyBtn onClick={() => setQty((q) => q + 1)}>+</QtyBtn>
           </div>
 
           <button
-            className="mt-3 w-full rounded-2xl bg-black/80 px-4 py-4 text-white font-semibold disabled:opacity-60"
+            className="mt-2 w-full rounded-2xl bg-black/80 px-4 py-4 text-white font-semibold disabled:opacity-60"
             disabled={!item || locked}
             onClick={submit}
           >
             Submit
           </button>
 
-          {/* Add item modal */}
+          {/* Add Item Modal */}
           {addOpen && (
             <Modal
               title="Item not found"
@@ -401,7 +413,6 @@ export default function Page() {
               onOk={addItemNow}
             >
               <div className="mt-1 text-sm text-white/70 break-all">Barcode: {query}</div>
-
               <div className="mt-3">
                 <div className="text-xs text-white/60 mb-1">Item name</div>
                 <input
@@ -411,7 +422,6 @@ export default function Page() {
                   placeholder="Type item name…"
                 />
               </div>
-
               <div className="mt-3">
                 <div className="text-xs text-white/60 mb-1">Par level (optional)</div>
                 <input
@@ -422,16 +432,10 @@ export default function Page() {
                   placeholder="0"
                 />
               </div>
-
-              {locked && (
-                <div className="mt-2 text-xs text-white/50">
-                  Add Item requires PIN (unlock first).
-                </div>
-              )}
             </Modal>
           )}
 
-          {/* PIN modal */}
+          {/* PIN Modal */}
           {pinOpen && (
             <Modal
               title={
@@ -442,7 +446,10 @@ export default function Page() {
                   : "Enter PIN to add item"
               }
               okText="OK"
-              onCancel={() => { setPinOpen(false); setPendingArea(""); }}
+              onCancel={() => {
+                setPinOpen(false);
+                setPendingArea("");
+              }}
               onOk={onPinConfirm}
             >
               <input
@@ -459,12 +466,12 @@ export default function Page() {
           )}
         </div>
       ) : tab === "Totals" ? (
-        <div className="mt-3 rounded-3xl bg-white/5 p-4 ring-1 ring-white/10">
+        <div className="mt-2 rounded-3xl bg-white/5 p-4 ring-1 ring-white/10">
           <div className="text-lg font-semibold">Totals</div>
           <div className="mt-2 text-sm text-white/70">Next: totals pulled from storage_inventory.</div>
         </div>
       ) : (
-        <div className="mt-3 rounded-3xl bg-white/5 p-4 ring-1 ring-white/10">
+        <div className="mt-2 rounded-3xl bg-white/5 p-4 ring-1 ring-white/10">
           <div className="text-lg font-semibold">Settings</div>
           <div className="mt-3 text-sm text-white/70">Set/Change PIN (min 4 digits):</div>
           <PinSetter onSave={savePin} />
@@ -474,13 +481,12 @@ export default function Page() {
   );
 }
 
-/* UI bits */
 function TabBtn({ active, onClick, children }: any) {
   return (
     <button
       onClick={onClick}
       className={[
-        "flex-1 rounded-2xl px-4 py-3 text-sm font-semibold ring-1",
+        "flex-1 rounded-2xl px-3 py-2 text-sm font-semibold ring-1",
         active ? "bg-white text-black ring-white/20" : "bg-white/5 text-white ring-white/10",
       ].join(" ")}
     >
@@ -495,7 +501,7 @@ function ModeBtn({ active, danger, onClick, children }: any) {
   return (
     <button
       onClick={onClick}
-      className={["rounded-2xl px-4 py-3 text-sm font-bold ring-1", active ? activeCls : inactiveCls].join(" ")}
+      className={["rounded-2xl px-3 py-2 text-sm font-bold ring-1", active ? activeCls : inactiveCls].join(" ")}
     >
       {children}
     </button>
@@ -520,8 +526,12 @@ function Modal({ title, children, okText, onOk, onCancel }: any) {
         <div className="text-lg font-semibold">{title}</div>
         {children}
         <div className="mt-4 flex gap-2">
-          <button onClick={onCancel} className="flex-1 rounded-2xl bg-white/10 px-4 py-3 font-semibold">Cancel</button>
-          <button onClick={onOk} className="flex-1 rounded-2xl bg-white px-4 py-3 font-semibold text-black">{okText}</button>
+          <button onClick={onCancel} className="flex-1 rounded-2xl bg-white/10 px-4 py-3 font-semibold">
+            Cancel
+          </button>
+          <button onClick={onOk} className="flex-1 rounded-2xl bg-white px-4 py-3 font-semibold text-black">
+            {okText}
+          </button>
         </div>
       </div>
     </div>
