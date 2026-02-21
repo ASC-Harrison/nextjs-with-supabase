@@ -1,70 +1,98 @@
-export const dynamic = "force-dynamic";
-export const revalidate = 0;
-
+// app/api/transaction/route.ts
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
+type Mode = "USE" | "RESTOCK";
+
 export async function POST(req: Request) {
-  const headers = { "Cache-Control": "no-store" };
-  const body = await req.json().catch(() => ({}));
+  try {
+    const body = await req.json();
 
-  const area_id = String(body.area_id ?? "").trim();
-  const item_id = String(body.item_id ?? "").trim();
-  const mode = String(body.mode ?? "").trim(); // USE | RESTOCK
-  const qty = Math.max(1, Math.abs(Number(body.qty ?? 1)));
-  const mainOverride = Boolean(body.mainOverride);
+    const mode: Mode = body?.mode;
+    const item_id = String(body?.item_id ?? "").trim();
+    const qty = Math.max(1, Number(body?.qty ?? 1));
+    const mainOverride = Boolean(body?.mainOverride);
 
-  const actor = String(body.actor ?? "").trim() || null;
-  const device = String(body.device ?? "").trim() || null;
+    // UI sends area_id; DB expects storage_area_id
+    const chosenArea = String(body?.area_id ?? body?.storage_area_id ?? "").trim();
 
-  if (!item_id || (mode !== "USE" && mode !== "RESTOCK")) {
-    return NextResponse.json({ ok: false, error: "Missing/invalid item_id or mode" }, { status: 400, headers });
+    const MAIN_SUPPLY_AREA_ID = process.env.MAIN_SUPPLY_AREA_ID || "";
+    const storage_area_id = mainOverride
+      ? (MAIN_SUPPLY_AREA_ID || chosenArea)
+      : chosenArea;
+
+    if (!item_id) return NextResponse.json({ ok: false, error: "Missing item_id" }, { status: 400 });
+    if (!storage_area_id) {
+      return NextResponse.json(
+        { ok: false, error: "Missing storage_area_id (select a location, or set MAIN_SUPPLY_AREA_ID for MAIN override)" },
+        { status: 400 }
+      );
+    }
+    if (mode !== "USE" && mode !== "RESTOCK") {
+      return NextResponse.json({ ok: false, error: "Invalid mode" }, { status: 400 });
+    }
+
+    // Get existing inventory row
+    const { data: inv, error: invErr } = await supabaseAdmin
+      .from("storage_inventory")
+      .select("on_hand,par_level,low,low_notified")
+      .eq("storage_area_id", storage_area_id)
+      .eq("item_id", item_id)
+      .maybeSingle();
+
+    if (invErr) return NextResponse.json({ ok: false, error: invErr.message }, { status: 500 });
+
+    // If missing row, create it (so transactions don't fail)
+    if (!inv) {
+      const { error: insErr } = await supabaseAdmin.from("storage_inventory").insert({
+        storage_area_id,
+        item_id,
+        on_hand: 0,
+        par_level: 0,
+        low: false,
+        low_notified: false,
+      });
+      if (insErr) return NextResponse.json({ ok: false, error: insErr.message }, { status: 500 });
+    }
+
+    // Re-fetch after ensuring exists
+    const { data: inv2, error: inv2Err } = await supabaseAdmin
+      .from("storage_inventory")
+      .select("on_hand,par_level")
+      .eq("storage_area_id", storage_area_id)
+      .eq("item_id", item_id)
+      .single();
+
+    if (inv2Err) return NextResponse.json({ ok: false, error: inv2Err.message }, { status: 500 });
+
+    const current = Number(inv2.on_hand ?? 0);
+    const nextOnHand = mode === "USE" ? Math.max(0, current - qty) : current + qty;
+
+    // Update row
+    const { error: updErr } = await supabaseAdmin
+      .from("storage_inventory")
+      .update({
+        on_hand: nextOnHand,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("storage_area_id", storage_area_id)
+      .eq("item_id", item_id);
+
+    if (updErr) return NextResponse.json({ ok: false, error: updErr.message }, { status: 500 });
+
+    // Optional audit log
+    try {
+      await supabaseAdmin.from("inventory_events").insert({
+        event_type: mode,
+        item_id,
+        storage_area_id,
+        qty,
+        note: mainOverride ? "MAIN override" : null,
+      });
+    } catch {}
+
+    return NextResponse.json({ ok: true, on_hand: nextOnHand }, { status: 200 });
+  } catch (e: any) {
+    return NextResponse.json({ ok: false, error: e?.message ?? "Unknown error" }, { status: 500 });
   }
-
-  const finalArea = mainOverride ? (process.env.MAIN_SUPPLY_AREA_ID ?? "") : area_id;
-  if (!finalArea) {
-    return NextResponse.json({ ok: false, error: "No location selected" }, { status: 400, headers });
-  }
-
-  // Get current row
-  const { data: row, error: getErr } = await supabaseAdmin
-    .from("storage_inventory")
-    .select("on_hand,par_level,low_notified")
-    .eq("item_id", item_id)
-    .eq("area_id", finalArea)
-    .maybeSingle();
-
-  if (getErr) return NextResponse.json({ ok: false, error: getErr.message }, { status: 500, headers });
-
-  const onHand = Number(row?.on_hand ?? 0);
-  const par = Number(row?.par_level ?? 0);
-  const delta = mode === "USE" ? -qty : qty;
-  const newOnHand = onHand + delta;
-
-  // If we restock to/par above par, clear low_notified so future alerts can fire again
-  const newLowNotified =
-    mode === "RESTOCK" && par > 0 && newOnHand >= par ? false : Boolean(row?.low_notified ?? false);
-
-  const { error: upErr } = await supabaseAdmin
-    .from("storage_inventory")
-    .upsert(
-      { item_id, area_id: finalArea, on_hand: newOnHand, par_level: par, low_notified: newLowNotified },
-      { onConflict: "item_id,area_id" }
-    );
-
-  if (upErr) return NextResponse.json({ ok: false, error: upErr.message }, { status: 500, headers });
-
-  // Audit log
-  await supabaseAdmin.from("inventory_events").insert({
-    event_type: "transaction",
-    area_id: finalArea,
-    item_id,
-    mode,
-    qty,
-    actor,
-    device,
-    meta: { mainOverride },
-  });
-
-  return NextResponse.json({ ok: true, on_hand: newOnHand }, { headers });
 }
