@@ -4,12 +4,16 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 export async function POST(req: Request) {
   const { area_id, mode, item_id, qty, mainOverride } = await req.json();
 
-  if (!item_id || !mode) return NextResponse.json({ ok: false, error: "Missing item_id/mode" }, { status: 400 });
+  if (!item_id || !mode) {
+    return NextResponse.json({ ok: false, error: "Missing item_id/mode" }, { status: 400 });
+  }
 
   const n = Math.max(1, Math.abs(Number(qty ?? 1)));
   const finalArea = mainOverride === true ? process.env.MAIN_SUPPLY_AREA_ID : area_id;
 
-  if (!finalArea) return NextResponse.json({ ok: false, error: "No area selected" }, { status: 400 });
+  if (!finalArea) {
+    return NextResponse.json({ ok: false, error: "No area selected" }, { status: 400 });
+  }
 
   const { data: row, error: getErr } = await supabaseAdmin
     .from("storage_inventory")
@@ -18,7 +22,9 @@ export async function POST(req: Request) {
     .eq("area_id", finalArea)
     .maybeSingle();
 
-  if (getErr) return NextResponse.json({ ok: false, error: getErr.message }, { status: 500 });
+  if (getErr) {
+    return NextResponse.json({ ok: false, error: getErr.message }, { status: 500 });
+  }
 
   const onHand = row?.on_hand ?? 0;
   const delta = mode === "USE" ? -n : n;
@@ -31,7 +37,9 @@ export async function POST(req: Request) {
       { onConflict: "item_id,area_id" }
     );
 
-  if (upErr) return NextResponse.json({ ok: false, error: upErr.message }, { status: 500 });
+  if (upErr) {
+    return NextResponse.json({ ok: false, error: upErr.message }, { status: 500 });
+  }
 
   return NextResponse.json({ ok: true, on_hand: newOnHand });
 }
