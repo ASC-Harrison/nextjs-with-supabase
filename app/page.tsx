@@ -213,22 +213,22 @@ export default function Page() {
 
         setStatus("Scanning…");
 
-        await reader.decodeFromVideoDevice(
-          { facingMode: "environment" },
-          videoRef.current,
-          async (result, err) => {
-            if (!result) return;
-            const text = result.getText?.() ?? "";
-            if (!text) return;
+       await reader.decodeFromVideoDevice(
+  undefined,                // ✅ deviceId must be string | undefined
+  videoRef.current!,
+  async (result) => {
+    if (!result) return;
+    const text = result.getText?.() ?? "";
+    if (!text) return;
 
-            if (text === lastScanRef.current) return;
-            lastScanRef.current = text;
+    if (text === lastScanRef.current) return;
+    lastScanRef.current = text;
 
-            setQuery(text);
-            setScanOpen(false); // close preview on successful scan
-            await lookupBarcode(text);
-          }
-        );
+    setQuery(text);
+    setScanOpen(false);
+    await lookupBarcode(text);
+  }
+); 
       } catch (e: any) {
         setStatus("Camera blocked. Allow camera permissions in Safari.");
         alert("Camera blocked. Allow camera permissions in Safari.");
