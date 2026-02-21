@@ -5,7 +5,10 @@ export async function POST(req: Request) {
   const { name, barcode, area_id, par_level } = await req.json();
 
   if (!name || !barcode || !area_id) {
-    return NextResponse.json({ ok: false, error: "Missing name/barcode/area_id" }, { status: 400 });
+    return NextResponse.json(
+      { ok: false, error: "Missing required fields: name, barcode, area_id" },
+      { status: 400 }
+    );
   }
 
   const { data: item, error: itemErr } = await supabaseAdmin
@@ -14,7 +17,9 @@ export async function POST(req: Request) {
     .select("id,name,barcode")
     .single();
 
-  if (itemErr) return NextResponse.json({ ok: false, error: itemErr.message }, { status: 500 });
+  if (itemErr) {
+    return NextResponse.json({ ok: false, error: itemErr.message }, { status: 500 });
+  }
 
   const { error: invErr } = await supabaseAdmin
     .from("storage_inventory")
@@ -23,7 +28,9 @@ export async function POST(req: Request) {
       { onConflict: "item_id,area_id" }
     );
 
-  if (invErr) return NextResponse.json({ ok: false, error: invErr.message }, { status: 500 });
+  if (invErr) {
+    return NextResponse.json({ ok: false, error: invErr.message }, { status: 500 });
+  }
 
   return NextResponse.json({ ok: true, item });
 }
