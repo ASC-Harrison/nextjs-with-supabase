@@ -11,6 +11,8 @@ type Item = { id: string; name: string; barcode: string };
 const LS = { PIN: "asc_pin_v1", LOCKED: "asc_locked_v1", AREA: "asc_area_id_v1" };
 
 export default function Page() {
+  const AUTO_START_SCANNER = false; // set true if you want it to start automatically
+
   const [tab, setTab] = useState<Tab>("Transaction");
   const [mode, setMode] = useState<Mode>("USE");
   const [qty, setQty] = useState(1);
@@ -27,7 +29,7 @@ export default function Page() {
 
   const [locked, setLocked] = useState(true);
   const [pinOpen, setPinOpen] = useState(false);
-  const [pinPurpose, setPinPurpose] = useState<"unlock" | "changeLocation" | "addItem">("unlock");
+  const [pinPurpose, setPinPurpose] = useState<"unlock" | "lock" | "changeLocation" | "addItem">("unlock");
   const [pinInput, setPinInput] = useState("");
   const [pendingArea, setPendingArea] = useState("");
 
@@ -42,9 +44,6 @@ export default function Page() {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const readerRef = useRef<BrowserMultiFormatReader | null>(null);
   const lastScanRef = useRef<string>("");
-
-  // 🔧 Set this to true if you want camera to start automatically on Transaction tab
-  const AUTO_START_SCANNER = true;
 
   useEffect(() => {
     try {
@@ -66,7 +65,7 @@ export default function Page() {
     } catch {}
   }, [areaId]);
 
-  // ✅ LOAD storage_areas via /api/locations
+  // Load locations
   useEffect(() => {
     (async () => {
       setAreasLoading(true);
@@ -76,8 +75,6 @@ export default function Page() {
           cache: "no-store",
           headers: { "Cache-Control": "no-cache" },
         });
-
-        // If this is not JSON, it will throw — we catch below.
         const json = await res.json();
 
         if (!json.ok) {
@@ -94,8 +91,6 @@ export default function Page() {
           if (!list.length) return "";
           return list.some((a) => a.id === prev) ? prev : list[0].id;
         });
-
-        setStatus(list.length ? "" : "No locations are ACTIVE in storage_areas.");
       } catch (e: any) {
         setStatus(`Locations fetch failed: ${e?.message ?? "unknown"}`);
         setAreas([]);
@@ -109,7 +104,6 @@ export default function Page() {
   useEffect(() => {
     if (tab !== "Transaction") stopScanner();
     if (tab === "Transaction" && AUTO_START_SCANNER) {
-      // small delay so Safari has time to render video element
       const t = setTimeout(() => startScanner(), 250);
       return () => clearTimeout(t);
     }
@@ -133,22 +127,19 @@ export default function Page() {
         if (!result) return;
         const text = result.getText?.() ?? "";
         if (!text) return;
-
-        // prevent repeat spam
         if (text === lastScanRef.current) return;
-        lastScanRef.current = text;
 
+        lastScanRef.current = text;
         setQuery(text);
         await lookupBarcode(text);
       });
     } catch {
-      setStatus("Camera blocked. Allow camera permissions (Safari/iOS settings).");
+      alert("Camera blocked. Allow camera permissions in Safari.");
     }
   }
 
   function stopScanner() {
     try {
-      // @zxing/browser supports reset() in many builds; keep safe.
       (readerRef.current as any)?.reset?.();
     } catch {}
     readerRef.current = null;
@@ -203,17 +194,19 @@ export default function Page() {
       return;
     }
 
+    if (pinPurpose === "lock") {
+      setLocked(true);
+      return;
+    }
+
     if (pinPurpose === "changeLocation") {
       if (pendingArea) setAreaId(pendingArea);
       setPendingArea("");
       return;
     }
 
-    // ✅ THIS WAS MISSING IN YOUR CODE:
-    // After entering PIN for addItem, actually add the item.
     if (pinPurpose === "addItem") {
-      // once PIN passes, allow add
-      setLocked(false); // unlock for this action; you can re-lock after if you want
+      // allow add now that PIN passed
       await addItemNow(true);
       return;
     }
@@ -288,10 +281,7 @@ export default function Page() {
 
   return (
     <div className="min-h-screen w-full flex justify-center">
-      <div
-        className="w-full max-w-md px-3 pb-4 overflow-x-hidden"
-        style={{ paddingTop: "env(safe-area-inset-top)" }}
-      >
+      <div className="w-full max-w-md px-3 pb-4 overflow-x-hidden" style={{ paddingTop: "env(safe-area-inset-top)" }}>
         <div className="rounded-3xl bg-white/5 p-3 ring-1 ring-white/10">
           <div className="grid grid-cols-[1fr_auto] gap-3 items-start">
             <div className="min-w-0">
@@ -302,7 +292,7 @@ export default function Page() {
               <div className="text-[11px] text-white/60">Location</div>
               <div className="text-sm font-semibold leading-tight break-words">{selectedAreaName}</div>
               <button
-                onClick={() => (locked ? openPin("unlock") : setLocked(true))}
+                onClick={() => openPin(locked ? "unlock" : "lock")}
                 className="mt-2 w-full rounded-2xl bg-white/10 px-3 py-2 ring-1 ring-white/10 text-sm font-semibold"
               >
                 {locked ? "🔒 Locked" : "🔓 Unlocked"}
@@ -337,11 +327,7 @@ export default function Page() {
               )}
             </select>
 
-            {locked && (
-              <div className="mt-2 text-xs text-white/50">
-                Locked: PIN required to change location & add items.
-              </div>
-            )}
+            {locked && <div className="mt-2 text-xs text-white/50">Locked: PIN required to change location & add items.</div>}
 
             <div className="mt-2 rounded-2xl bg-black/30 p-4 ring-1 ring-white/10">
               <div className="flex items-center justify-between gap-3">
@@ -357,9 +343,7 @@ export default function Page() {
                   ].join(" ")}
                 >
                   <div className="text-xs opacity-80">⚡</div>
-                  <div className="text-sm font-semibold">
-                    MAIN <span className="opacity-70">(1x)</span>
-                  </div>
+                  <div className="text-sm font-semibold">MAIN <span className="opacity-70">(1x)</span></div>
                 </button>
               </div>
             </div>
@@ -432,29 +416,23 @@ export default function Page() {
             {addOpen && (
               <Modal
                 title="Item not found"
-                okText={locked ? "Enter PIN" : "Add Item"}
+                okText="Add Item"
                 onCancel={() => setAddOpen(false)}
                 onOk={() => addItemNow()}
               >
                 <div className="mt-1 text-sm text-white/70 break-all">Barcode: {query}</div>
                 <div className="mt-3">
                   <div className="text-xs text-white/60 mb-1">Item name</div>
-                  <input
-                    value={addName}
-                    onChange={(e) => setAddName(e.target.value)}
-                    className="w-full rounded-2xl bg-white text-black px-4 py-3"
-                    placeholder="Type item name…"
-                  />
+                  <input value={addName} onChange={(e) => setAddName(e.target.value)}
+                    className="w-full rounded-2xl bg-white text-black px-4 py-3" placeholder="Type item name…" />
                 </div>
                 <div className="mt-3">
                   <div className="text-xs text-white/60 mb-1">Par level (optional)</div>
-                  <input
-                    value={String(addPar)}
-                    onChange={(e) => setAddPar(Number(e.target.value || 0))}
-                    inputMode="numeric"
-                    className="w-full rounded-2xl bg-white text-black px-4 py-3"
-                    placeholder="0"
-                  />
+                  <input value={String(addPar)} onChange={(e) => setAddPar(Number(e.target.value || 0))}
+                    inputMode="numeric" className="w-full rounded-2xl bg-white text-black px-4 py-3" placeholder="0" />
+                </div>
+                <div className="mt-2 text-xs text-white/50">
+                  If locked, you’ll be asked for a PIN before adding.
                 </div>
               </Modal>
             )}
@@ -464,15 +442,14 @@ export default function Page() {
                 title={
                   pinPurpose === "unlock"
                     ? "Enter PIN to unlock"
+                    : pinPurpose === "lock"
+                    ? "Enter PIN to lock"
                     : pinPurpose === "changeLocation"
-                      ? "Enter PIN to change location"
-                      : "Enter PIN to add item"
+                    ? "Enter PIN to change location"
+                    : "Enter PIN to add item"
                 }
                 okText="OK"
-                onCancel={() => {
-                  setPinOpen(false);
-                  setPendingArea("");
-                }}
+                onCancel={() => { setPinOpen(false); setPendingArea(""); }}
                 onOk={onPinConfirm}
               >
                 <input
@@ -523,10 +500,7 @@ function ModeBtn({ active, danger, onClick, children }: any) {
   const activeCls = danger ? "bg-red-600 text-white ring-red-500/30" : "bg-white text-black ring-white/20";
   const inactiveCls = "bg-black/30 text-white ring-white/10";
   return (
-    <button
-      onClick={onClick}
-      className={["rounded-2xl px-3 py-2 text-sm font-bold ring-1", active ? activeCls : inactiveCls].join(" ")}
-    >
+    <button onClick={onClick} className={["rounded-2xl px-3 py-2 text-sm font-bold ring-1", active ? activeCls : inactiveCls].join(" ")}>
       {children}
     </button>
   );
