@@ -8,28 +8,13 @@ type Mode = "USE" | "RESTOCK";
 type Area = { id: string; name: string };
 type Item = { id: string; name: string; barcode: string };
 
-const LS = { PIN: "asc_pin_v1", LOCKED: "asc_locked_v1", AREA: "asc_area_id_v1" };
-
-// ✅ NEW: cookie helpers so PIN works the same in Safari + Add-to-Home-Screen
-function getCookie(name: string) {
-  if (typeof document === "undefined") return "";
-  const match = document.cookie.match(new RegExp("(^| )" + name + "=([^;]+)"));
-  return match ? decodeURIComponent(match[2]) : "";
-}
-
-function setCookie(name: string, value: string, days = 365) {
-  if (typeof document === "undefined") return;
-  const maxAge = days * 24 * 60 * 60;
-  document.cookie = `${name}=${encodeURIComponent(value)}; Max-Age=${maxAge}; Path=/; SameSite=Lax`;
-}
-
-function getStoredPin() {
-  try {
-    return localStorage.getItem(LS.PIN) || getCookie("asc_pin") || "1234";
-  } catch {
-    return getCookie("asc_pin") || "1234";
-  }
-}
+const LS = {
+  PIN: "asc_pin_v1",
+  LOCKED: "asc_locked_v1",
+  AREA: "asc_area_id_v1",
+  STAFF: "asc_staff_v1",
+  DEVICE: "asc_device_v1",
+};
 
 export default function Page() {
   const [tab, setTab] = useState<Tab>("Transaction");
@@ -48,9 +33,12 @@ export default function Page() {
 
   const [locked, setLocked] = useState(true);
   const [pinOpen, setPinOpen] = useState(false);
-  const [pinPurpose, setPinPurpose] = useState<"unlock" | "lock" | "changeLocation" | "addItem">("unlock");
+  const [pinPurpose, setPinPurpose] = useState<"unlock" | "lock" | "changeLocation" | "addItem" | "setStaff" | "setPin">("unlock");
   const [pinInput, setPinInput] = useState("");
   const [pendingArea, setPendingArea] = useState("");
+
+  const [staff, setStaff] = useState("");
+  const [device, setDevice] = useState("");
 
   const [query, setQuery] = useState("");
   const [item, setItem] = useState<Item | null>(null);
@@ -60,42 +48,42 @@ export default function Page() {
   const [addName, setAddName] = useState("");
   const [addPar, setAddPar] = useState<number>(0);
 
+  const [staffDraft, setStaffDraft] = useState("");
+  const [deviceDraft, setDeviceDraft] = useState("");
+  const [pinDraft, setPinDraft] = useState("");
+
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const readerRef = useRef<BrowserMultiFormatReader | null>(null);
   const lastScanRef = useRef<string>("");
 
-  // Load lock + saved location from localStorage
   useEffect(() => {
     try {
       setLocked((localStorage.getItem(LS.LOCKED) ?? "1") === "1");
       const saved = localStorage.getItem(LS.AREA);
       if (saved) setAreaId(saved);
+
+      const s = localStorage.getItem(LS.STAFF) ?? "";
+      const d = localStorage.getItem(LS.DEVICE) ?? "";
+      setStaff(s);
+      setDevice(d);
+      setStaffDraft(s);
+      setDeviceDraft(d);
     } catch {}
   }, []);
 
   useEffect(() => {
-    try {
-      localStorage.setItem(LS.LOCKED, locked ? "1" : "0");
-    } catch {}
+    try { localStorage.setItem(LS.LOCKED, locked ? "1" : "0"); } catch {}
   }, [locked]);
 
   useEffect(() => {
-    try {
-      if (areaId) localStorage.setItem(LS.AREA, areaId);
-    } catch {}
+    try { if (areaId) localStorage.setItem(LS.AREA, areaId); } catch {}
   }, [areaId]);
 
-  // Load locations from storage_areas
   useEffect(() => {
     (async () => {
       setAreasLoading(true);
       try {
-        const res = await fetch("/api/locations", {
-          method: "GET",
-          cache: "no-store",
-          headers: { "Cache-Control": "no-cache" },
-        });
-
+        const res = await fetch("/api/locations", { method: "GET", cache: "no-store" });
         const json = await res.json();
 
         if (!json.ok) {
@@ -124,7 +112,6 @@ export default function Page() {
     })();
   }, []);
 
-  // Stop scanner when leaving Transaction tab
   useEffect(() => {
     if (tab !== "Transaction") stopScanner();
     return () => stopScanner();
@@ -147,11 +134,9 @@ export default function Page() {
         if (!result) return;
         const text = result.getText?.() ?? "";
         if (!text) return;
-
-        // prevent spam repeats
         if (text === lastScanRef.current) return;
-        lastScanRef.current = text;
 
+        lastScanRef.current = text;
         setQuery(text);
         await lookupBarcode(text);
       });
@@ -161,9 +146,7 @@ export default function Page() {
   }
 
   function stopScanner() {
-    try {
-      (readerRef.current as any)?.reset?.();
-    } catch {}
+    try { (readerRef.current as any)?.reset?.(); } catch {}
     readerRef.current = null;
     lastScanRef.current = "";
   }
@@ -202,9 +185,8 @@ export default function Page() {
     setPinOpen(true);
   }
 
-  // ✅ CHANGED: use cookie+localStorage shared PIN
   function checkPin(): boolean {
-    const real = getStoredPin();
+    const real = localStorage.getItem(LS.PIN) || "1234";
     return pinInput.trim() === real;
   }
 
@@ -225,22 +207,34 @@ export default function Page() {
       await addItemNow(true);
       return;
     }
+
+    if (pinPurpose === "setStaff") {
+      try { localStorage.setItem(LS.STAFF, staffDraft.trim()); } catch {}
+      try { localStorage.setItem(LS.DEVICE, deviceDraft.trim()); } catch {}
+      setStaff(staffDraft.trim());
+      setDevice(deviceDraft.trim());
+      alert("Staff/Device saved ✅");
+      return;
+    }
+
+    if (pinPurpose === "setPin") {
+      const cleaned = pinDraft.replace(/\D/g, "").slice(0, 6);
+      if (cleaned.length < 4) return alert("PIN must be at least 4 digits.");
+      localStorage.setItem(LS.PIN, cleaned);
+      alert("PIN saved ✅");
+      setPinDraft("");
+      return;
+    }
   }
 
   function requestLocationChange(newId: string) {
-    if (!locked) {
-      setAreaId(newId);
-      return;
-    }
+    if (!locked) { setAreaId(newId); return; }
     setPendingArea(newId);
     openPin("changeLocation");
   }
 
   async function addItemNow(pinAlreadyPassed = false) {
-    if (locked && !pinAlreadyPassed) {
-      openPin("addItem");
-      return;
-    }
+    if (locked && !pinAlreadyPassed) { openPin("addItem"); return; }
 
     const barcode = query.trim();
     if (!barcode) return alert("No barcode scanned.");
@@ -256,6 +250,8 @@ export default function Page() {
         barcode,
         area_id: areaId,
         par_level: addPar,
+        actor: staff || null,
+        device: device || null,
       }),
     });
 
@@ -276,7 +272,15 @@ export default function Page() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       cache: "no-store",
-      body: JSON.stringify({ area_id: areaId, mode, item_id: item.id, qty, mainOverride }),
+      body: JSON.stringify({
+        area_id: areaId,
+        mode,
+        item_id: item.id,
+        qty,
+        mainOverride,
+        actor: staff || null,
+        device: device || null,
+      }),
     });
 
     const json = await res.json();
@@ -287,20 +291,6 @@ export default function Page() {
     setStatus(`✅ Updated on-hand to ${json.on_hand}`);
   }
 
-  // ✅ CHANGED: also save PIN to cookie so Home Screen sees it
-  function savePin(newPin: string) {
-    const cleaned = newPin.replace(/\D/g, "").slice(0, 6);
-    if (cleaned.length < 4) return alert("PIN must be at least 4 digits.");
-
-    try {
-      localStorage.setItem(LS.PIN, cleaned);
-    } catch {}
-
-    setCookie("asc_pin", cleaned, 365);
-
-    alert("PIN saved ✅");
-  }
-
   return (
     <div className="min-h-screen w-full flex justify-center">
       <div className="w-full max-w-md px-3 pb-4 overflow-x-hidden" style={{ paddingTop: "env(safe-area-inset-top)" }}>
@@ -308,7 +298,9 @@ export default function Page() {
           <div className="grid grid-cols-[1fr_auto] gap-3 items-start">
             <div className="min-w-0">
               <div className="text-3xl font-extrabold leading-none">Baxter ASC Inventory</div>
-              <div className="mt-1 text-xs text-white/60">Cabinet tracking + building totals + low stock alerts</div>
+              <div className="mt-1 text-xs text-white/60">
+                {staff ? `Staff: ${staff}` : "Staff: (not set)"} • {device ? `Device: ${device}` : "Device: (not set)"}
+              </div>
             </div>
 
             <div className="text-right min-w-[140px]">
@@ -351,11 +343,7 @@ export default function Page() {
               )}
             </select>
 
-            {locked && (
-              <div className="mt-2 text-xs text-white/50">
-                Locked: PIN required to change location & add items.
-              </div>
-            )}
+            {locked && <div className="mt-2 text-xs text-white/50">Locked: PIN required to change location & add items.</div>}
 
             <div className="mt-2 rounded-2xl bg-black/30 p-4 ring-1 ring-white/10">
               <div className="flex items-center justify-between gap-3">
@@ -413,7 +401,6 @@ export default function Page() {
                   📷
                 </button>
               </div>
-
               <video ref={videoRef} className="absolute w-px h-px opacity-0 pointer-events-none" muted playsInline />
             </div>
 
@@ -443,37 +430,15 @@ export default function Page() {
             </button>
 
             {addOpen && (
-              <Modal
-                title="Item not found"
-                okText="Add Item"
-                onCancel={() => setAddOpen(false)}
-                onOk={() => addItemNow()}
-              >
+              <Modal title="Item not found" okText="Add Item" onCancel={() => setAddOpen(false)} onOk={() => addItemNow()}>
                 <div className="mt-1 text-sm text-white/70 break-all">Barcode: {query}</div>
-
                 <div className="mt-3">
                   <div className="text-xs text-white/60 mb-1">Item name</div>
-                  <input
-                    value={addName}
-                    onChange={(e) => setAddName(e.target.value)}
-                    className="w-full rounded-2xl bg-white text-black px-4 py-3"
-                    placeholder="Type item name…"
-                  />
+                  <input value={addName} onChange={(e) => setAddName(e.target.value)} className="w-full rounded-2xl bg-white text-black px-4 py-3" placeholder="Type item name…" />
                 </div>
-
                 <div className="mt-3">
                   <div className="text-xs text-white/60 mb-1">Par level (optional)</div>
-                  <input
-                    value={String(addPar)}
-                    onChange={(e) => setAddPar(Number(e.target.value || 0))}
-                    inputMode="numeric"
-                    className="w-full rounded-2xl bg-white text-black px-4 py-3"
-                    placeholder="0"
-                  />
-                </div>
-
-                <div className="mt-2 text-xs text-white/50">
-                  If locked, you’ll be asked for a PIN before adding.
+                  <input value={String(addPar)} onChange={(e) => setAddPar(Number(e.target.value || 0))} inputMode="numeric" className="w-full rounded-2xl bg-white text-black px-4 py-3" placeholder="0" />
                 </div>
               </Modal>
             )}
@@ -481,13 +446,12 @@ export default function Page() {
             {pinOpen && (
               <Modal
                 title={
-                  pinPurpose === "unlock"
-                    ? "Enter PIN to unlock"
-                    : pinPurpose === "lock"
-                    ? "Enter PIN to lock"
-                    : pinPurpose === "changeLocation"
-                    ? "Enter PIN to change location"
-                    : "Enter PIN to add item"
+                  pinPurpose === "unlock" ? "Enter PIN to unlock" :
+                  pinPurpose === "lock" ? "Enter PIN to lock" :
+                  pinPurpose === "changeLocation" ? "Enter PIN to change location" :
+                  pinPurpose === "addItem" ? "Enter PIN to add item" :
+                  pinPurpose === "setStaff" ? "Enter PIN to save staff/device" :
+                  "Enter PIN to set a new PIN"
                 }
                 okText="OK"
                 onCancel={() => { setPinOpen(false); setPendingArea(""); }}
@@ -500,22 +464,46 @@ export default function Page() {
                   className="mt-3 w-full rounded-2xl bg-white text-black px-4 py-3"
                   placeholder="PIN"
                 />
-                <div className="mt-2 text-xs text-white/50">
-                  Default PIN is <span className="font-semibold">1234</span> until set in Settings.
-                </div>
+                <div className="mt-2 text-xs text-white/50">Default PIN is <span className="font-semibold">1234</span> until set in Settings.</div>
               </Modal>
             )}
           </div>
         ) : tab === "Totals" ? (
           <div className="mt-2 rounded-3xl bg-white/5 p-4 ring-1 ring-white/10">
             <div className="text-lg font-semibold">Totals</div>
-            <div className="mt-2 text-sm text-white/70">(Next) Pull totals from storage_inventory.</div>
+            <div className="mt-2 text-sm text-white/70">Next: build totals query + show low-stock list.</div>
           </div>
         ) : (
           <div className="mt-2 rounded-3xl bg-white/5 p-4 ring-1 ring-white/10">
             <div className="text-lg font-semibold">Settings</div>
-            <div className="mt-3 text-sm text-white/70">Set/Change PIN (min 4 digits):</div>
-            <PinSetter onSave={savePin} />
+
+            <div className="mt-4">
+              <div className="text-sm text-white/70">Staff name (for audit log)</div>
+              <input value={staffDraft} onChange={(e) => setStaffDraft(e.target.value)} className="mt-2 w-full rounded-2xl bg-white text-black px-4 py-3" placeholder="e.g. Jeremy" />
+            </div>
+
+            <div className="mt-4">
+              <div className="text-sm text-white/70">Device name (for audit log)</div>
+              <input value={deviceDraft} onChange={(e) => setDeviceDraft(e.target.value)} className="mt-2 w-full rounded-2xl bg-white text-black px-4 py-3" placeholder="e.g. OR1 iPhone" />
+            </div>
+
+            <button
+              onClick={() => openPin("setStaff")}
+              className="mt-3 w-full rounded-2xl bg-white px-4 py-3 font-semibold text-black"
+            >
+              Save Staff/Device (PIN)
+            </button>
+
+            <div className="mt-6">
+              <div className="text-sm text-white/70">Set/Change PIN (min 4 digits)</div>
+              <input value={pinDraft} onChange={(e) => setPinDraft(e.target.value.replace(/\D/g, "").slice(0, 6))} inputMode="numeric" className="mt-2 w-full rounded-2xl bg-white text-black px-4 py-3" placeholder="New PIN (e.g. 1234)" />
+              <button
+                onClick={() => openPin("setPin")}
+                className="mt-3 w-full rounded-2xl bg-white px-4 py-3 font-semibold text-black"
+              >
+                Save New PIN (PIN)
+              </button>
+            </div>
           </div>
         )}
       </div>
@@ -541,10 +529,7 @@ function ModeBtn({ active, danger, onClick, children }: any) {
   const activeCls = danger ? "bg-red-600 text-white ring-red-500/30" : "bg-white text-black ring-white/20";
   const inactiveCls = "bg-black/30 text-white ring-white/10";
   return (
-    <button
-      onClick={onClick}
-      className={["rounded-2xl px-3 py-2 text-sm font-bold ring-1", active ? activeCls : inactiveCls].join(" ")}
-    >
+    <button onClick={onClick} className={["rounded-2xl px-3 py-2 text-sm font-bold ring-1", active ? activeCls : inactiveCls].join(" ")}>
       {children}
     </button>
   );
@@ -552,10 +537,7 @@ function ModeBtn({ active, danger, onClick, children }: any) {
 
 function QtyBtn({ onClick, children }: any) {
   return (
-    <button
-      onClick={onClick}
-      className="h-12 w-12 rounded-2xl bg-white/5 text-white text-xl font-semibold ring-1 ring-white/10"
-    >
+    <button onClick={onClick} className="h-12 w-12 rounded-2xl bg-white/5 text-white text-xl font-semibold ring-1 ring-white/10">
       {children}
     </button>
   );
@@ -568,32 +550,10 @@ function Modal({ title, children, okText, onOk, onCancel }: any) {
         <div className="text-lg font-semibold">{title}</div>
         {children}
         <div className="mt-4 flex gap-2">
-          <button onClick={onCancel} className="flex-1 rounded-2xl bg-white/10 px-4 py-3 font-semibold">
-            Cancel
-          </button>
-          <button onClick={onOk} className="flex-1 rounded-2xl bg-white px-4 py-3 font-semibold text-black">
-            {okText}
-          </button>
+          <button onClick={onCancel} className="flex-1 rounded-2xl bg-white/10 px-4 py-3 font-semibold">Cancel</button>
+          <button onClick={onOk} className="flex-1 rounded-2xl bg-white px-4 py-3 font-semibold text-black">{okText}</button>
         </div>
       </div>
-    </div>
-  );
-}
-
-function PinSetter({ onSave }: any) {
-  const [pin, setPin] = useState("");
-  return (
-    <div className="mt-2">
-      <input
-        value={pin}
-        onChange={(e) => setPin(e.target.value.replace(/\D/g, "").slice(0, 6))}
-        className="w-full rounded-2xl bg-white text-black px-4 py-3"
-        placeholder="New PIN (e.g. 1234)"
-        inputMode="numeric"
-      />
-      <button onClick={() => onSave(pin)} className="mt-3 w-full rounded-2xl bg-white px-4 py-3 font-semibold text-black">
-        Save PIN
-      </button>
     </div>
   );
 }
