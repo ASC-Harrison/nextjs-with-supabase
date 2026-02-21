@@ -1,5 +1,6 @@
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
+
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
@@ -11,10 +12,12 @@ export async function POST(req: Request) {
   }
 
   const n = Math.max(1, Math.abs(Number(qty ?? 1)));
+
+  // If you want MAIN override to go to a specific storage_areas row, set MAIN_SUPPLY_AREA_ID in env
   const finalArea = mainOverride === true ? process.env.MAIN_SUPPLY_AREA_ID : area_id;
 
   if (!finalArea) {
-    return NextResponse.json({ ok: false, error: "No area selected" }, { status: 400 });
+    return NextResponse.json({ ok: false, error: "No location selected" }, { status: 400 });
   }
 
   const { data: row, error: getErr } = await supabaseAdmin
@@ -35,7 +38,12 @@ export async function POST(req: Request) {
   const { error: upErr } = await supabaseAdmin
     .from("storage_inventory")
     .upsert(
-      { item_id, area_id: finalArea, on_hand: newOnHand, par_level: row?.par_level ?? 0 },
+      {
+        item_id,
+        area_id: finalArea,
+        on_hand: newOnHand,
+        par_level: row?.par_level ?? 0,
+      },
       { onConflict: "item_id,area_id" }
     );
 
