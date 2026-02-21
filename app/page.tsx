@@ -3,13 +3,33 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { BrowserMultiFormatReader } from "@zxing/browser";
 
-
 type Tab = "Transaction" | "Totals" | "Settings";
 type Mode = "USE" | "RESTOCK";
 type Area = { id: string; name: string };
 type Item = { id: string; name: string; barcode: string };
 
 const LS = { PIN: "asc_pin_v1", LOCKED: "asc_locked_v1", AREA: "asc_area_id_v1" };
+
+// ✅ NEW: cookie helpers so PIN works the same in Safari + Add-to-Home-Screen
+function getCookie(name: string) {
+  if (typeof document === "undefined") return "";
+  const match = document.cookie.match(new RegExp("(^| )" + name + "=([^;]+)"));
+  return match ? decodeURIComponent(match[2]) : "";
+}
+
+function setCookie(name: string, value: string, days = 365) {
+  if (typeof document === "undefined") return;
+  const maxAge = days * 24 * 60 * 60;
+  document.cookie = `${name}=${encodeURIComponent(value)}; Max-Age=${maxAge}; Path=/; SameSite=Lax`;
+}
+
+function getStoredPin() {
+  try {
+    return localStorage.getItem(LS.PIN) || getCookie("asc_pin") || "1234";
+  } catch {
+    return getCookie("asc_pin") || "1234";
+  }
+}
 
 export default function Page() {
   const [tab, setTab] = useState<Tab>("Transaction");
@@ -182,8 +202,9 @@ export default function Page() {
     setPinOpen(true);
   }
 
+  // ✅ CHANGED: use cookie+localStorage shared PIN
   function checkPin(): boolean {
-    const real = localStorage.getItem(LS.PIN) || "1234";
+    const real = getStoredPin();
     return pinInput.trim() === real;
   }
 
@@ -266,10 +287,17 @@ export default function Page() {
     setStatus(`✅ Updated on-hand to ${json.on_hand}`);
   }
 
+  // ✅ CHANGED: also save PIN to cookie so Home Screen sees it
   function savePin(newPin: string) {
     const cleaned = newPin.replace(/\D/g, "").slice(0, 6);
     if (cleaned.length < 4) return alert("PIN must be at least 4 digits.");
-    localStorage.setItem(LS.PIN, cleaned);
+
+    try {
+      localStorage.setItem(LS.PIN, cleaned);
+    } catch {}
+
+    setCookie("asc_pin", cleaned, 365);
+
     alert("PIN saved ✅");
   }
 
@@ -386,7 +414,6 @@ export default function Page() {
                 </button>
               </div>
 
-              {/* hidden video for scanner */}
               <video ref={videoRef} className="absolute w-px h-px opacity-0 pointer-events-none" muted playsInline />
             </div>
 
