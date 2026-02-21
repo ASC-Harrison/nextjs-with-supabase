@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { BrowserMultiFormatReader } from "@zxing/browser";
-import BackBar from "../../components/BackBar";
+
 
 type Tab = "Transaction" | "Totals" | "Settings";
 type Mode = "USE" | "RESTOCK";
