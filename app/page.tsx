@@ -3,8 +3,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { BrowserMultiFormatReader } from "@zxing/browser";
 
-export const dynamic = "force-dynamic";
-export const revalidate = 0;
 
 type Tab = "Transaction" | "Totals" | "Settings";
 type Mode = "USE" | "RESTOCK";
