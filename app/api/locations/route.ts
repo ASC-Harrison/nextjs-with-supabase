@@ -1,11 +1,14 @@
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
+
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 export async function GET() {
   const headers = {
     "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
+    Pragma: "no-cache",
+    Expires: "0",
   };
 
   try {
