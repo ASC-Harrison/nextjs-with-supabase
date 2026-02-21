@@ -1,5 +1,6 @@
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
+
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
@@ -13,6 +14,7 @@ export async function POST(req: Request) {
     );
   }
 
+  // Create item
   const { data: item, error: itemErr } = await supabaseAdmin
     .from("items")
     .insert({ name, barcode })
@@ -23,10 +25,16 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: itemErr.message }, { status: 500 });
   }
 
+  // Ensure inventory row exists for this area
   const { error: invErr } = await supabaseAdmin
     .from("storage_inventory")
     .upsert(
-      { item_id: item.id, area_id, on_hand: 0, par_level: Number(par_level ?? 0) },
+      {
+        item_id: item.id,
+        area_id,
+        on_hand: 0,
+        par_level: Number(par_level ?? 0),
+      },
       { onConflict: "item_id,area_id" }
     );
 
