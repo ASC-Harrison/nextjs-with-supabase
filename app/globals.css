@@ -14,3 +14,15 @@ html, body {
 
 /* iOS: prevent zoom */
 input, select, textarea, button { font-size: 16px; }
+/* iOS/PWA sometimes ignores Tailwind text color in standalone for inputs */
+.pin-input {
+  color: #000 !important;
+  -webkit-text-fill-color: #000 !important;
+  caret-color: #000 !important;
+}
+
+/* optional: placeholder visible */
+.pin-input::placeholder {
+  color: #777 !important;
+  -webkit-text-fill-color: #777 !important;
+}
