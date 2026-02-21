@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { BrowserMultiFormatReader } from "@zxing/browser";
-import BackBar from "../../components/BackBar";
+
 
 type Tab = "Transaction" | "Totals" | "Settings";
 type Mode = "USE" | "RESTOCK";
@@ -281,7 +281,7 @@ export default function Page() {
 
   return (
     <>
-      <BackBar title="Inventory" fallbackHref="/" />
+     
 
       <div className="min-h-screen w-full flex justify-center">
         <div className="w-full max-w-md px-3 pb-4 overflow-x-hidden" style={{ paddingTop: "env(safe-area-inset-top)" }}>
