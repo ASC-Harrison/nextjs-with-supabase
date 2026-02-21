@@ -6,34 +6,49 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 export async function POST(req: Request) {
   const headers = { "Cache-Control": "no-store" };
-  const { area_id, mode, item_id, qty, mainOverride, actor, device } = await req.json();
+  const body = await req.json().catch(() => ({}));
 
-  if (!item_id || !mode) {
-    return NextResponse.json({ ok: false, error: "Missing item_id/mode" }, { status: 400, headers });
+  const area_id = String(body.area_id ?? "").trim();
+  const item_id = String(body.item_id ?? "").trim();
+  const mode = String(body.mode ?? "").trim(); // USE | RESTOCK
+  const qty = Math.max(1, Math.abs(Number(body.qty ?? 1)));
+  const mainOverride = Boolean(body.mainOverride);
+
+  const actor = String(body.actor ?? "").trim() || null;
+  const device = String(body.device ?? "").trim() || null;
+
+  if (!item_id || (mode !== "USE" && mode !== "RESTOCK")) {
+    return NextResponse.json({ ok: false, error: "Missing/invalid item_id or mode" }, { status: 400, headers });
   }
 
-  const n = Math.max(1, Math.abs(Number(qty ?? 1)));
-  const finalArea = mainOverride === true ? process.env.MAIN_SUPPLY_AREA_ID : area_id;
+  const finalArea = mainOverride ? (process.env.MAIN_SUPPLY_AREA_ID ?? "") : area_id;
+  if (!finalArea) {
+    return NextResponse.json({ ok: false, error: "No location selected" }, { status: 400, headers });
+  }
 
-  if (!finalArea) return NextResponse.json({ ok: false, error: "No location selected" }, { status: 400, headers });
-
+  // Get current row
   const { data: row, error: getErr } = await supabaseAdmin
     .from("storage_inventory")
-    .select("on_hand,par_level")
+    .select("on_hand,par_level,low_notified")
     .eq("item_id", item_id)
     .eq("area_id", finalArea)
     .maybeSingle();
 
   if (getErr) return NextResponse.json({ ok: false, error: getErr.message }, { status: 500, headers });
 
-  const onHand = row?.on_hand ?? 0;
-  const delta = mode === "USE" ? -n : n;
+  const onHand = Number(row?.on_hand ?? 0);
+  const par = Number(row?.par_level ?? 0);
+  const delta = mode === "USE" ? -qty : qty;
   const newOnHand = onHand + delta;
+
+  // If we restock to/par above par, clear low_notified so future alerts can fire again
+  const newLowNotified =
+    mode === "RESTOCK" && par > 0 && newOnHand >= par ? false : Boolean(row?.low_notified ?? false);
 
   const { error: upErr } = await supabaseAdmin
     .from("storage_inventory")
     .upsert(
-      { item_id, area_id: finalArea, on_hand: newOnHand, par_level: row?.par_level ?? 0 },
+      { item_id, area_id: finalArea, on_hand: newOnHand, par_level: par, low_notified: newLowNotified },
       { onConflict: "item_id,area_id" }
     );
 
@@ -45,10 +60,10 @@ export async function POST(req: Request) {
     area_id: finalArea,
     item_id,
     mode,
-    qty: n,
-    actor: actor ?? null,
-    device: device ?? null,
-    meta: { mainOverride: Boolean(mainOverride) },
+    qty,
+    actor,
+    device,
+    meta: { mainOverride },
   });
 
   return NextResponse.json({ ok: true, on_hand: newOnHand }, { headers });
