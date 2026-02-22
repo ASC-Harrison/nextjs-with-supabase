@@ -4,8 +4,8 @@ export default function manifest(): MetadataRoute.Manifest {
   return {
     name: "Baxter ASC Inventory",
     short_name: "ASC Inventory",
-    start_url: "/",          // ✅ launcher page
-    scope: "/",              // ✅ keep navigation inside the app
+    start_url: "/?v=7",   // ✅ bump this number any time iPhone won't update
+    scope: "/",
     display: "standalone",
     background_color: "#000000",
     theme_color: "#000000",
