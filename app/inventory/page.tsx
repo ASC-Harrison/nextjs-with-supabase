@@ -23,7 +23,9 @@ type AuditEvent = {
     | "LOCK"
     | "UNLOCK"
     | "MAIN_OVERRIDE_ON"
-    | "MAIN_OVERRIDE_OFF";
+    | "MAIN_OVERRIDE_OFF"
+    | "SCANNER_OPEN"
+    | "SCANNER_CLOSE";
   details?: string;
 };
 
@@ -85,21 +87,23 @@ export default function InventoryPage() {
   const [addName, setAddName] = useState("");
   const [addPar, setAddPar] = useState<number>(0);
 
-  // ✅ Staff + audit
+  // ✅ Audit + staff
   const [staffName, setStaffName] = useState("");
   const [audit, setAudit] = useState<AuditEvent[]>([]);
 
-  // ✅ Full screen scanner overlay state
+  // ✅ Full-screen scanner overlay
   const [scannerOpen, setScannerOpen] = useState(false);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const readerRef = useRef<BrowserMultiFormatReader | null>(null);
   const lastScanRef = useRef<string>("");
+  const scanCooldownRef = useRef<number>(0);
 
   // ---------- LOAD SAVED STATE ----------
   useEffect(() => {
     try {
       setLocked((localStorage.getItem(LS.LOCKED) ?? "1") === "1");
+
       const savedArea = localStorage.getItem(LS.AREA);
       if (savedArea) setAreaId(savedArea);
 
@@ -148,10 +152,6 @@ export default function InventoryPage() {
       details: ev.details,
     };
     setAudit((prev) => [entry, ...prev].slice(0, 500));
-
-    // OPTIONAL future hook:
-    // If you later create /api/audit, you can send entries server-side.
-    // fetch("/api/audit", { method:"POST", headers:{'Content-Type':'application/json'}, body: JSON.stringify(entry) }).catch(()=>{});
   }
 
   // ---------- LOAD LOCATIONS ----------
@@ -195,13 +195,11 @@ export default function InventoryPage() {
 
   // ---------- SCANNER LIFECYCLE ----------
   useEffect(() => {
-    // If overlay closes for any reason, hard stop camera
     if (!scannerOpen) stopScanner();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scannerOpen]);
 
   useEffect(() => {
-    // Stop scanner when leaving Transaction tab
     if (tab !== "Transaction") {
       stopScanner();
       setScannerOpen(false);
@@ -211,7 +209,6 @@ export default function InventoryPage() {
   }, [tab]);
 
   async function startScanner() {
-    // Require staff name for better audit integrity (device level)
     if (!staffName.trim()) {
       setTab("Audit");
       setStatus("Set staff name first (Audit tab).");
@@ -219,10 +216,10 @@ export default function InventoryPage() {
     }
 
     setScannerOpen(true);
+    pushAudit({ action: "SCANNER_OPEN", details: `Area=${selectedAreaName}` });
     setStatus("Starting camera…");
 
-    // wait for full-screen overlay + video element to mount
-    await new Promise((r) => setTimeout(r, 60));
+    await new Promise((r) => setTimeout(r, 80));
 
     if (!videoRef.current) {
       setStatus("Camera view not ready.");
@@ -240,28 +237,74 @@ export default function InventoryPage() {
       setStatus("Scanning…");
       pushAudit({ action: "SCAN", details: `Area=${selectedAreaName}` });
 
-      await reader.decodeFromVideoDevice(
-        undefined,
-        videoRef.current,
-        async (result) => {
-          if (!result) return;
+      // ✅ Prefer back camera + higher resolution
+      const constraints: MediaStreamConstraints = {
+        video: {
+          facingMode: { ideal: "environment" },
+          width: { ideal: 1920 },
+          height: { ideal: 1080 },
+        },
+        audio: false,
+      };
 
+      // Get our own stream so iOS actually uses the back camera and decent quality
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+
+      const v: any = videoRef.current;
+      v.srcObject = stream;
+      await v.play();
+
+      // Decode from the video element
+      const decodeFromVideoElement =
+        (reader as any).decodeFromVideoElement?.bind(reader);
+
+      if (decodeFromVideoElement) {
+        await decodeFromVideoElement(videoRef.current, async (result: any) => {
+          if (!result) return;
           const text = result.getText?.() ?? "";
           if (!text) return;
 
-          // prevent spam repeats
-          if (text === lastScanRef.current) return;
+          const now = Date.now();
+          if (now < scanCooldownRef.current) return;
+          scanCooldownRef.current = now + 900;
+
+          // prevent exact same spam
+          if (text === lastScanRef.current && now < scanCooldownRef.current + 1) return;
           lastScanRef.current = text;
 
           setQuery(text);
 
-          // Close camera after scan
           stopScanner();
           setScannerOpen(false);
 
           await lookupBarcode(text);
-        }
-      );
+        });
+      } else {
+        // Fallback (older zxing versions)
+        await reader.decodeFromVideoDevice(
+          undefined,
+          videoRef.current,
+          async (result) => {
+            if (!result) return;
+            const text = result.getText?.() ?? "";
+            if (!text) return;
+
+            const now = Date.now();
+            if (now < scanCooldownRef.current) return;
+            scanCooldownRef.current = now + 900;
+
+            if (text === lastScanRef.current) return;
+            lastScanRef.current = text;
+
+            setQuery(text);
+
+            stopScanner();
+            setScannerOpen(false);
+
+            await lookupBarcode(text);
+          }
+        );
+      }
     } catch {
       setScannerOpen(false);
       setStatus("Camera blocked.");
@@ -272,14 +315,13 @@ export default function InventoryPage() {
   }
 
   function stopScanner() {
-    // Stop ZXing decoding
     try {
       (readerRef.current as any)?.reset?.();
     } catch {}
     readerRef.current = null;
     lastScanRef.current = "";
+    scanCooldownRef.current = 0;
 
-    // HARD STOP media stream tracks (fixes iOS camera indicator staying on)
     try {
       const v = videoRef.current as any;
       const stream = v?.srcObject as MediaStream | null;
@@ -288,6 +330,13 @@ export default function InventoryPage() {
         v.srcObject = null;
       }
     } catch {}
+  }
+
+  function closeScanner() {
+    stopScanner();
+    setScannerOpen(false);
+    pushAudit({ action: "SCANNER_CLOSE" });
+    setStatus("Stopped.");
   }
 
   // ---------- LOOKUP / ADD / SUBMIT ----------
@@ -353,7 +402,8 @@ export default function InventoryPage() {
 
     if (pinPurpose === "changeLocation") {
       if (pendingArea) {
-        const nextName = areas.find((a) => a.id === pendingArea)?.name ?? pendingArea;
+        const nextName =
+          areas.find((a) => a.id === pendingArea)?.name ?? pendingArea;
         setAreaId(pendingArea);
         pushAudit({ action: "CHANGE_LOCATION", details: `To=${nextName}` });
       }
@@ -511,7 +561,7 @@ export default function InventoryPage() {
             </div>
           </div>
 
-          {/* Tabs: grid so it never overflows */}
+          {/* Tabs in a grid so no overflow */}
           <div className="mt-3 grid grid-cols-4 gap-2">
             <TabBtn active={tab === "Transaction"} onClick={() => setTab("Transaction")}>
               Tx
@@ -733,10 +783,9 @@ export default function InventoryPage() {
               </Modal>
             )}
 
-            {/* ✅ FULL SCREEN SCANNER OVERLAY */}
+            {/* ✅ Full-screen scanner */}
             {scannerOpen && (
               <div className="fixed inset-0 z-[60] bg-black">
-                {/* Top bar */}
                 <div
                   className="flex items-center justify-between px-4"
                   style={{
@@ -744,21 +793,17 @@ export default function InventoryPage() {
                     paddingBottom: "12px",
                   }}
                 >
-                  <div className="text-lg font-semibold text-white">Scan barcode</div>
-
+                  <div className="text-lg font-semibold text-white">
+                    Scan barcode
+                  </div>
                   <button
-                    onClick={() => {
-                      stopScanner();
-                      setScannerOpen(false);
-                      setStatus("Stopped.");
-                    }}
+                    onClick={closeScanner}
                     className="rounded-2xl bg-white/10 px-4 py-2 text-sm font-semibold text-white ring-1 ring-white/10"
                   >
                     Close
                   </button>
                 </div>
 
-                {/* Video fills screen */}
                 <div className="relative w-full" style={{ height: "calc(100vh - 120px)" }}>
                   <video
                     ref={videoRef}
@@ -766,8 +811,6 @@ export default function InventoryPage() {
                     muted
                     playsInline
                   />
-
-                  {/* scan box */}
                   <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
                     <div className="h-52 w-80 rounded-2xl ring-2 ring-white/40" />
                   </div>
@@ -777,7 +820,7 @@ export default function InventoryPage() {
                   className="px-4 text-xs text-white/70"
                   style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 16px)" }}
                 >
-                  Hold the barcode steady inside the box.
+                  Hold the barcode steady inside the box. Best distance: 6–10 inches.
                 </div>
               </div>
             )}
@@ -805,7 +848,7 @@ export default function InventoryPage() {
                 placeholder="e.g., Jeremy Johnson"
               />
               <div className="mt-2 text-xs text-white/50">
-                Tip: require each device to have the assigned user name set.
+                Tip: set staff name per device (or later enforce via server-side audit).
               </div>
             </div>
 
@@ -823,7 +866,6 @@ export default function InventoryPage() {
               </button>
               <button
                 onClick={() => {
-                  // Quick export to clipboard (works on iOS Safari mostly)
                   const text = JSON.stringify(audit, null, 2);
                   navigator.clipboard
                     ?.writeText(text)
@@ -869,12 +911,6 @@ export default function InventoryPage() {
                 ))
               )}
             </div>
-
-            <div className="mt-4 text-xs text-white/50">
-              For true accreditation-grade audit trails, you’ll want a server-side
-              immutable audit table (Supabase) with RLS so logs can’t be edited on
-              the device. This UI is ready to send to an API when you want.
-            </div>
           </div>
         ) : (
           <div className="mt-3 rounded-3xl bg-white/5 p-4 ring-1 ring-white/10">
@@ -904,7 +940,9 @@ function TabBtn({
       onClick={onClick}
       className={[
         "rounded-2xl px-2 py-2 text-xs font-extrabold ring-1",
-        active ? "bg-white text-black ring-white/20" : "bg-white/5 text-white ring-white/10",
+        active
+          ? "bg-white text-black ring-white/20"
+          : "bg-white/5 text-white ring-white/10",
       ].join(" ")}
     >
       {children}
