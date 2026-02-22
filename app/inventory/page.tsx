@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { BrowserMultiFormatReader } from "@zxing/browser";
+import { createClient } from "@supabase/supabase-js";
 
 type Tab = "Transaction" | "Totals" | "Audit" | "Settings";
 type Mode = "USE" | "RESTOCK";
@@ -29,6 +30,18 @@ type AuditEvent = {
   details?: string;
 };
 
+type BuildingTotalRow = {
+  name: string;
+  reference_number: string | null;
+  vendor: string | null;
+  category: string | null;
+  total_on_hand: number | null;
+  par_level: number | null;
+  low_level: number | null;
+  unit: string | null;
+  notes: string | null;
+};
+
 const LS = {
   PIN: "asc_pin_v1",
   LOCKED: "asc_locked_v1",
@@ -53,6 +66,12 @@ function safeJsonParse<T>(raw: string | null, fallback: T): T {
     return fallback;
   }
 }
+
+// ✅ Client-side Supabase for Totals tab (reads from a VIEW)
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+);
 
 export default function InventoryPage() {
   const router = useRouter();
@@ -93,6 +112,25 @@ export default function InventoryPage() {
 
   // ✅ Full-screen scanner overlay
   const [scannerOpen, setScannerOpen] = useState(false);
+
+  // ✅ Totals tab state (building view)
+  const [totals, setTotals] = useState<BuildingTotalRow[]>([]);
+  const [totalsLoading, setTotalsLoading] = useState(false);
+  const [totalsError, setTotalsError] = useState("");
+  const [totalsSearch, setTotalsSearch] = useState("");
+
+  const filteredTotals = useMemo(() => {
+    const q = totalsSearch.trim().toLowerCase();
+    if (!q) return totals;
+    return totals.filter((r) => {
+      return (
+        (r.name || "").toLowerCase().includes(q) ||
+        (r.vendor || "").toLowerCase().includes(q) ||
+        (r.category || "").toLowerCase().includes(q) ||
+        (r.reference_number || "").toLowerCase().includes(q)
+      );
+    });
+  }, [totals, totalsSearch]);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const readerRef = useRef<BrowserMultiFormatReader | null>(null);
@@ -193,6 +231,34 @@ export default function InventoryPage() {
     })();
   }, []);
 
+  // ---------- LOAD TOTALS (when tab opens) ----------
+  useEffect(() => {
+    if (tab !== "Totals") return;
+
+    (async () => {
+      setTotalsLoading(true);
+      setTotalsError("");
+
+      try {
+        const { data, error } = await supabase
+          .from("building_inventory_sheet_view")
+          .select(
+            "name,reference_number,vendor,category,total_on_hand,par_level,low_level,unit,notes"
+          )
+          .order("name", { ascending: true });
+
+        if (error) throw error;
+
+        setTotals((data as BuildingTotalRow[]) ?? []);
+      } catch (e: any) {
+        setTotals([]);
+        setTotalsError(e?.message ?? "Failed to load totals");
+      } finally {
+        setTotalsLoading(false);
+      }
+    })();
+  }, [tab]);
+
   // ---------- SCANNER LIFECYCLE ----------
   useEffect(() => {
     if (!scannerOpen) stopScanner();
@@ -269,7 +335,11 @@ export default function InventoryPage() {
           scanCooldownRef.current = now + 900;
 
           // prevent exact same spam
-          if (text === lastScanRef.current && now < scanCooldownRef.current + 1) return;
+          if (
+            text === lastScanRef.current &&
+            now < scanCooldownRef.current + 1
+          )
+            return;
           lastScanRef.current = text;
 
           setQuery(text);
@@ -495,7 +565,9 @@ export default function InventoryPage() {
 
     pushAudit({
       action: "SUBMIT_TX",
-      details: `Mode=${mode} Qty=${qty} Item=${item.name} Area=${selectedAreaName} Override=${mainOverride ? "MAIN" : "NO"}`,
+      details: `Mode=${mode} Qty=${qty} Item=${item.name} Area=${selectedAreaName} Override=${
+        mainOverride ? "MAIN" : "NO"
+      }`,
     });
   }
 
@@ -563,7 +635,10 @@ export default function InventoryPage() {
 
           {/* Tabs in a grid so no overflow */}
           <div className="mt-3 grid grid-cols-4 gap-2">
-            <TabBtn active={tab === "Transaction"} onClick={() => setTab("Transaction")}>
+            <TabBtn
+              active={tab === "Transaction"}
+              onClick={() => setTab("Transaction")}
+            >
               Tx
             </TabBtn>
             <TabBtn active={tab === "Totals"} onClick={() => setTab("Totals")}>
@@ -572,7 +647,10 @@ export default function InventoryPage() {
             <TabBtn active={tab === "Audit"} onClick={() => setTab("Audit")}>
               Audit
             </TabBtn>
-            <TabBtn active={tab === "Settings"} onClick={() => setTab("Settings")}>
+            <TabBtn
+              active={tab === "Settings"}
+              onClick={() => setTab("Settings")}
+            >
               Settings
             </TabBtn>
           </div>
@@ -643,10 +721,17 @@ export default function InventoryPage() {
                   </div>
                 </div>
                 <div className="flex gap-2 shrink-0">
-                  <ModeBtn active={mode === "USE"} danger onClick={() => setMode("USE")}>
+                  <ModeBtn
+                    active={mode === "USE"}
+                    danger
+                    onClick={() => setMode("USE")}
+                  >
                     USE
                   </ModeBtn>
-                  <ModeBtn active={mode === "RESTOCK"} onClick={() => setMode("RESTOCK")}>
+                  <ModeBtn
+                    active={mode === "RESTOCK"}
+                    onClick={() => setMode("RESTOCK")}
+                  >
                     RESTOCK
                   </ModeBtn>
                 </div>
@@ -685,13 +770,17 @@ export default function InventoryPage() {
             {item && (
               <div className="mt-3 rounded-2xl bg-black/30 p-3 ring-1 ring-white/10">
                 <div className="text-sm font-semibold">{item.name}</div>
-                <div className="text-xs text-white/60 break-all">{item.barcode}</div>
+                <div className="text-xs text-white/60 break-all">
+                  {item.barcode}
+                </div>
               </div>
             )}
 
             {/* Qty */}
             <div className="mt-3 flex items-center gap-3">
-              <QtyBtn onClick={() => setQty((q) => Math.max(1, q - 1))}>−</QtyBtn>
+              <QtyBtn onClick={() => setQty((q) => Math.max(1, q - 1))}>
+                −
+              </QtyBtn>
               <div className="flex-1 rounded-2xl bg-white px-4 py-3 text-center text-black">
                 <span className="text-lg font-semibold">{qty}</span>
               </div>
@@ -777,8 +866,8 @@ export default function InventoryPage() {
                   placeholder="PIN"
                 />
                 <div className="mt-2 text-xs text-white/50">
-                  Default PIN is <span className="font-semibold">1234</span> until set
-                  in Settings.
+                  Default PIN is <span className="font-semibold">1234</span>{" "}
+                  until set in Settings.
                 </div>
               </Modal>
             )}
@@ -804,7 +893,10 @@ export default function InventoryPage() {
                   </button>
                 </div>
 
-                <div className="relative w-full" style={{ height: "calc(100vh - 120px)" }}>
+                <div
+                  className="relative w-full"
+                  style={{ height: "calc(100vh - 120px)" }}
+                >
                   <video
                     ref={videoRef}
                     className="absolute inset-0 h-full w-full object-cover"
@@ -818,18 +910,102 @@ export default function InventoryPage() {
 
                 <div
                   className="px-4 text-xs text-white/70"
-                  style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 16px)" }}
+                  style={{
+                    paddingBottom: "calc(env(safe-area-inset-bottom) + 16px)",
+                  }}
                 >
-                  Hold the barcode steady inside the box. Best distance: 6–10 inches.
+                  Hold the barcode steady inside the box. Best distance: 6–10
+                  inches.
                 </div>
               </div>
             )}
           </div>
         ) : tab === "Totals" ? (
           <div className="mt-3 rounded-3xl bg-white/5 p-4 ring-1 ring-white/10">
-            <div className="text-lg font-semibold">Totals</div>
-            <div className="mt-2 text-sm text-white/70">
-              (Next) Pull totals from storage_inventory.
+            <div className="flex items-center justify-between gap-2">
+              <div className="text-lg font-semibold">Building Totals</div>
+              <div className="text-xs text-white/60">
+                {totalsLoading ? "Loading…" : `${totals.length} items`}
+              </div>
+            </div>
+
+            <input
+              value={totalsSearch}
+              onChange={(e) => setTotalsSearch(e.target.value)}
+              placeholder="Search name, vendor, category…"
+              className="mt-3 w-full rounded-2xl bg-white text-black px-4 py-3"
+            />
+
+            {totalsError && (
+              <div className="mt-2 text-sm text-red-300 break-words">
+                {totalsError}
+              </div>
+            )}
+
+            <div className="mt-3 space-y-2">
+              {filteredTotals.slice(0, 200).map((r) => {
+                const onHand = r.total_on_hand ?? 0;
+                const low = r.low_level ?? 0;
+                const isLow = onHand <= low && low > 0;
+
+                return (
+                  <div
+                    key={`${r.name}-${r.reference_number ?? ""}`}
+                    className="rounded-2xl bg-black/30 p-3 ring-1 ring-white/10"
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <div className="text-sm font-semibold break-words">
+                          {r.name}
+                        </div>
+                        <div className="mt-1 text-xs text-white/60 break-words">
+                          {r.vendor ?? "—"} • {r.category ?? "—"}{" "}
+                          {r.reference_number ? `• ${r.reference_number}` : ""}
+                        </div>
+                      </div>
+
+                      <div
+                        className={[
+                          "shrink-0 rounded-2xl px-3 py-2 text-sm font-extrabold ring-1",
+                          isLow
+                            ? "bg-red-600 text-white ring-red-500/30"
+                            : "bg-white/10 text-white ring-white/10",
+                        ].join(" ")}
+                      >
+                        {onHand}
+                        <div className="text-[10px] font-semibold opacity-80">
+                          on hand
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="mt-2 grid grid-cols-3 gap-2 text-xs">
+                      <div className="rounded-xl bg-white/5 p-2 ring-1 ring-white/10">
+                        <div className="text-white/60">Par</div>
+                        <div className="font-semibold">{r.par_level ?? 0}</div>
+                      </div>
+                      <div className="rounded-xl bg-white/5 p-2 ring-1 ring-white/10">
+                        <div className="text-white/60">Low</div>
+                        <div className="font-semibold">{r.low_level ?? 0}</div>
+                      </div>
+                      <div className="rounded-xl bg-white/5 p-2 ring-1 ring-white/10">
+                        <div className="text-white/60">Unit</div>
+                        <div className="font-semibold">{r.unit ?? "—"}</div>
+                      </div>
+                    </div>
+
+                    {r.notes && (
+                      <div className="mt-2 text-[11px] text-white/60 break-words">
+                        Notes: {r.notes}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="mt-3 text-[11px] text-white/50">
+              Showing up to 200 rows to keep it fast on phones.
             </div>
           </div>
         ) : tab === "Audit" ? (
@@ -848,7 +1024,8 @@ export default function InventoryPage() {
                 placeholder="e.g., Jeremy Johnson"
               />
               <div className="mt-2 text-xs text-white/50">
-                Tip: set staff name per device (or later enforce via server-side audit).
+                Tip: set staff name per device (or later enforce via server-side
+                audit).
               </div>
             </div>
 
