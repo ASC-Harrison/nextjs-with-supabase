@@ -26,7 +26,9 @@ type AuditEvent = {
     | "MAIN_OVERRIDE_ON"
     | "MAIN_OVERRIDE_OFF"
     | "SCANNER_OPEN"
-    | "SCANNER_CLOSE";
+    | "SCANNER_CLOSE"
+    | "TOTALS_SET"
+    | "TOTALS_ADJUST";
   details?: string;
 };
 
@@ -93,7 +95,7 @@ export default function InventoryPage() {
   const [locked, setLocked] = useState(true);
   const [pinOpen, setPinOpen] = useState(false);
   const [pinPurpose, setPinPurpose] = useState<
-    "unlock" | "lock" | "changeLocation" | "addItem"
+    "unlock" | "lock" | "changeLocation" | "addItem" | "totalsEdit"
   >("unlock");
   const [pinInput, setPinInput] = useState("");
   const [pendingArea, setPendingArea] = useState("");
@@ -118,19 +120,46 @@ export default function InventoryPage() {
   const [totalsLoading, setTotalsLoading] = useState(false);
   const [totalsError, setTotalsError] = useState("");
   const [totalsSearch, setTotalsSearch] = useState("");
+  const [totalsLowOnly, setTotalsLowOnly] = useState(false);
+
+  // ✅ Totals edit modal
+  const [totalsEditOpen, setTotalsEditOpen] = useState(false);
+  const [totalsEditRow, setTotalsEditRow] = useState<BuildingTotalRow | null>(
+    null
+  );
+  const [setOnHandInput, setSetOnHandInput] = useState<string>("");
+  const [deltaInput, setDeltaInput] = useState<string>("");
+
+  // pending totals action gated by PIN (if locked)
+  const [pendingTotalsAction, setPendingTotalsAction] = useState<
+    null | { kind: "SET"; value: number } | { kind: "ADJUST"; delta: number }
+  >(null);
 
   const filteredTotals = useMemo(() => {
     const q = totalsSearch.trim().toLowerCase();
-    if (!q) return totals;
-    return totals.filter((r) => {
-      return (
-        (r.name || "").toLowerCase().includes(q) ||
-        (r.vendor || "").toLowerCase().includes(q) ||
-        (r.category || "").toLowerCase().includes(q) ||
-        (r.reference_number || "").toLowerCase().includes(q)
-      );
-    });
-  }, [totals, totalsSearch]);
+    let list = totals;
+
+    if (q) {
+      list = list.filter((r) => {
+        return (
+          (r.name || "").toLowerCase().includes(q) ||
+          (r.vendor || "").toLowerCase().includes(q) ||
+          (r.category || "").toLowerCase().includes(q) ||
+          (r.reference_number || "").toLowerCase().includes(q)
+        );
+      });
+    }
+
+    if (totalsLowOnly) {
+      list = list.filter((r) => {
+        const onHand = r.total_on_hand ?? 0;
+        const low = r.low_level ?? 0;
+        return low > 0 && onHand <= low;
+      });
+    }
+
+    return list;
+  }, [totals, totalsSearch, totalsLowOnly]);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const readerRef = useRef<BrowserMultiFormatReader | null>(null);
@@ -232,31 +261,33 @@ export default function InventoryPage() {
   }, []);
 
   // ---------- LOAD TOTALS (when tab opens) ----------
+  async function loadTotals() {
+    setTotalsLoading(true);
+    setTotalsError("");
+
+    try {
+      const { data, error } = await supabase
+        .from("building_inventory_sheet_view")
+        .select(
+          "name,reference_number,vendor,category,total_on_hand,par_level,low_level,unit,notes"
+        )
+        .order("name", { ascending: true });
+
+      if (error) throw error;
+
+      setTotals((data as BuildingTotalRow[]) ?? []);
+    } catch (e: any) {
+      setTotals([]);
+      setTotalsError(e?.message ?? "Failed to load totals");
+    } finally {
+      setTotalsLoading(false);
+    }
+  }
+
   useEffect(() => {
     if (tab !== "Totals") return;
-
-    (async () => {
-      setTotalsLoading(true);
-      setTotalsError("");
-
-      try {
-        const { data, error } = await supabase
-          .from("building_inventory_sheet_view")
-          .select(
-            "name,reference_number,vendor,category,total_on_hand,par_level,low_level,unit,notes"
-          )
-          .order("name", { ascending: true });
-
-        if (error) throw error;
-
-        setTotals((data as BuildingTotalRow[]) ?? []);
-      } catch (e: any) {
-        setTotals([]);
-        setTotalsError(e?.message ?? "Failed to load totals");
-      } finally {
-        setTotalsLoading(false);
-      }
-    })();
+    loadTotals();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab]);
 
   // ---------- SCANNER LIFECYCLE ----------
@@ -313,14 +344,12 @@ export default function InventoryPage() {
         audio: false,
       };
 
-      // Get our own stream so iOS actually uses the back camera and decent quality
       const stream = await navigator.mediaDevices.getUserMedia(constraints);
 
       const v: any = videoRef.current;
       v.srcObject = stream;
       await v.play();
 
-      // Decode from the video element
       const decodeFromVideoElement =
         (reader as any).decodeFromVideoElement?.bind(reader);
 
@@ -334,7 +363,6 @@ export default function InventoryPage() {
           if (now < scanCooldownRef.current) return;
           scanCooldownRef.current = now + 900;
 
-          // prevent exact same spam
           if (
             text === lastScanRef.current &&
             now < scanCooldownRef.current + 1
@@ -350,7 +378,6 @@ export default function InventoryPage() {
           await lookupBarcode(text);
         });
       } else {
-        // Fallback (older zxing versions)
         await reader.decodeFromVideoDevice(
           undefined,
           videoRef.current,
@@ -485,6 +512,20 @@ export default function InventoryPage() {
       await addItemNow(true);
       return;
     }
+
+    if (pinPurpose === "totalsEdit") {
+      // perform pending totals action after PIN passes
+      const action = pendingTotalsAction;
+      setPendingTotalsAction(null);
+      if (!action || !totalsEditRow) return;
+
+      if (action.kind === "SET") {
+        await doTotalsSet(totalsEditRow, action.value, true);
+      } else {
+        await doTotalsAdjust(totalsEditRow, action.delta, true);
+      }
+      return;
+    }
   }
 
   function requestLocationChange(newId: string) {
@@ -587,6 +628,114 @@ export default function InventoryPage() {
       });
       return next;
     });
+  }
+
+  // ---------- TOTALS EDIT ----------
+  function openTotalsEditor(row: BuildingTotalRow) {
+    setTotalsEditRow(row);
+    setSetOnHandInput(String(row.total_on_hand ?? 0));
+    setDeltaInput("");
+    setTotalsEditOpen(true);
+  }
+
+  function parseIntSafe(raw: string): number | null {
+    const cleaned = raw.trim();
+    if (!cleaned) return null;
+    if (!/^-?\d+$/.test(cleaned)) return null;
+    const n = Number(cleaned);
+    if (!Number.isFinite(n)) return null;
+    return n;
+  }
+
+  async function doTotalsSet(
+    row: BuildingTotalRow,
+    value: number,
+    pinAlreadyPassed = false
+  ) {
+    if (!staffName.trim()) {
+      setTab("Audit");
+      alert("Enter staff name in Audit tab first.");
+      return;
+    }
+
+    if (locked && !pinAlreadyPassed) {
+      setPendingTotalsAction({ kind: "SET", value });
+      openPin("totalsEdit");
+      return;
+    }
+
+    const res = await fetch("/api/building-inventory/update", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      cache: "no-store",
+      body: JSON.stringify({
+        name: row.name,
+        action: "SET",
+        value,
+      }),
+    });
+
+    const json = await res.json();
+    if (!json.ok) {
+      alert(`Update failed: ${json.error}`);
+      return;
+    }
+
+    pushAudit({
+      action: "TOTALS_SET",
+      details: `Item=${row.name} Set=${value}`,
+    });
+
+    setTotalsEditOpen(false);
+    await loadTotals();
+  }
+
+  async function doTotalsAdjust(
+    row: BuildingTotalRow,
+    delta: number,
+    pinAlreadyPassed = false
+  ) {
+    if (!staffName.trim()) {
+      setTab("Audit");
+      alert("Enter staff name in Audit tab first.");
+      return;
+    }
+
+    if (delta === 0) {
+      alert("Delta cannot be 0.");
+      return;
+    }
+
+    if (locked && !pinAlreadyPassed) {
+      setPendingTotalsAction({ kind: "ADJUST", delta });
+      openPin("totalsEdit");
+      return;
+    }
+
+    const res = await fetch("/api/building-inventory/update", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      cache: "no-store",
+      body: JSON.stringify({
+        name: row.name,
+        action: "ADJUST",
+        delta,
+      }),
+    });
+
+    const json = await res.json();
+    if (!json.ok) {
+      alert(`Update failed: ${json.error}`);
+      return;
+    }
+
+    pushAudit({
+      action: "TOTALS_ADJUST",
+      details: `Item=${row.name} Delta=${delta > 0 ? "+" : ""}${delta}`,
+    });
+
+    setTotalsEditOpen(false);
+    await loadTotals();
   }
 
   // ---------- UI ----------
@@ -847,12 +996,15 @@ export default function InventoryPage() {
                     ? "Enter PIN to lock"
                     : pinPurpose === "changeLocation"
                     ? "Enter PIN to change location"
-                    : "Enter PIN to add item"
+                    : pinPurpose === "addItem"
+                    ? "Enter PIN to add item"
+                    : "Enter PIN to edit totals"
                 }
                 okText="OK"
                 onCancel={() => {
                   setPinOpen(false);
                   setPendingArea("");
+                  setPendingTotalsAction(null);
                 }}
                 onOk={onPinConfirm}
               >
@@ -929,12 +1081,43 @@ export default function InventoryPage() {
               </div>
             </div>
 
-            <input
-              value={totalsSearch}
-              onChange={(e) => setTotalsSearch(e.target.value)}
-              placeholder="Search name, vendor, category…"
-              className="mt-3 w-full rounded-2xl bg-white text-black px-4 py-3"
-            />
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              <input
+                value={totalsSearch}
+                onChange={(e) => setTotalsSearch(e.target.value)}
+                placeholder="Search name, vendor, category…"
+                className="w-full rounded-2xl bg-white text-black px-4 py-3"
+              />
+              <button
+                onClick={() => setTotalsLowOnly((v) => !v)}
+                className={[
+                  "rounded-2xl px-4 py-3 font-extrabold ring-1 text-sm",
+                  totalsLowOnly
+                    ? "bg-red-600 text-white ring-red-500/30"
+                    : "bg-white/10 text-white ring-white/10",
+                ].join(" ")}
+              >
+                {totalsLowOnly ? "LOW ONLY" : "ALL ITEMS"}
+              </button>
+            </div>
+
+            <div className="mt-2 flex gap-2">
+              <button
+                onClick={loadTotals}
+                className="flex-1 rounded-2xl bg-white/10 px-4 py-3 text-sm font-semibold ring-1 ring-white/10"
+              >
+                Refresh
+              </button>
+              <button
+                onClick={() => {
+                  // quick scroll to top
+                  window.scrollTo({ top: 0, behavior: "smooth" });
+                }}
+                className="rounded-2xl bg-white/10 px-4 py-3 text-sm font-semibold ring-1 ring-white/10"
+              >
+                ↑
+              </button>
+            </div>
 
             {totalsError && (
               <div className="mt-2 text-sm text-red-300 break-words">
@@ -946,12 +1129,13 @@ export default function InventoryPage() {
               {filteredTotals.slice(0, 200).map((r) => {
                 const onHand = r.total_on_hand ?? 0;
                 const low = r.low_level ?? 0;
-                const isLow = onHand <= low && low > 0;
+                const isLow = low > 0 && onHand <= low;
 
                 return (
-                  <div
+                  <button
                     key={`${r.name}-${r.reference_number ?? ""}`}
-                    className="rounded-2xl bg-black/30 p-3 ring-1 ring-white/10"
+                    onClick={() => openTotalsEditor(r)}
+                    className="w-full text-left rounded-2xl bg-black/30 p-3 ring-1 ring-white/10"
                   >
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
@@ -999,7 +1183,12 @@ export default function InventoryPage() {
                         Notes: {r.notes}
                       </div>
                     )}
-                  </div>
+
+                    <div className="mt-2 text-[11px] text-white/50">
+                      Tap to edit on-hand
+                      {locked ? " (PIN required)" : ""}
+                    </div>
+                  </button>
                 );
               })}
             </div>
@@ -1007,6 +1196,120 @@ export default function InventoryPage() {
             <div className="mt-3 text-[11px] text-white/50">
               Showing up to 200 rows to keep it fast on phones.
             </div>
+
+            {/* Totals Edit Modal */}
+            {totalsEditOpen && totalsEditRow && (
+              <Modal
+                title="Edit building on-hand"
+                okText="Close"
+                onCancel={() => setTotalsEditOpen(false)}
+                onOk={() => setTotalsEditOpen(false)}
+              >
+                <div className="mt-1 text-sm text-white/80 break-words">
+                  <div className="font-semibold">{totalsEditRow.name}</div>
+                  <div className="text-xs text-white/60">
+                    {totalsEditRow.vendor ?? "—"} •{" "}
+                    {totalsEditRow.category ?? "—"}{" "}
+                    {totalsEditRow.reference_number
+                      ? `• ${totalsEditRow.reference_number}`
+                      : ""}
+                  </div>
+                </div>
+
+                {/* SET exact */}
+                <div className="mt-4 rounded-2xl bg-black/30 p-3 ring-1 ring-white/10">
+                  <div className="text-sm font-semibold">Set exact on-hand</div>
+                  <div className="mt-2 flex gap-2">
+                    <input
+                      value={setOnHandInput}
+                      onChange={(e) =>
+                        setSetOnHandInput(e.target.value.replace(/[^\d]/g, ""))
+                      }
+                      inputMode="numeric"
+                      className="flex-1 rounded-2xl bg-white text-black px-4 py-3"
+                      placeholder="e.g., 17"
+                    />
+                    <button
+                      onClick={async () => {
+                        const n = parseIntSafe(setOnHandInput);
+                        if (n === null || n < 0)
+                          return alert("Enter a valid number (0 or more).");
+                        await doTotalsSet(totalsEditRow, n);
+                      }}
+                      className="rounded-2xl bg-white px-4 py-3 text-sm font-extrabold text-black"
+                    >
+                      Set
+                    </button>
+                  </div>
+                  <div className="mt-2 text-[11px] text-white/55">
+                    Best for cycle counts (truth).
+                  </div>
+                </div>
+
+                {/* ADJUST +/- */}
+                <div className="mt-3 rounded-2xl bg-black/30 p-3 ring-1 ring-white/10">
+                  <div className="text-sm font-semibold">Adjust + / −</div>
+                  <div className="mt-2 grid grid-cols-3 gap-2">
+                    <button
+                      onClick={() => {
+                        const cur = parseIntSafe(deltaInput) ?? 0;
+                        setDeltaInput(String(cur - 1));
+                      }}
+                      className="rounded-2xl bg-white/10 px-4 py-3 text-sm font-extrabold ring-1 ring-white/10"
+                    >
+                      −1
+                    </button>
+                    <input
+                      value={deltaInput}
+                      onChange={(e) =>
+                        setDeltaInput(
+                          e.target.value.replace(/[^\d-]/g, "").slice(0, 7)
+                        )
+                      }
+                      inputMode="numeric"
+                      className="rounded-2xl bg-white text-black px-4 py-3 text-center"
+                      placeholder="e.g., +5"
+                    />
+                    <button
+                      onClick={() => {
+                        const cur = parseIntSafe(deltaInput) ?? 0;
+                        setDeltaInput(String(cur + 1));
+                      }}
+                      className="rounded-2xl bg-white/10 px-4 py-3 text-sm font-extrabold ring-1 ring-white/10"
+                    >
+                      +1
+                    </button>
+                  </div>
+
+                  <div className="mt-2 flex gap-2">
+                    <button
+                      onClick={async () => {
+                        const d = parseIntSafe(deltaInput);
+                        if (d === null) return alert("Enter a valid delta.");
+                        await doTotalsAdjust(totalsEditRow, d);
+                      }}
+                      className="flex-1 rounded-2xl bg-white px-4 py-3 text-sm font-extrabold text-black"
+                    >
+                      Apply delta
+                    </button>
+                    <button
+                      onClick={() => setDeltaInput("")}
+                      className="rounded-2xl bg-white/10 px-4 py-3 text-sm font-semibold ring-1 ring-white/10"
+                    >
+                      Clear
+                    </button>
+                  </div>
+
+                  <div className="mt-2 text-[11px] text-white/55">
+                    Best for quick receiving corrections.
+                  </div>
+                </div>
+
+                <div className="mt-3 text-[11px] text-white/50">
+                  Locked devices require PIN before saving.
+                </div>
+              </Modal>
+            )}
           </div>
         ) : tab === "Audit" ? (
           <div className="mt-3 rounded-3xl bg-white/5 p-4 ring-1 ring-white/10 overflow-hidden">
