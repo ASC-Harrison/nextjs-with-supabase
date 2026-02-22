@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { BrowserMultiFormatReader } from "@zxing/browser";
 
-type Tab = "Transaction" | "Totals" | "Settings";
+type Tab = "Transaction" | "Totals" | "Audit" | "Settings";
 type Mode = "USE" | "RESTOCK";
 type Area = { id: string; name: string };
 type Item = { id: string; name: string; barcode: string };
@@ -47,6 +47,9 @@ export default function InventoryPage() {
   const [addOpen, setAddOpen] = useState(false);
   const [addName, setAddName] = useState("");
   const [addPar, setAddPar] = useState<number>(0);
+
+  // ✅ Scanner overlay state (so camera is actually visible)
+  const [scannerOpen, setScannerOpen] = useState(false);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const readerRef = useRef<BrowserMultiFormatReader | null>(null);
@@ -114,13 +117,27 @@ export default function InventoryPage() {
 
   // Stop scanner when leaving Transaction tab
   useEffect(() => {
-    if (tab !== "Transaction") stopScanner();
+    if (tab !== "Transaction") {
+      stopScanner();
+      setScannerOpen(false);
+    }
     return () => stopScanner();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab]);
 
   async function startScanner() {
-    if (!videoRef.current) return;
+    // Open overlay first so <video> is actually in the layout
+    setScannerOpen(true);
+    setStatus("Starting camera…");
+
+    // wait a tick for the modal to render the video element
+    await new Promise((r) => setTimeout(r, 50));
+
+    if (!videoRef.current) {
+      setStatus("Camera view not ready.");
+      return;
+    }
+
     stopScanner();
 
     try {
@@ -144,11 +161,20 @@ export default function InventoryPage() {
           lastScanRef.current = text;
 
           setQuery(text);
+
+          // close camera once we got a scan (feels better on iPhone)
+          stopScanner();
+          setScannerOpen(false);
+
           await lookupBarcode(text);
         }
       );
-    } catch {
-      alert("Camera blocked. Allow camera permissions in Safari.");
+    } catch (e: any) {
+      setScannerOpen(false);
+      setStatus("Camera blocked.");
+      alert(
+        "Camera blocked.\n\nOn iPhone: Settings → Safari → Camera → Allow.\nThen open the site in Safari (not only the home screen icon) and try again."
+      );
     }
   }
 
@@ -303,7 +329,7 @@ export default function InventoryPage() {
         className="w-full max-w-md px-3 pb-4 overflow-x-hidden"
         style={{ paddingTop: "env(safe-area-inset-top)" }}
       >
-        {/* ✅ Back button (no missing component) */}
+        {/* ✅ Back button */}
         <div className="mt-3 mb-2">
           <button
             onClick={() => router.push("/")}
@@ -345,6 +371,9 @@ export default function InventoryPage() {
             </TabBtn>
             <TabBtn active={tab === "Totals"} onClick={() => setTab("Totals")}>
               Totals
+            </TabBtn>
+            <TabBtn active={tab === "Audit"} onClick={() => setTab("Audit")}>
+              Audit
             </TabBtn>
             <TabBtn active={tab === "Settings"} onClick={() => setTab("Settings")}>
               Settings
@@ -448,13 +477,6 @@ export default function InventoryPage() {
                   📷
                 </button>
               </div>
-
-              <video
-                ref={videoRef}
-                className="absolute w-px h-px opacity-0 pointer-events-none"
-                muted
-                playsInline
-              />
             </div>
 
             <div className="mt-2 text-sm text-white/70">{status || "Ready."}</div>
@@ -504,7 +526,9 @@ export default function InventoryPage() {
                 </div>
 
                 <div className="mt-3">
-                  <div className="text-xs text-white/60 mb-1">Par level (optional)</div>
+                  <div className="text-xs text-white/60 mb-1">
+                    Par level (optional)
+                  </div>
                   <input
                     value={String(addPar)}
                     onChange={(e) => setAddPar(Number(e.target.value || 0))}
@@ -553,12 +577,53 @@ export default function InventoryPage() {
                 </div>
               </Modal>
             )}
+
+            {/* ✅ Scanner overlay (camera preview is visible now) */}
+            {scannerOpen && (
+              <div className="fixed inset-0 z-[60] bg-black/80 p-4">
+                <div className="mx-auto w-full max-w-md rounded-3xl bg-[#111] p-4 ring-1 ring-white/10">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="text-lg font-semibold">Scan barcode</div>
+                    <button
+                      onClick={() => {
+                        stopScanner();
+                        setScannerOpen(false);
+                        setStatus("Stopped.");
+                      }}
+                      className="rounded-2xl bg-white/10 px-3 py-2 text-sm font-semibold ring-1 ring-white/10"
+                    >
+                      Close
+                    </button>
+                  </div>
+
+                  <div className="mt-3 overflow-hidden rounded-2xl ring-1 ring-white/10">
+                    <video
+                      ref={videoRef}
+                      className="w-full aspect-video bg-black"
+                      muted
+                      playsInline
+                    />
+                  </div>
+
+                  <div className="mt-3 text-xs text-white/60">
+                    If the camera doesn’t appear, iPhone Safari may be blocking permissions.
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         ) : tab === "Totals" ? (
           <div className="mt-2 rounded-3xl bg-white/5 p-4 ring-1 ring-white/10">
             <div className="text-lg font-semibold">Totals</div>
             <div className="mt-2 text-sm text-white/70">
               (Next) Pull totals from storage_inventory.
+            </div>
+          </div>
+        ) : tab === "Audit" ? (
+          <div className="mt-2 rounded-3xl bg-white/5 p-4 ring-1 ring-white/10">
+            <div className="text-lg font-semibold">Audit</div>
+            <div className="mt-2 text-sm text-white/70">
+              (Restored) This tab is back. Next step is to show recent transactions / edits.
             </div>
           </div>
         ) : (
@@ -581,7 +646,9 @@ function TabBtn({ active, onClick, children }: any) {
       onClick={onClick}
       className={[
         "flex-1 rounded-2xl px-3 py-2 text-sm font-semibold ring-1",
-        active ? "bg-white text-black ring-white/20" : "bg-white/5 text-white ring-white/10",
+        active
+          ? "bg-white text-black ring-white/20"
+          : "bg-white/5 text-white ring-white/10",
       ].join(" ")}
     >
       {children}
@@ -590,12 +657,17 @@ function TabBtn({ active, onClick, children }: any) {
 }
 
 function ModeBtn({ active, danger, onClick, children }: any) {
-  const activeCls = danger ? "bg-red-600 text-white ring-red-500/30" : "bg-white text-black ring-white/20";
+  const activeCls = danger
+    ? "bg-red-600 text-white ring-red-500/30"
+    : "bg-white text-black ring-white/20";
   const inactiveCls = "bg-black/30 text-white ring-white/10";
   return (
     <button
       onClick={onClick}
-      className={["rounded-2xl px-3 py-2 text-sm font-bold ring-1", active ? activeCls : inactiveCls].join(" ")}
+      className={[
+        "rounded-2xl px-3 py-2 text-sm font-bold ring-1",
+        active ? activeCls : inactiveCls,
+      ].join(" ")}
     >
       {children}
     </button>
@@ -620,10 +692,16 @@ function Modal({ title, children, okText, onOk, onCancel }: any) {
         <div className="text-lg font-semibold">{title}</div>
         {children}
         <div className="mt-4 flex gap-2">
-          <button onClick={onCancel} className="flex-1 rounded-2xl bg-white/10 px-4 py-3 font-semibold">
+          <button
+            onClick={onCancel}
+            className="flex-1 rounded-2xl bg-white/10 px-4 py-3 font-semibold"
+          >
             Cancel
           </button>
-          <button onClick={onOk} className="flex-1 rounded-2xl bg-white px-4 py-3 font-semibold text-black">
+          <button
+            onClick={onOk}
+            className="flex-1 rounded-2xl bg-white px-4 py-3 font-semibold text-black"
+          >
             {okText}
           </button>
         </div>
