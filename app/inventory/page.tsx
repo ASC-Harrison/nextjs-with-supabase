@@ -9,11 +9,48 @@ type Mode = "USE" | "RESTOCK";
 type Area = { id: string; name: string };
 type Item = { id: string; name: string; barcode: string };
 
+type AuditEvent = {
+  id: string;
+  ts: string; // ISO
+  staff: string;
+  action:
+    | "SCAN"
+    | "LOOKUP_FOUND"
+    | "LOOKUP_NOT_FOUND"
+    | "ADD_ITEM"
+    | "SUBMIT_TX"
+    | "CHANGE_LOCATION"
+    | "LOCK"
+    | "UNLOCK"
+    | "MAIN_OVERRIDE_ON"
+    | "MAIN_OVERRIDE_OFF";
+  details?: string;
+};
+
 const LS = {
   PIN: "asc_pin_v1",
   LOCKED: "asc_locked_v1",
   AREA: "asc_area_id_v1",
+  STAFF: "asc_staff_name_v1",
+  AUDIT: "asc_audit_events_v1",
 };
+
+function nowIso() {
+  return new Date().toISOString();
+}
+
+function uid() {
+  return `${Date.now()}_${Math.random().toString(16).slice(2)}`;
+}
+
+function safeJsonParse<T>(raw: string | null, fallback: T): T {
+  if (!raw) return fallback;
+  try {
+    return JSON.parse(raw) as T;
+  } catch {
+    return fallback;
+  }
+}
 
 export default function InventoryPage() {
   const router = useRouter();
@@ -48,19 +85,32 @@ export default function InventoryPage() {
   const [addName, setAddName] = useState("");
   const [addPar, setAddPar] = useState<number>(0);
 
-  // ✅ Scanner overlay state (so camera is actually visible)
+  // ✅ Staff + audit
+  const [staffName, setStaffName] = useState("");
+  const [audit, setAudit] = useState<AuditEvent[]>([]);
+
+  // ✅ Full screen scanner overlay state
   const [scannerOpen, setScannerOpen] = useState(false);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const readerRef = useRef<BrowserMultiFormatReader | null>(null);
   const lastScanRef = useRef<string>("");
 
-  // Load lock + saved location from localStorage
+  // ---------- LOAD SAVED STATE ----------
   useEffect(() => {
     try {
       setLocked((localStorage.getItem(LS.LOCKED) ?? "1") === "1");
-      const saved = localStorage.getItem(LS.AREA);
-      if (saved) setAreaId(saved);
+      const savedArea = localStorage.getItem(LS.AREA);
+      if (savedArea) setAreaId(savedArea);
+
+      const savedStaff = localStorage.getItem(LS.STAFF) || "";
+      setStaffName(savedStaff);
+
+      const savedAudit = safeJsonParse<AuditEvent[]>(
+        localStorage.getItem(LS.AUDIT),
+        []
+      );
+      setAudit(savedAudit);
     } catch {}
   }, []);
 
@@ -76,7 +126,35 @@ export default function InventoryPage() {
     } catch {}
   }, [areaId]);
 
-  // Load locations from storage_areas
+  useEffect(() => {
+    try {
+      localStorage.setItem(LS.STAFF, staffName);
+    } catch {}
+  }, [staffName]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(LS.AUDIT, JSON.stringify(audit.slice(0, 500)));
+    } catch {}
+  }, [audit]);
+
+  function pushAudit(ev: Omit<AuditEvent, "id" | "ts" | "staff">) {
+    const staff = (staffName || "").trim() || "Unknown";
+    const entry: AuditEvent = {
+      id: uid(),
+      ts: nowIso(),
+      staff,
+      action: ev.action,
+      details: ev.details,
+    };
+    setAudit((prev) => [entry, ...prev].slice(0, 500));
+
+    // OPTIONAL future hook:
+    // If you later create /api/audit, you can send entries server-side.
+    // fetch("/api/audit", { method:"POST", headers:{'Content-Type':'application/json'}, body: JSON.stringify(entry) }).catch(()=>{});
+  }
+
+  // ---------- LOAD LOCATIONS ----------
   useEffect(() => {
     (async () => {
       setAreasLoading(true);
@@ -115,8 +193,15 @@ export default function InventoryPage() {
     })();
   }, []);
 
-  // Stop scanner when leaving Transaction tab
+  // ---------- SCANNER LIFECYCLE ----------
   useEffect(() => {
+    // If overlay closes for any reason, hard stop camera
+    if (!scannerOpen) stopScanner();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scannerOpen]);
+
+  useEffect(() => {
+    // Stop scanner when leaving Transaction tab
     if (tab !== "Transaction") {
       stopScanner();
       setScannerOpen(false);
@@ -126,12 +211,18 @@ export default function InventoryPage() {
   }, [tab]);
 
   async function startScanner() {
-    // Open overlay first so <video> is actually in the layout
+    // Require staff name for better audit integrity (device level)
+    if (!staffName.trim()) {
+      setTab("Audit");
+      setStatus("Set staff name first (Audit tab).");
+      return;
+    }
+
     setScannerOpen(true);
     setStatus("Starting camera…");
 
-    // wait a tick for the modal to render the video element
-    await new Promise((r) => setTimeout(r, 50));
+    // wait for full-screen overlay + video element to mount
+    await new Promise((r) => setTimeout(r, 60));
 
     if (!videoRef.current) {
       setStatus("Camera view not ready.");
@@ -147,12 +238,14 @@ export default function InventoryPage() {
       readerRef.current = reader;
 
       setStatus("Scanning…");
+      pushAudit({ action: "SCAN", details: `Area=${selectedAreaName}` });
 
       await reader.decodeFromVideoDevice(
         undefined,
         videoRef.current,
         async (result) => {
           if (!result) return;
+
           const text = result.getText?.() ?? "";
           if (!text) return;
 
@@ -162,30 +255,42 @@ export default function InventoryPage() {
 
           setQuery(text);
 
-          // close camera once we got a scan (feels better on iPhone)
+          // Close camera after scan
           stopScanner();
           setScannerOpen(false);
 
           await lookupBarcode(text);
         }
       );
-    } catch (e: any) {
+    } catch {
       setScannerOpen(false);
       setStatus("Camera blocked.");
       alert(
-        "Camera blocked.\n\nOn iPhone: Settings → Safari → Camera → Allow.\nThen open the site in Safari (not only the home screen icon) and try again."
+        "Camera blocked.\n\nOn iPhone:\nSettings → Safari → Camera → Allow\nThen refresh and try again."
       );
     }
   }
 
   function stopScanner() {
+    // Stop ZXing decoding
     try {
       (readerRef.current as any)?.reset?.();
     } catch {}
     readerRef.current = null;
     lastScanRef.current = "";
+
+    // HARD STOP media stream tracks (fixes iOS camera indicator staying on)
+    try {
+      const v = videoRef.current as any;
+      const stream = v?.srcObject as MediaStream | null;
+      if (stream) {
+        stream.getTracks().forEach((t) => t.stop());
+        v.srcObject = null;
+      }
+    } catch {}
   }
 
+  // ---------- LOOKUP / ADD / SUBMIT ----------
   async function lookupBarcode(barcode: string) {
     setItem(null);
     setStatus("Looking up…");
@@ -205,6 +310,7 @@ export default function InventoryPage() {
 
     if (!json.item) {
       setStatus("NOT FOUND — Add Item");
+      pushAudit({ action: "LOOKUP_NOT_FOUND", details: `Barcode=${barcode}` });
       setAddOpen(true);
       setAddName("");
       return;
@@ -212,6 +318,10 @@ export default function InventoryPage() {
 
     setItem(json.item);
     setStatus(`Found: ${json.item.name}`);
+    pushAudit({
+      action: "LOOKUP_FOUND",
+      details: `Item=${json.item.name} Barcode=${barcode}`,
+    });
   }
 
   function openPin(purpose: typeof pinPurpose) {
@@ -231,15 +341,22 @@ export default function InventoryPage() {
 
     if (pinPurpose === "unlock") {
       setLocked(false);
+      pushAudit({ action: "UNLOCK", details: `Area=${selectedAreaName}` });
       return;
     }
+
     if (pinPurpose === "lock") {
       setLocked(true);
+      pushAudit({ action: "LOCK", details: `Area=${selectedAreaName}` });
       return;
     }
 
     if (pinPurpose === "changeLocation") {
-      if (pendingArea) setAreaId(pendingArea);
+      if (pendingArea) {
+        const nextName = areas.find((a) => a.id === pendingArea)?.name ?? pendingArea;
+        setAreaId(pendingArea);
+        pushAudit({ action: "CHANGE_LOCATION", details: `To=${nextName}` });
+      }
       setPendingArea("");
       return;
     }
@@ -252,7 +369,9 @@ export default function InventoryPage() {
 
   function requestLocationChange(newId: string) {
     if (!locked) {
+      const nextName = areas.find((a) => a.id === newId)?.name ?? newId;
       setAreaId(newId);
+      pushAudit({ action: "CHANGE_LOCATION", details: `To=${nextName}` });
       return;
     }
     setPendingArea(newId);
@@ -277,7 +396,7 @@ export default function InventoryPage() {
       body: JSON.stringify({
         name: addName.trim(),
         barcode,
-        storage_area_id: areaId, // ✅ matches your schema
+        storage_area_id: areaId,
         par_level: addPar,
       }),
     });
@@ -288,10 +407,19 @@ export default function InventoryPage() {
     setItem(json.item);
     setAddOpen(false);
     setStatus(`Added: ${json.item.name}`);
+
+    pushAudit({
+      action: "ADD_ITEM",
+      details: `Item=${json.item.name} Barcode=${barcode} Area=${selectedAreaName} Par=${addPar}`,
+    });
   }
 
   async function submit() {
     if (locked) return alert("Locked. Unlock first.");
+    if (!staffName.trim()) {
+      setTab("Audit");
+      return alert("Enter staff name in Audit tab first.");
+    }
     if (!item?.id) return alert("Scan an item first.");
     if (!areaId && !mainOverride) return alert("Select a location.");
 
@@ -300,7 +428,7 @@ export default function InventoryPage() {
       headers: { "Content-Type": "application/json" },
       cache: "no-store",
       body: JSON.stringify({
-        storage_area_id: areaId, // ✅ matches your schema
+        storage_area_id: areaId,
         mode,
         item_id: item.id,
         qty,
@@ -314,6 +442,11 @@ export default function InventoryPage() {
     setMainOverride(false);
     setQty(1);
     setStatus(`✅ Updated on-hand to ${json.on_hand}`);
+
+    pushAudit({
+      action: "SUBMIT_TX",
+      details: `Mode=${mode} Qty=${qty} Item=${item.name} Area=${selectedAreaName} Override=${mainOverride ? "MAIN" : "NO"}`,
+    });
   }
 
   function savePin(newPin: string) {
@@ -323,13 +456,25 @@ export default function InventoryPage() {
     alert("PIN saved ✅");
   }
 
+  function onToggleOverride() {
+    setMainOverride((v) => {
+      const next = !v;
+      pushAudit({
+        action: next ? "MAIN_OVERRIDE_ON" : "MAIN_OVERRIDE_OFF",
+        details: `Area=${selectedAreaName}`,
+      });
+      return next;
+    });
+  }
+
+  // ---------- UI ----------
   return (
-    <div className="min-h-screen w-full flex justify-center">
+    <div className="min-h-screen w-full bg-black text-white overflow-x-hidden flex justify-center">
       <div
-        className="w-full max-w-md px-3 pb-4 overflow-x-hidden"
+        className="w-full max-w-md px-3 pb-6 overflow-x-hidden"
         style={{ paddingTop: "env(safe-area-inset-top)" }}
       >
-        {/* ✅ Back button */}
+        {/* Back */}
         <div className="mt-3 mb-2">
           <button
             onClick={() => router.push("/")}
@@ -339,6 +484,7 @@ export default function InventoryPage() {
           </button>
         </div>
 
+        {/* Header card */}
         <div className="rounded-3xl bg-white/5 p-3 ring-1 ring-white/10">
           <div className="grid grid-cols-[1fr_auto] gap-3 items-start">
             <div className="min-w-0">
@@ -350,7 +496,7 @@ export default function InventoryPage() {
               </div>
             </div>
 
-            <div className="text-right min-w-[140px]">
+            <div className="text-right w-[140px] shrink-0">
               <div className="text-[11px] text-white/60">Location</div>
               <div className="text-sm font-semibold leading-tight break-words">
                 {selectedAreaName}
@@ -365,9 +511,10 @@ export default function InventoryPage() {
             </div>
           </div>
 
-          <div className="mt-2 flex gap-2">
+          {/* Tabs: grid so it never overflows */}
+          <div className="mt-3 grid grid-cols-4 gap-2">
             <TabBtn active={tab === "Transaction"} onClick={() => setTab("Transaction")}>
-              Transaction
+              Tx
             </TabBtn>
             <TabBtn active={tab === "Totals"} onClick={() => setTab("Totals")}>
               Totals
@@ -381,8 +528,9 @@ export default function InventoryPage() {
           </div>
         </div>
 
+        {/* TAB CONTENT */}
         {tab === "Transaction" ? (
-          <div className="mt-2 rounded-3xl bg-white/5 p-4 ring-1 ring-white/10">
+          <div className="mt-3 rounded-3xl bg-white/5 p-4 ring-1 ring-white/10">
             <div className="text-sm text-white/70">Select location</div>
 
             <select
@@ -409,7 +557,7 @@ export default function InventoryPage() {
               </div>
             )}
 
-            <div className="mt-2 rounded-2xl bg-black/30 p-4 ring-1 ring-white/10">
+            <div className="mt-3 rounded-2xl bg-black/30 p-4 ring-1 ring-white/10">
               <div className="flex items-center justify-between gap-3">
                 <div className="min-w-0">
                   <div className="text-lg font-semibold">One-time override</div>
@@ -418,7 +566,7 @@ export default function InventoryPage() {
                   </div>
                 </div>
                 <button
-                  onClick={() => setMainOverride((v) => !v)}
+                  onClick={onToggleOverride}
                   className={[
                     "shrink-0 rounded-2xl px-4 py-3 ring-1",
                     mainOverride
@@ -434,7 +582,7 @@ export default function InventoryPage() {
               </div>
             </div>
 
-            <div className="mt-2 rounded-2xl bg-black/30 p-4 ring-1 ring-white/10">
+            <div className="mt-3 rounded-2xl bg-black/30 p-4 ring-1 ring-white/10">
               <div className="flex items-center justify-between gap-2">
                 <div className="min-w-0">
                   <div className="text-lg font-semibold">Mode</div>
@@ -444,7 +592,7 @@ export default function InventoryPage() {
                       : "Restock adds items to on-hand."}
                   </div>
                 </div>
-                <div className="flex gap-2">
+                <div className="flex gap-2 shrink-0">
                   <ModeBtn active={mode === "USE"} danger onClick={() => setMode("USE")}>
                     USE
                   </ModeBtn>
@@ -455,7 +603,8 @@ export default function InventoryPage() {
               </div>
             </div>
 
-            <div className="mt-2">
+            {/* Scan / type */}
+            <div className="mt-3">
               <div className="relative">
                 <input
                   value={query}
@@ -479,16 +628,19 @@ export default function InventoryPage() {
               </div>
             </div>
 
-            <div className="mt-2 text-sm text-white/70">{status || "Ready."}</div>
+            <div className="mt-2 text-sm text-white/70 break-words">
+              {status || "Ready."}
+            </div>
 
             {item && (
-              <div className="mt-2 rounded-2xl bg-black/30 p-3 ring-1 ring-white/10">
+              <div className="mt-3 rounded-2xl bg-black/30 p-3 ring-1 ring-white/10">
                 <div className="text-sm font-semibold">{item.name}</div>
                 <div className="text-xs text-white/60 break-all">{item.barcode}</div>
               </div>
             )}
 
-            <div className="mt-2 flex items-center gap-3">
+            {/* Qty */}
+            <div className="mt-3 flex items-center gap-3">
               <QtyBtn onClick={() => setQty((q) => Math.max(1, q - 1))}>−</QtyBtn>
               <div className="flex-1 rounded-2xl bg-white px-4 py-3 text-center text-black">
                 <span className="text-lg font-semibold">{qty}</span>
@@ -496,14 +648,16 @@ export default function InventoryPage() {
               <QtyBtn onClick={() => setQty((q) => q + 1)}>+</QtyBtn>
             </div>
 
+            {/* Submit */}
             <button
-              className="mt-2 w-full rounded-2xl bg-black/80 px-4 py-4 text-white font-semibold disabled:opacity-60"
+              className="mt-3 w-full rounded-2xl bg-black/80 px-4 py-4 text-white font-semibold disabled:opacity-60"
               disabled={!item || locked}
               onClick={submit}
             >
               Submit
             </button>
 
+            {/* Add Item Modal */}
             {addOpen && (
               <Modal
                 title="Item not found"
@@ -544,6 +698,7 @@ export default function InventoryPage() {
               </Modal>
             )}
 
+            {/* PIN Modal */}
             {pinOpen && (
               <Modal
                 title={
@@ -578,56 +733,151 @@ export default function InventoryPage() {
               </Modal>
             )}
 
-            {/* ✅ Scanner overlay (camera preview is visible now) */}
+            {/* ✅ FULL SCREEN SCANNER OVERLAY */}
             {scannerOpen && (
-              <div className="fixed inset-0 z-[60] bg-black/80 p-4">
-                <div className="mx-auto w-full max-w-md rounded-3xl bg-[#111] p-4 ring-1 ring-white/10">
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="text-lg font-semibold">Scan barcode</div>
-                    <button
-                      onClick={() => {
-                        stopScanner();
-                        setScannerOpen(false);
-                        setStatus("Stopped.");
-                      }}
-                      className="rounded-2xl bg-white/10 px-3 py-2 text-sm font-semibold ring-1 ring-white/10"
-                    >
-                      Close
-                    </button>
-                  </div>
+              <div className="fixed inset-0 z-[60] bg-black">
+                {/* Top bar */}
+                <div
+                  className="flex items-center justify-between px-4"
+                  style={{
+                    paddingTop: "calc(env(safe-area-inset-top) + 12px)",
+                    paddingBottom: "12px",
+                  }}
+                >
+                  <div className="text-lg font-semibold text-white">Scan barcode</div>
 
-                  <div className="mt-3 overflow-hidden rounded-2xl ring-1 ring-white/10">
-                    <video
-                      ref={videoRef}
-                      className="w-full aspect-video bg-black"
-                      muted
-                      playsInline
-                    />
-                  </div>
+                  <button
+                    onClick={() => {
+                      stopScanner();
+                      setScannerOpen(false);
+                      setStatus("Stopped.");
+                    }}
+                    className="rounded-2xl bg-white/10 px-4 py-2 text-sm font-semibold text-white ring-1 ring-white/10"
+                  >
+                    Close
+                  </button>
+                </div>
 
-                  <div className="mt-3 text-xs text-white/60">
-                    If the camera doesn’t appear, iPhone Safari may be blocking permissions.
+                {/* Video fills screen */}
+                <div className="relative w-full" style={{ height: "calc(100vh - 120px)" }}>
+                  <video
+                    ref={videoRef}
+                    className="absolute inset-0 h-full w-full object-cover"
+                    muted
+                    playsInline
+                  />
+
+                  {/* scan box */}
+                  <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+                    <div className="h-52 w-80 rounded-2xl ring-2 ring-white/40" />
                   </div>
+                </div>
+
+                <div
+                  className="px-4 text-xs text-white/70"
+                  style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 16px)" }}
+                >
+                  Hold the barcode steady inside the box.
                 </div>
               </div>
             )}
           </div>
         ) : tab === "Totals" ? (
-          <div className="mt-2 rounded-3xl bg-white/5 p-4 ring-1 ring-white/10">
+          <div className="mt-3 rounded-3xl bg-white/5 p-4 ring-1 ring-white/10">
             <div className="text-lg font-semibold">Totals</div>
             <div className="mt-2 text-sm text-white/70">
               (Next) Pull totals from storage_inventory.
             </div>
           </div>
         ) : tab === "Audit" ? (
-          <div className="mt-2 rounded-3xl bg-white/5 p-4 ring-1 ring-white/10">
+          <div className="mt-3 rounded-3xl bg-white/5 p-4 ring-1 ring-white/10 overflow-hidden">
             <div className="text-lg font-semibold">Audit</div>
-            <div className="mt-2 text-sm text-white/70">
-              (Restored) This tab is back. Next step is to show recent transactions / edits.
+            <div className="mt-1 text-xs text-white/60">
+              Set staff name (saved on this device). Actions are logged below.
+            </div>
+
+            <div className="mt-3">
+              <div className="text-xs text-white/60 mb-1">Staff name</div>
+              <input
+                value={staffName}
+                onChange={(e) => setStaffName(e.target.value)}
+                className="w-full rounded-2xl bg-white text-black px-4 py-3"
+                placeholder="e.g., Jeremy Johnson"
+              />
+              <div className="mt-2 text-xs text-white/50">
+                Tip: require each device to have the assigned user name set.
+              </div>
+            </div>
+
+            <div className="mt-4 flex gap-2">
+              <button
+                onClick={() => {
+                  setAudit([]);
+                  try {
+                    localStorage.removeItem(LS.AUDIT);
+                  } catch {}
+                }}
+                className="flex-1 rounded-2xl bg-white/10 px-4 py-3 text-sm font-semibold ring-1 ring-white/10"
+              >
+                Clear device log
+              </button>
+              <button
+                onClick={() => {
+                  // Quick export to clipboard (works on iOS Safari mostly)
+                  const text = JSON.stringify(audit, null, 2);
+                  navigator.clipboard
+                    ?.writeText(text)
+                    .then(() => alert("Audit log copied ✅"))
+                    .catch(() => alert("Copy failed (iOS may block clipboard)."));
+                }}
+                className="flex-1 rounded-2xl bg-white px-4 py-3 text-sm font-extrabold text-black"
+              >
+                Copy log
+              </button>
+            </div>
+
+            <div className="mt-4 text-sm font-semibold text-white/80">
+              Recent events
+            </div>
+
+            <div className="mt-2 space-y-2">
+              {audit.length === 0 ? (
+                <div className="rounded-2xl bg-black/30 p-3 text-sm text-white/60 ring-1 ring-white/10">
+                  No audit events yet.
+                </div>
+              ) : (
+                audit.slice(0, 60).map((e) => (
+                  <div
+                    key={e.id}
+                    className="rounded-2xl bg-black/30 p-3 ring-1 ring-white/10"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="text-sm font-semibold">{e.action}</div>
+                      <div className="text-[11px] text-white/55">
+                        {new Date(e.ts).toLocaleString()}
+                      </div>
+                    </div>
+                    <div className="mt-1 text-xs text-white/70">
+                      Staff: <span className="font-semibold">{e.staff}</span>
+                    </div>
+                    {e.details && (
+                      <div className="mt-1 text-xs text-white/55 break-words">
+                        {e.details}
+                      </div>
+                    )}
+                  </div>
+                ))
+              )}
+            </div>
+
+            <div className="mt-4 text-xs text-white/50">
+              For true accreditation-grade audit trails, you’ll want a server-side
+              immutable audit table (Supabase) with RLS so logs can’t be edited on
+              the device. This UI is ready to send to an API when you want.
             </div>
           </div>
         ) : (
-          <div className="mt-2 rounded-3xl bg-white/5 p-4 ring-1 ring-white/10">
+          <div className="mt-3 rounded-3xl bg-white/5 p-4 ring-1 ring-white/10">
             <div className="text-lg font-semibold">Settings</div>
             <div className="mt-3 text-sm text-white/70">
               Set/Change PIN (min 4 digits):
@@ -640,15 +890,21 @@ export default function InventoryPage() {
   );
 }
 
-function TabBtn({ active, onClick, children }: any) {
+function TabBtn({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
   return (
     <button
       onClick={onClick}
       className={[
-        "flex-1 rounded-2xl px-3 py-2 text-sm font-semibold ring-1",
-        active
-          ? "bg-white text-black ring-white/20"
-          : "bg-white/5 text-white ring-white/10",
+        "rounded-2xl px-2 py-2 text-xs font-extrabold ring-1",
+        active ? "bg-white text-black ring-white/20" : "bg-white/5 text-white ring-white/10",
       ].join(" ")}
     >
       {children}
