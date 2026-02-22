@@ -8,10 +8,13 @@ import { supabase } from "@/lib/supabaseClient";
  * ADMIN TABLE VIEW (Elite UI)
  * - Reads: storage_inventory + joined storage_areas + items
  * - Edits ONLY: storage_inventory.on_hand, storage_inventory.par_level
- * - PIN gate is localStorage-based (same pattern you already use)
+ * - PIN gate is localStorage-based and now uses the SAME PIN as the App Settings
  */
 
-const LS_PIN = "ASC_ADMIN_PIN"; // where your saved admin PIN lives
+// ✅ IMPORTANT: use the SAME PIN key as your App (LS.PIN = "asc_pin_v1")
+const LS_PIN = "asc_pin_v1";
+
+// Keep admin unlock separate (per device)
 const LS_UNLOCK = "ASC_ADMIN_UNLOCKED"; // "true" when unlocked
 
 type Row = {
@@ -90,9 +93,10 @@ function IconButton({
   );
 }
 
-export default function AdminPage() {
+export default function AdminInventoryPage() {
   const [locked, setLocked] = useState(true);
   const [pinEntry, setPinEntry] = useState("");
+
   const [rows, setRows] = useState<Row[]>([]);
   const [loading, setLoading] = useState(true);
   const [savingKey, setSavingKey] = useState<string | null>(null);
@@ -101,17 +105,7 @@ export default function AdminPage() {
   const [q, setQ] = useState("");
   const [onlyLow, setOnlyLow] = useState(false);
 
-  // ✅ Ensure admin PIN exists (default 1234)
-  useEffect(() => {
-    try {
-      const existing = localStorage.getItem(LS_PIN);
-      if (!existing) {
-        localStorage.setItem(LS_PIN, "1234");
-      }
-    } catch {}
-  }, []);
-
-  // Load lock state
+  // Load lock state (per device)
   useEffect(() => {
     try {
       const unlocked = localStorage.getItem(LS_UNLOCK) === "true";
@@ -132,9 +126,6 @@ export default function AdminPage() {
     setLoading(true);
     setToast(null);
 
-    // NOTE: This join works if your DB has FKs from storage_inventory.storage_area_id -> storage_areas.id
-    // and storage_inventory.item_id -> items.id. If the join is missing, items/storage_areas will be null,
-    // and we still render safely.
     const { data, error } = await supabase
       .from("storage_inventory")
       .select(
@@ -151,7 +142,7 @@ export default function AdminPage() {
       `
       )
       .order("updated_at", { ascending: false })
-      .limit(200); // ✅ SPEED FIX (only load the most recent 200 rows)
+      .limit(500);
 
     if (error) {
       setToast(`Load failed: ${error.message}`);
@@ -165,27 +156,27 @@ export default function AdminPage() {
   }
 
   useEffect(() => {
-    // load data even if locked so user sees UI shell;
-    // edits are blocked by lock
     fetchRows();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ✅ FIXED: Unlock always works (default pin 1234 exists)
-  function openPinAndUnlock() {
+  function unlockNow() {
     let stored = "";
     try {
       stored = localStorage.getItem(LS_PIN) || "";
-      if (!stored) {
-        stored = "1234";
-        localStorage.setItem(LS_PIN, stored);
-      }
     } catch {
-      stored = "1234";
+      stored = "";
+    }
+
+    if (!stored) {
+      setToast("No PIN set yet. Set it in App → Settings first.");
+      return;
     }
 
     if (pinEntry.trim() === stored.trim()) {
-      localStorage.setItem(LS_UNLOCK, "true");
+      try {
+        localStorage.setItem(LS_UNLOCK, "true");
+      } catch {}
       setLocked(false);
       setPinEntry("");
       setToast("Unlocked ✅");
@@ -195,7 +186,9 @@ export default function AdminPage() {
   }
 
   function lockNow() {
-    localStorage.setItem(LS_UNLOCK, "false");
+    try {
+      localStorage.setItem(LS_UNLOCK, "false");
+    } catch {}
     setLocked(true);
     setToast("Locked 🔒");
   }
@@ -243,7 +236,7 @@ export default function AdminPage() {
     const key = `${r.storage_area_id}:${r.item_id}:${field}`;
     setSavingKey(key);
 
-    const patch: Partial<Row> = { [field]: num } as any;
+    const patch: any = { [field]: num };
 
     const { error } = await supabase
       .from("storage_inventory")
@@ -257,7 +250,6 @@ export default function AdminPage() {
       return;
     }
 
-    // Update local row immediately for snappy UI
     setRows((prev) =>
       prev.map((x) =>
         x.storage_area_id === r.storage_area_id && x.item_id === r.item_id
@@ -272,16 +264,15 @@ export default function AdminPage() {
 
   return (
     <div className="min-h-screen bg-black text-white overflow-x-hidden">
-      {/* Subtle elite background */}
+      {/* Subtle background */}
       <div className="pointer-events-none fixed inset-0 opacity-60">
         <div className="absolute -top-24 left-1/2 h-72 w-[900px] -translate-x-1/2 rounded-full bg-white/10 blur-3xl" />
         <div className="absolute top-40 left-10 h-60 w-60 rounded-full bg-white/5 blur-3xl" />
         <div className="absolute bottom-10 right-10 h-72 w-72 rounded-full bg-white/5 blur-3xl" />
       </div>
 
-      {/* Sticky elite header */}
+      {/* Header */}
       <div className="sticky top-0 z-20 border-b border-white/10 bg-black/70">
-        {/* ✅ removed: backdrop-blur-xl (this is what makes iPhone heavy/laggy) */}
         <div className="mx-auto w-full max-w-6xl px-4 py-4">
           <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
             <div className="min-w-0">
@@ -323,7 +314,7 @@ export default function AdminPage() {
             </div>
           </div>
 
-          {/* Unlock bar */}
+          {/* Controls */}
           <div className="mt-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
             <div className="flex w-full flex-col gap-2 md:flex-row md:items-center">
               <div className="relative w-full md:max-w-xl">
@@ -367,7 +358,7 @@ export default function AdminPage() {
               />
               <button
                 type="button"
-                onClick={openPinAndUnlock}
+                onClick={unlockNow}
                 className="whitespace-nowrap rounded-2xl bg-white px-4 py-3 text-sm font-extrabold text-black hover:bg-white/90"
               >
                 Unlock
