@@ -49,8 +49,7 @@ export async function POST(req: Request) {
 
     const item_id = item.id as string;
 
-    // Ensure a row exists in building_inventory
-    // (Insert with 0 if not exists)
+    // Ensure row exists
     await supabase
       .from("building_inventory")
       .upsert({ item_id, total_on_hand: 0 }, { onConflict: "item_id" });
@@ -69,14 +68,10 @@ export async function POST(req: Request) {
         .update({ total_on_hand: Math.trunc(value) })
         .eq("item_id", item_id);
 
-      if (error) {
-        return NextResponse.json({ ok: false, error: error.message });
-      }
-
+      if (error) return NextResponse.json({ ok: false, error: error.message });
       return NextResponse.json({ ok: true });
     }
 
-    // ADJUST
     const delta = Number((body as any).delta);
     if (!Number.isFinite(delta) || delta === 0) {
       return NextResponse.json({
@@ -91,9 +86,7 @@ export async function POST(req: Request) {
       .eq("item_id", item_id)
       .single();
 
-    if (biErr) {
-      return NextResponse.json({ ok: false, error: biErr.message });
-    }
+    if (biErr) return NextResponse.json({ ok: false, error: biErr.message });
 
     const current = Number(biRow?.total_on_hand ?? 0);
     const next = Math.max(0, current + Math.trunc(delta));
@@ -103,15 +96,10 @@ export async function POST(req: Request) {
       .update({ total_on_hand: next })
       .eq("item_id", item_id);
 
-    if (updErr) {
-      return NextResponse.json({ ok: false, error: updErr.message });
-    }
+    if (updErr) return NextResponse.json({ ok: false, error: updErr.message });
 
     return NextResponse.json({ ok: true });
   } catch (e: any) {
-    return NextResponse.json({
-      ok: false,
-      error: e?.message ?? "Unknown error",
-    });
+    return NextResponse.json({ ok: false, error: e?.message ?? "Unknown error" });
   }
 }
