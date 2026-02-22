@@ -250,7 +250,7 @@ export default function AdminPage() {
   }
 
   return (
-    <div className="min-h-screen bg-black text-white">
+    <div className="min-h-screen bg-black text-white overflow-x-hidden">
       {/* Subtle elite background */}
       <div className="pointer-events-none fixed inset-0 opacity-60">
         <div className="absolute -top-24 left-1/2 h-72 w-[900px] -translate-x-1/2 rounded-full bg-white/10 blur-3xl" />
@@ -262,8 +262,8 @@ export default function AdminPage() {
       <div className="sticky top-0 z-20 border-b border-white/10 bg-black/70">
         {/* ✅ removed: backdrop-blur-xl (this is what makes iPhone heavy/laggy) */}
         <div className="mx-auto w-full max-w-6xl px-4 py-4">
-          <div className="flex items-start justify-between gap-4">
-            <div>
+          <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+            <div className="min-w-0">
               <div className="text-xs tracking-widest text-white/50">BAXTER ASC</div>
               <h1 className="mt-1 text-3xl font-extrabold leading-tight">
                 Admin Inventory <span className="text-white/60">(Table View)</span>
@@ -274,8 +274,8 @@ export default function AdminPage() {
               </p>
             </div>
 
-            <div className="flex flex-col items-end gap-2">
-              <div className="flex gap-2">
+            <div className="flex w-full flex-col gap-2 md:w-auto md:items-end">
+              <div className="flex w-full flex-wrap gap-2 md:w-auto md:justify-end">
                 <Link
                   href="/"
                   className="rounded-xl bg-white/5 px-4 py-2 text-sm font-semibold ring-1 ring-white/10 hover:bg-white/10"
@@ -293,7 +293,7 @@ export default function AdminPage() {
                 </IconButton>
               </div>
 
-              <div className="flex items-center gap-2">
+              <div className="flex w-full flex-wrap items-center gap-2 md:w-auto md:justify-end">
                 <Pill tone={locked ? "bad" : "good"}>{locked ? "PIN Required" : "Unlocked"}</Pill>
                 <Pill tone="neutral">{stats.total} rows</Pill>
                 <Pill tone={stats.low ? "warn" : "neutral"}>{stats.low} low</Pill>
@@ -436,9 +436,7 @@ export default function AdminPage() {
 
                       <div className="col-span-1 flex justify-end">
                         <div className="flex items-center gap-2">
-                          {(savingKey === onHandKey || savingKey === parKey) && (
-                            <Pill tone="neutral">Saving…</Pill>
-                          )}
+                          {(savingKey === onHandKey || savingKey === parKey) && <Pill tone="neutral">Saving…</Pill>}
                           <Pill tone={statusTone as any}>{r.low ? "LOW" : "OK"}</Pill>
                         </div>
                       </div>
@@ -459,13 +457,9 @@ export default function AdminPage() {
         <div className="md:hidden">
           <div className="space-y-3">
             {loading ? (
-              <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-5 text-white/60">
-                Loading…
-              </div>
+              <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-5 text-white/60">Loading…</div>
             ) : filtered.length === 0 ? (
-              <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-5 text-white/60">
-                No results.
-              </div>
+              <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-5 text-white/60">No results.</div>
             ) : (
               filtered.map((r) => {
                 const areaName = r.storage_areas?.name || "(unknown area)";
