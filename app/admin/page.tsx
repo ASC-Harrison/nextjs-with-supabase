@@ -135,7 +135,8 @@ export default function AdminPage() {
         items:item_id ( name, barcode, vendor, category )
       `
       )
-      .order("updated_at", { ascending: false });
+      .order("updated_at", { ascending: false })
+      .limit(200); // ✅ SPEED FIX (only load the most recent 200 rows)
 
     if (error) {
       setToast(`Load failed: ${error.message}`);
@@ -258,7 +259,8 @@ export default function AdminPage() {
       </div>
 
       {/* Sticky elite header */}
-      <div className="sticky top-0 z-20 border-b border-white/10 bg-black/70 backdrop-blur-xl">
+      <div className="sticky top-0 z-20 border-b border-white/10 bg-black/70">
+        {/* ✅ removed: backdrop-blur-xl (this is what makes iPhone heavy/laggy) */}
         <div className="mx-auto w-full max-w-6xl px-4 py-4">
           <div className="flex items-start justify-between gap-4">
             <div>
@@ -517,9 +519,7 @@ export default function AdminPage() {
                       </div>
                     </div>
 
-                    <div className="mt-3 text-xs text-white/45">
-                      Updates save when you tap out of the field.
-                    </div>
+                    <div className="mt-3 text-xs text-white/45">Updates save when you tap out of the field.</div>
                   </div>
                 );
               })
