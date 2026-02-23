@@ -34,7 +34,7 @@ export async function POST(req: Request) {
 
     const supabase = getServiceClient();
 
-    // Find item by unique name
+    // ✅ Find item by name (your view uses item name)
     const { data: item, error: itemErr } = await supabase
       .from("items")
       .select("id,name,par_level")
@@ -50,7 +50,7 @@ export async function POST(req: Request) {
 
     const item_id = item.id as string;
 
-    // ✅ Par updates live in ITEMS (so your existing pars stay the source of truth)
+    // ✅ PAR LIVES IN items.par_level (matches your view: i.par_level)
     if ((body as any).action === "SET_PAR") {
       const par = Number((body as any).par_level);
       if (!Number.isFinite(par) || par < 0) {
@@ -74,8 +74,9 @@ export async function POST(req: Request) {
       .from("building_inventory")
       .upsert({ item_id, total_on_hand: 0 }, { onConflict: "item_id" });
 
+    // SET exact on-hand
     if (body.action === "SET") {
-      const value = Number(body.value);
+      const value = Number((body as any).value);
       if (!Number.isFinite(value) || value < 0) {
         return NextResponse.json({
           ok: false,
@@ -92,6 +93,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: true });
     }
 
+    // ADJUST +/- on-hand
     const delta = Number((body as any).delta);
     if (!Number.isFinite(delta) || delta === 0) {
       return NextResponse.json({
