@@ -3,7 +3,8 @@ import { createClient } from "@supabase/supabase-js";
 
 type Body =
   | { name: string; action: "SET"; value: number }
-  | { name: string; action: "ADJUST"; delta: number };
+  | { name: string; action: "ADJUST"; delta: number }
+  | { name: string; action: "SET_PAR"; value: number };
 
 function getServiceClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -49,11 +50,12 @@ export async function POST(req: Request) {
 
     const item_id = item.id as string;
 
-    // Ensure row exists
+    // Ensure row exists (keep existing behavior)
     await supabase
       .from("building_inventory")
       .upsert({ item_id, total_on_hand: 0 }, { onConflict: "item_id" });
 
+    // ✅ SET total_on_hand exact
     if (body.action === "SET") {
       const value = Number(body.value);
       if (!Number.isFinite(value) || value < 0) {
@@ -72,6 +74,26 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: true });
     }
 
+    // ✅ NEW: SET_PAR par_level exact
+    if (body.action === "SET_PAR") {
+      const value = Number(body.value);
+      if (!Number.isFinite(value) || value < 0) {
+        return NextResponse.json({
+          ok: false,
+          error: "SET_PAR value must be a number >= 0",
+        });
+      }
+
+      const { error } = await supabase
+        .from("building_inventory")
+        .update({ par_level: Math.trunc(value) })
+        .eq("item_id", item_id);
+
+      if (error) return NextResponse.json({ ok: false, error: error.message });
+      return NextResponse.json({ ok: true });
+    }
+
+    // ✅ ADJUST total_on_hand +/- delta
     const delta = Number((body as any).delta);
     if (!Number.isFinite(delta) || delta === 0) {
       return NextResponse.json({
