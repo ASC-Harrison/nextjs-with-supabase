@@ -1,98 +1,112 @@
-// app/api/transaction/route.ts
 import { NextResponse } from "next/server";
-import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { createClient } from "@supabase/supabase-js";
 
-type Mode = "USE" | "RESTOCK";
+type Body = {
+  storage_area_id?: string; // normal
+  mode: "USE" | "RESTOCK";
+  item_id: string;
+  qty: number;
+  mainOverride?: boolean; // if true, use MAIN_SUPPLY_AREA_ID
+};
+
+function getServiceClient() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !key) throw new Error("Missing env for service client");
+  return createClient(url, key, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+}
 
 export async function POST(req: Request) {
   try {
-    const body = await req.json();
+    const body = (await req.json()) as Body;
 
-    const mode: Mode = body?.mode;
-    const item_id = String(body?.item_id ?? "").trim();
-    const qty = Math.max(1, Number(body?.qty ?? 1));
-    const mainOverride = Boolean(body?.mainOverride);
+    const qty = Math.trunc(Number(body.qty ?? 0));
+    if (!body.item_id) return NextResponse.json({ ok: false, error: "Missing item_id" });
+    if (!Number.isFinite(qty) || qty <= 0)
+      return NextResponse.json({ ok: false, error: "qty must be >= 1" });
+    if (body.mode !== "USE" && body.mode !== "RESTOCK")
+      return NextResponse.json({ ok: false, error: "Invalid mode" });
 
-    // UI sends area_id; DB expects storage_area_id
-    const chosenArea = String(body?.area_id ?? body?.storage_area_id ?? "").trim();
+    const supabase = getServiceClient();
 
-    const MAIN_SUPPLY_AREA_ID = process.env.MAIN_SUPPLY_AREA_ID || "";
-    const storage_area_id = mainOverride
-      ? (MAIN_SUPPLY_AREA_ID || chosenArea)
-      : chosenArea;
+    const mainId = process.env.MAIN_SUPPLY_AREA_ID;
+    const storage_area_id = body.mainOverride ? mainId : body.storage_area_id;
 
-    if (!item_id) return NextResponse.json({ ok: false, error: "Missing item_id" }, { status: 400 });
     if (!storage_area_id) {
-      return NextResponse.json(
-        { ok: false, error: "Missing storage_area_id (select a location, or set MAIN_SUPPLY_AREA_ID for MAIN override)" },
-        { status: 400 }
-      );
+      return NextResponse.json({
+        ok: false,
+        error: body.mainOverride
+          ? "Missing env MAIN_SUPPLY_AREA_ID"
+          : "Missing storage_area_id",
+      });
     }
-    if (mode !== "USE" && mode !== "RESTOCK") {
-      return NextResponse.json({ ok: false, error: "Invalid mode" }, { status: 400 });
-    }
 
-    // Get existing inventory row
-    const { data: inv, error: invErr } = await supabaseAdmin
-      .from("storage_inventory")
-      .select("on_hand,par_level,low,low_notified")
-      .eq("storage_area_id", storage_area_id)
-      .eq("item_id", item_id)
-      .maybeSingle();
-
-    if (invErr) return NextResponse.json({ ok: false, error: invErr.message }, { status: 500 });
-
-    // If missing row, create it (so transactions don't fail)
-    if (!inv) {
-      const { error: insErr } = await supabaseAdmin.from("storage_inventory").insert({
+    // Ensure storage_inventory row exists
+    await supabase.from("storage_inventory").upsert(
+      {
         storage_area_id,
-        item_id,
+        item_id: body.item_id,
         on_hand: 0,
         par_level: 0,
-        low: false,
-        low_notified: false,
-      });
-      if (insErr) return NextResponse.json({ ok: false, error: insErr.message }, { status: 500 });
-    }
+      },
+      { onConflict: "storage_area_id,item_id" }
+    );
 
-    // Re-fetch after ensuring exists
-    const { data: inv2, error: inv2Err } = await supabaseAdmin
+    // Read current on_hand
+    const { data: invRow, error: invErr } = await supabase
       .from("storage_inventory")
-      .select("on_hand,par_level")
+      .select("on_hand")
       .eq("storage_area_id", storage_area_id)
-      .eq("item_id", item_id)
+      .eq("item_id", body.item_id)
       .single();
 
-    if (inv2Err) return NextResponse.json({ ok: false, error: inv2Err.message }, { status: 500 });
+    if (invErr) throw invErr;
 
-    const current = Number(inv2.on_hand ?? 0);
-    const nextOnHand = mode === "USE" ? Math.max(0, current - qty) : current + qty;
+    const current = Math.trunc(Number(invRow?.on_hand ?? 0));
+    const next =
+      body.mode === "RESTOCK"
+        ? current + qty
+        : Math.max(0, current - qty);
 
-    // Update row
-    const { error: updErr } = await supabaseAdmin
+    // Update location on_hand
+    const { error: updErr } = await supabase
       .from("storage_inventory")
-      .update({
-        on_hand: nextOnHand,
-        updated_at: new Date().toISOString(),
-      })
+      .update({ on_hand: next })
       .eq("storage_area_id", storage_area_id)
-      .eq("item_id", item_id);
+      .eq("item_id", body.item_id);
 
-    if (updErr) return NextResponse.json({ ok: false, error: updErr.message }, { status: 500 });
+    if (updErr) throw updErr;
 
-    // Optional audit log
-    try {
-      await supabaseAdmin.from("inventory_events").insert({
-        event_type: mode,
-        item_id,
-        storage_area_id,
-        qty,
-        note: mainOverride ? "MAIN override" : null,
-      });
-    } catch {}
+    // Ensure building totals row exists
+    await supabase
+      .from("building_inventory")
+      .upsert({ item_id: body.item_id, total_on_hand: 0 }, { onConflict: "item_id" });
 
-    return NextResponse.json({ ok: true, on_hand: nextOnHand }, { status: 200 });
+    // Update building totals
+    const delta = body.mode === "RESTOCK" ? qty : -qty;
+
+    const { data: biRow, error: biErr } = await supabase
+      .from("building_inventory")
+      .select("total_on_hand")
+      .eq("item_id", body.item_id)
+      .single();
+
+    if (biErr) throw biErr;
+
+    const curTotal = Math.trunc(Number(biRow?.total_on_hand ?? 0));
+    const nextTotal = Math.max(0, curTotal + delta);
+
+    const { error: biUpdErr } = await supabase
+      .from("building_inventory")
+      .update({ total_on_hand: nextTotal })
+      .eq("item_id", body.item_id);
+
+    if (biUpdErr) throw biUpdErr;
+
+    return NextResponse.json({ ok: true, on_hand: next, building_total: nextTotal });
   } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message ?? "Unknown error" }, { status: 500 });
+    return NextResponse.json({ ok: false, error: e?.message ?? "Unknown error" });
   }
 }
