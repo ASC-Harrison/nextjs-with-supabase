@@ -1,23 +1,28 @@
-// app/api/locations/route.ts
 import { NextResponse } from "next/server";
-import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { createClient } from "@supabase/supabase-js";
+
+function getServiceClient() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !key) throw new Error("Missing env for service client");
+  return createClient(url, key, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+}
 
 export async function GET() {
   try {
-    const { data, error } = await supabaseAdmin
+    const supabase = getServiceClient();
+
+    const { data, error } = await supabase
       .from("storage_areas")
-      .select("id,name,active")
-      .eq("active", true)
+      .select("id,name")
       .order("name", { ascending: true });
 
-    if (error) {
-      return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
-    }
+    if (error) throw error;
 
-    const locations = (data ?? []).map((r) => ({ id: r.id, name: r.name }));
-
-    return NextResponse.json({ ok: true, locations }, { status: 200 });
+    return NextResponse.json({ ok: true, locations: data ?? [] });
   } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message ?? "Unknown error" }, { status: 500 });
+    return NextResponse.json({ ok: false, error: e?.message ?? "Unknown error" });
   }
 }
