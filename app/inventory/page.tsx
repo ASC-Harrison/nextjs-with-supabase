@@ -129,16 +129,11 @@ export default function InventoryPage() {
   );
   const [setOnHandInput, setSetOnHandInput] = useState<string>("");
   const [deltaInput, setDeltaInput] = useState<string>("");
-
-  // ✅ NEW: par input (building par)
   const [parInput, setParInput] = useState<string>("");
 
   // pending totals action gated by PIN (if locked)
   const [pendingTotalsAction, setPendingTotalsAction] = useState<
-    | null
-    | { kind: "SET"; value: number }
-    | { kind: "ADJUST"; delta: number }
-    | { kind: "SET_PAR"; value: number }
+    null | { kind: "SET"; value: number } | { kind: "ADJUST"; delta: number }
   >(null);
 
   const filteredTotals = useMemo(() => {
@@ -526,10 +521,8 @@ export default function InventoryPage() {
 
       if (action.kind === "SET") {
         await doTotalsSet(totalsEditRow, action.value, true);
-      } else if (action.kind === "ADJUST") {
+      } else {
         await doTotalsAdjust(totalsEditRow, action.delta, true);
-      } else if (action.kind === "SET_PAR") {
-        await doTotalsSetPar(totalsEditRow, action.value, true);
       }
       return;
     }
@@ -642,7 +635,7 @@ export default function InventoryPage() {
     setTotalsEditRow(row);
     setSetOnHandInput(String(row.total_on_hand ?? 0));
     setDeltaInput("");
-    setParInput(String(row.par_level ?? 0)); // ✅ NEW
+    setParInput(String(row.par_level ?? 0));
     setTotalsEditOpen(true);
   }
 
@@ -746,49 +739,6 @@ export default function InventoryPage() {
     await loadTotals();
   }
 
-  // ✅ NEW: Set Par Level for building_inventory
-  async function doTotalsSetPar(
-    row: BuildingTotalRow,
-    value: number,
-    pinAlreadyPassed = false
-  ) {
-    if (!staffName.trim()) {
-      setTab("Audit");
-      alert("Enter staff name in Audit tab first.");
-      return;
-    }
-
-    if (locked && !pinAlreadyPassed) {
-      setPendingTotalsAction({ kind: "SET_PAR", value });
-      openPin("totalsEdit");
-      return;
-    }
-
-    const res = await fetch("/api/building-inventory/update", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      cache: "no-store",
-      body: JSON.stringify({
-        name: row.name,
-        action: "SET_PAR",
-        value,
-      }),
-    });
-
-    const json = await res.json();
-    if (!json.ok) {
-      alert(`Par update failed: ${json.error}`);
-      return;
-    }
-
-    pushAudit({
-      action: "TOTALS_ADJUST",
-      details: `Item=${row.name} PAR=${value}`,
-    });
-
-    await loadTotals();
-  }
-
   // ---------- UI ----------
   return (
     <div className="min-h-screen w-full bg-black text-white overflow-x-hidden flex justify-center">
@@ -818,7 +768,7 @@ export default function InventoryPage() {
               </div>
             </div>
 
-            <div className="text-right w-[140px] shrink-0">
+            <div className="text-right w-[160px] shrink-0">
               <div className="text-[11px] text-white/60">Location</div>
               <div className="text-sm font-semibold leading-tight break-words">
                 {selectedAreaName}
@@ -833,7 +783,7 @@ export default function InventoryPage() {
             </div>
           </div>
 
-          {/* Tabs in a grid so no overflow */}
+          {/* Tabs */}
           <div className="mt-3 grid grid-cols-4 gap-2">
             <TabBtn
               active={tab === "Transaction"}
@@ -1075,7 +1025,7 @@ export default function InventoryPage() {
               </Modal>
             )}
 
-            {/* ✅ Full-screen scanner */}
+            {/* Full-screen scanner */}
             {scannerOpen && (
               <div className="fixed inset-0 z-[60] bg-black">
                 <div
@@ -1160,9 +1110,7 @@ export default function InventoryPage() {
                 Refresh
               </button>
               <button
-                onClick={() => {
-                  window.scrollTo({ top: 0, behavior: "smooth" });
-                }}
+                onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
                 className="rounded-2xl bg-white/10 px-4 py-3 text-sm font-semibold ring-1 ring-white/10"
               >
                 ↑
@@ -1235,8 +1183,8 @@ export default function InventoryPage() {
                     )}
 
                     <div className="mt-2 text-[11px] text-white/50">
-                      Tap to edit on-hand / par
-                      {locked ? " (PIN required)" : ""}
+                      Tap to edit on-hand + PAR
+                      {locked ? " (PIN required for totals updates)" : ""}
                     </div>
                   </button>
                 );
@@ -1266,8 +1214,63 @@ export default function InventoryPage() {
                   </div>
                 </div>
 
-                {/* SET exact */}
+                {/* ✅ PAR (updates items.par_level via SET_PAR) */}
                 <div className="mt-4 rounded-2xl bg-black/30 p-3 ring-1 ring-white/10">
+                  <div className="text-sm font-semibold">Set PAR level</div>
+                  <div className="mt-2 flex gap-2">
+                    <input
+                      value={parInput}
+                      onChange={(e) =>
+                        setParInput(e.target.value.replace(/[^\d]/g, ""))
+                      }
+                      inputMode="numeric"
+                      className="flex-1 rounded-2xl bg-white text-black px-4 py-3"
+                      placeholder="e.g., 30"
+                    />
+                    <button
+                      onClick={async () => {
+                        const n = parseIntSafe(parInput);
+                        if (n === null || n < 0)
+                          return alert("Enter a valid PAR (0 or more).");
+
+                        const res = await fetch(
+                          "/api/building-inventory/update",
+                          {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            cache: "no-store",
+                            body: JSON.stringify({
+                              name: totalsEditRow.name,
+                              action: "SET_PAR",
+                              par_level: n,
+                            }),
+                          }
+                        );
+
+                        const json = await res.json();
+                        if (!json.ok)
+                          return alert(`PAR update failed: ${json.error}`);
+
+                        pushAudit({
+                          action: "TOTALS_ADJUST",
+                          details: `PAR Set Item=${totalsEditRow.name} Par=${n}`,
+                        });
+
+                        setTotalsEditOpen(false);
+                        await loadTotals();
+                      }}
+                      className="rounded-2xl bg-white px-4 py-3 text-sm font-extrabold text-black"
+                    >
+                      Set PAR
+                    </button>
+                  </div>
+                  <div className="mt-2 text-[11px] text-white/55">
+                    PAR is stored in <span className="font-semibold">items.par_level</span>.
+                  </div>
+                </div>
+
+                {/* SET exact */}
+                <div className="mt-3 rounded-2xl bg-black/30 p-3 ring-1 ring-white/10">
                   <div className="text-sm font-semibold">Set exact on-hand</div>
                   <div className="mt-2 flex gap-2">
                     <input
@@ -1293,36 +1296,6 @@ export default function InventoryPage() {
                   </div>
                   <div className="mt-2 text-[11px] text-white/55">
                     Best for cycle counts (truth).
-                  </div>
-                </div>
-
-                {/* ✅ NEW: SET PAR */}
-                <div className="mt-3 rounded-2xl bg-black/30 p-3 ring-1 ring-white/10">
-                  <div className="text-sm font-semibold">Set Par Level</div>
-                  <div className="mt-2 flex gap-2">
-                    <input
-                      value={parInput}
-                      onChange={(e) =>
-                        setParInput(e.target.value.replace(/[^\d]/g, ""))
-                      }
-                      inputMode="numeric"
-                      className="flex-1 rounded-2xl bg-white text-black px-4 py-3"
-                      placeholder="e.g., 30"
-                    />
-                    <button
-                      onClick={async () => {
-                        const n = parseIntSafe(parInput);
-                        if (n === null || n < 0)
-                          return alert("Enter a valid Par (0 or more).");
-                        await doTotalsSetPar(totalsEditRow, n);
-                      }}
-                      className="rounded-2xl bg-white px-4 py-3 text-sm font-extrabold text-black"
-                    >
-                      Set Par
-                    </button>
-                  </div>
-                  <div className="mt-2 text-[11px] text-white/55">
-                    Sets the purchasing/stock target for this item.
                   </div>
                 </div>
 
@@ -1386,7 +1359,7 @@ export default function InventoryPage() {
                 </div>
 
                 <div className="mt-3 text-[11px] text-white/50">
-                  Locked devices require PIN before saving.
+                  Locked devices require PIN before saving totals actions.
                 </div>
               </Modal>
             )}
@@ -1407,8 +1380,7 @@ export default function InventoryPage() {
                 placeholder="e.g., Jeremy Johnson"
               />
               <div className="mt-2 text-xs text-white/50">
-                Tip: set staff name per device (or later enforce via server-side
-                audit).
+                Tip: staff name is per device for now.
               </div>
             </div>
 
