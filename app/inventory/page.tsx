@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import type { BrowserMultiFormatReader } from "@zxing/browser";
 import { createClient } from "@supabase/supabase-js";
 
-type Tab = "Tx" | "Transactions" | "Totals" | "Audit" | "Settings";
+type Tab = "Transaction" | "Totals" | "Audit" | "Settings";
 type Mode = "USE" | "RESTOCK";
 type Area = { id: string; name: string };
 type Item = { id: string; name: string; barcode: string };
@@ -55,9 +55,11 @@ const LS = {
 function nowIso() {
   return new Date().toISOString();
 }
+
 function uid() {
   return `${Date.now()}_${Math.random().toString(16).slice(2)}`;
 }
+
 function safeJsonParse<T>(raw: string | null, fallback: T): T {
   if (!raw) return fallback;
   try {
@@ -65,9 +67,6 @@ function safeJsonParse<T>(raw: string | null, fallback: T): T {
   } catch {
     return fallback;
   }
-}
-function cn(...classes: Array<string | false | null | undefined>) {
-  return classes.filter(Boolean).join(" ");
 }
 
 // ✅ Client-side Supabase for Totals tab (reads from a VIEW)
@@ -79,7 +78,7 @@ const supabase = createClient(
 export default function InventoryPage() {
   const router = useRouter();
 
-  const [tab, setTab] = useState<Tab>("Tx");
+  const [tab, setTab] = useState<Tab>("Transaction");
   const [mode, setMode] = useState<Mode>("USE");
   const [qty, setQty] = useState(1);
   const [mainOverride, setMainOverride] = useState(false);
@@ -131,10 +130,42 @@ export default function InventoryPage() {
   const [setOnHandInput, setSetOnHandInput] = useState<string>("");
   const [deltaInput, setDeltaInput] = useState<string>("");
 
+  // ✅ NEW: par input (building par)
+  const [parInput, setParInput] = useState<string>("");
+
   // pending totals action gated by PIN (if locked)
   const [pendingTotalsAction, setPendingTotalsAction] = useState<
-    null | { kind: "SET"; value: number } | { kind: "ADJUST"; delta: number }
+    | null
+    | { kind: "SET"; value: number }
+    | { kind: "ADJUST"; delta: number }
+    | { kind: "SET_PAR"; value: number }
   >(null);
+
+  const filteredTotals = useMemo(() => {
+    const q = totalsSearch.trim().toLowerCase();
+    let list = totals;
+
+    if (q) {
+      list = list.filter((r) => {
+        return (
+          (r.name || "").toLowerCase().includes(q) ||
+          (r.vendor || "").toLowerCase().includes(q) ||
+          (r.category || "").toLowerCase().includes(q) ||
+          (r.reference_number || "").toLowerCase().includes(q)
+        );
+      });
+    }
+
+    if (totalsLowOnly) {
+      list = list.filter((r) => {
+        const onHand = r.total_on_hand ?? 0;
+        const low = r.low_level ?? 0;
+        return low > 0 && onHand <= low;
+      });
+    }
+
+    return list;
+  }, [totals, totalsSearch, totalsLowOnly]);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const readerRef = useRef<BrowserMultiFormatReader | null>(null);
@@ -180,7 +211,7 @@ export default function InventoryPage() {
 
   useEffect(() => {
     try {
-      localStorage.setItem(LS.AUDIT, JSON.stringify(audit.slice(0, 800)));
+      localStorage.setItem(LS.AUDIT, JSON.stringify(audit.slice(0, 500)));
     } catch {}
   }, [audit]);
 
@@ -193,7 +224,7 @@ export default function InventoryPage() {
       action: ev.action,
       details: ev.details,
     };
-    setAudit((prev) => [entry, ...prev].slice(0, 800));
+    setAudit((prev) => [entry, ...prev].slice(0, 500));
   }
 
   // ---------- LOAD LOCATIONS ----------
@@ -272,7 +303,7 @@ export default function InventoryPage() {
   }, [scannerOpen]);
 
   useEffect(() => {
-    if (tab !== "Tx") {
+    if (tab !== "Transaction") {
       stopScanner();
       setScannerOpen(false);
     }
@@ -328,30 +359,54 @@ export default function InventoryPage() {
       const decodeFromVideoElement =
         (reader as any).decodeFromVideoElement?.bind(reader);
 
-      const handleResult = async (result: any) => {
-        if (!result) return;
-        const text = result.getText?.() ?? "";
-        if (!text) return;
-
-        const now = Date.now();
-        if (now < scanCooldownRef.current) return;
-        scanCooldownRef.current = now + 900;
-
-        if (text === lastScanRef.current) return;
-        lastScanRef.current = text;
-
-        setQuery(text);
-
-        stopScanner();
-        setScannerOpen(false);
-
-        await lookupBarcode(text);
-      };
-
       if (decodeFromVideoElement) {
-        await decodeFromVideoElement(videoRef.current, handleResult);
+        await decodeFromVideoElement(videoRef.current, async (result: any) => {
+          if (!result) return;
+          const text = result.getText?.() ?? "";
+          if (!text) return;
+
+          const now = Date.now();
+          if (now < scanCooldownRef.current) return;
+          scanCooldownRef.current = now + 900;
+
+          if (
+            text === lastScanRef.current &&
+            now < scanCooldownRef.current + 1
+          )
+            return;
+          lastScanRef.current = text;
+
+          setQuery(text);
+
+          stopScanner();
+          setScannerOpen(false);
+
+          await lookupBarcode(text);
+        });
       } else {
-        await reader.decodeFromVideoDevice(undefined, videoRef.current, handleResult);
+        await reader.decodeFromVideoDevice(
+          undefined,
+          videoRef.current,
+          async (result) => {
+            if (!result) return;
+            const text = result.getText?.() ?? "";
+            if (!text) return;
+
+            const now = Date.now();
+            if (now < scanCooldownRef.current) return;
+            scanCooldownRef.current = now + 900;
+
+            if (text === lastScanRef.current) return;
+            lastScanRef.current = text;
+
+            setQuery(text);
+
+            stopScanner();
+            setScannerOpen(false);
+
+            await lookupBarcode(text);
+          }
+        );
       }
     } catch {
       setScannerOpen(false);
@@ -471,8 +526,10 @@ export default function InventoryPage() {
 
       if (action.kind === "SET") {
         await doTotalsSet(totalsEditRow, action.value, true);
-      } else {
+      } else if (action.kind === "ADJUST") {
         await doTotalsAdjust(totalsEditRow, action.delta, true);
+      } else if (action.kind === "SET_PAR") {
+        await doTotalsSetPar(totalsEditRow, action.value, true);
       }
       return;
     }
@@ -585,6 +642,7 @@ export default function InventoryPage() {
     setTotalsEditRow(row);
     setSetOnHandInput(String(row.total_on_hand ?? 0));
     setDeltaInput("");
+    setParInput(String(row.par_level ?? 0)); // ✅ NEW
     setTotalsEditOpen(true);
   }
 
@@ -688,50 +746,54 @@ export default function InventoryPage() {
     await loadTotals();
   }
 
-  // ---------- TRANSACTIONS TAB (derived from Audit SUBMIT_TX) ----------
-  const txEvents = useMemo(() => {
-    const list = audit.filter((a) => a.action === "SUBMIT_TX");
-    return list
-      .map((e) => {
-        const d = e.details || "";
-        // Details format we log:
-        // Mode=USE Qty=1 Item=NAME Area=AREA Override=MAIN/NO
-        const mode = /Mode=([A-Z]+)/.exec(d)?.[1] ?? "—";
-        const qty = Number(/Qty=(\d+)/.exec(d)?.[1] ?? "0");
-        const itemName = /Item=(.+?) Area=/.exec(d)?.[1] ?? "(unknown item)";
-        const area = /Area=(.+?) Override=/.exec(d)?.[1] ?? "—";
-        const override = /Override=(MAIN|NO)/.exec(d)?.[1] ?? "NO";
-        return {
-          ...e,
-          _mode: mode as Mode,
-          _qty: qty,
-          _item: itemName,
-          _area: area,
-          _override: override,
-        };
-      })
-      .slice(0, 150);
-  }, [audit]);
+  // ✅ NEW: Set Par Level for building_inventory
+  async function doTotalsSetPar(
+    row: BuildingTotalRow,
+    value: number,
+    pinAlreadyPassed = false
+  ) {
+    if (!staffName.trim()) {
+      setTab("Audit");
+      alert("Enter staff name in Audit tab first.");
+      return;
+    }
 
-  const txStats = useMemo(() => {
-    const uses = txEvents.filter((t) => t._mode === "USE").length;
-    const restocks = txEvents.filter((t) => t._mode === "RESTOCK").length;
-    const totalQty = txEvents.reduce((sum, t) => sum + (t._qty || 0), 0);
-    return { uses, restocks, totalQty };
-  }, [txEvents]);
+    if (locked && !pinAlreadyPassed) {
+      setPendingTotalsAction({ kind: "SET_PAR", value });
+      openPin("totalsEdit");
+      return;
+    }
+
+    const res = await fetch("/api/building-inventory/update", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      cache: "no-store",
+      body: JSON.stringify({
+        name: row.name,
+        action: "SET_PAR",
+        value,
+      }),
+    });
+
+    const json = await res.json();
+    if (!json.ok) {
+      alert(`Par update failed: ${json.error}`);
+      return;
+    }
+
+    pushAudit({
+      action: "TOTALS_ADJUST",
+      details: `Item=${row.name} PAR=${value}`,
+    });
+
+    await loadTotals();
+  }
 
   // ---------- UI ----------
   return (
     <div className="min-h-screen w-full bg-black text-white overflow-x-hidden flex justify-center">
-      {/* subtle background glow (lightweight) */}
-      <div className="pointer-events-none fixed inset-0 opacity-60">
-        <div className="absolute -top-24 left-1/2 h-72 w-[900px] -translate-x-1/2 rounded-full bg-white/10 blur-3xl" />
-        <div className="absolute top-56 left-8 h-56 w-56 rounded-full bg-white/5 blur-3xl" />
-        <div className="absolute bottom-16 right-8 h-64 w-64 rounded-full bg-white/5 blur-3xl" />
-      </div>
-
       <div
-        className="relative w-full max-w-md px-3 pb-8 overflow-x-hidden"
+        className="w-full max-w-md px-3 pb-6 overflow-x-hidden"
         style={{ paddingTop: "env(safe-area-inset-top)" }}
       >
         {/* Back */}
@@ -745,20 +807,18 @@ export default function InventoryPage() {
         </div>
 
         {/* Header card */}
-        <div className="rounded-[28px] bg-white/5 p-3 ring-1 ring-white/10">
+        <div className="rounded-3xl bg-white/5 p-3 ring-1 ring-white/10">
           <div className="grid grid-cols-[1fr_auto] gap-3 items-start">
             <div className="min-w-0">
-              <div className="text-4xl font-extrabold leading-none">
-                Baxter
-                <br />
-                ASC Inventory
+              <div className="text-3xl font-extrabold leading-none">
+                Baxter ASC Inventory
               </div>
-              <div className="mt-2 text-xs text-white/60">
+              <div className="mt-1 text-xs text-white/60">
                 Cabinet tracking + building totals + low stock alerts
               </div>
             </div>
 
-            <div className="text-right w-[150px] shrink-0">
+            <div className="text-right w-[140px] shrink-0">
               <div className="text-[11px] text-white/60">Location</div>
               <div className="text-sm font-semibold leading-tight break-words">
                 {selectedAreaName}
@@ -766,28 +826,20 @@ export default function InventoryPage() {
 
               <button
                 onClick={() => openPin(locked ? "unlock" : "lock")}
-                className={cn(
-                  "mt-2 w-full rounded-2xl px-3 py-2 ring-1 text-sm font-semibold",
-                  locked
-                    ? "bg-white/10 ring-white/10 text-white"
-                    : "bg-white text-black ring-white/20"
-                )}
+                className="mt-2 w-full rounded-2xl bg-white/10 px-3 py-2 ring-1 ring-white/10 text-sm font-semibold"
               >
                 {locked ? "🔒 Locked" : "🔓 Unlocked"}
               </button>
             </div>
           </div>
 
-          {/* Tabs (2-row grid so it never overflows) */}
-          <div className="mt-4 grid grid-cols-3 gap-2">
-            <TabBtn active={tab === "Tx"} onClick={() => setTab("Tx")}>
-              Tx
-            </TabBtn>
+          {/* Tabs in a grid so no overflow */}
+          <div className="mt-3 grid grid-cols-4 gap-2">
             <TabBtn
-              active={tab === "Transactions"}
-              onClick={() => setTab("Transactions")}
+              active={tab === "Transaction"}
+              onClick={() => setTab("Transaction")}
             >
-              Transactions
+              Tx
             </TabBtn>
             <TabBtn active={tab === "Totals"} onClick={() => setTab("Totals")}>
               Totals
@@ -801,13 +853,12 @@ export default function InventoryPage() {
             >
               Settings
             </TabBtn>
-            <div className="hidden" />
           </div>
         </div>
 
         {/* TAB CONTENT */}
-        {tab === "Tx" ? (
-          <div className="mt-3 rounded-[28px] bg-white/5 p-4 ring-1 ring-white/10">
+        {tab === "Transaction" ? (
+          <div className="mt-3 rounded-3xl bg-white/5 p-4 ring-1 ring-white/10">
             <div className="text-sm text-white/70">Select location</div>
 
             <select
@@ -844,12 +895,12 @@ export default function InventoryPage() {
                 </div>
                 <button
                   onClick={onToggleOverride}
-                  className={cn(
+                  className={[
                     "shrink-0 rounded-2xl px-4 py-3 ring-1",
                     mainOverride
                       ? "bg-white text-black ring-white/20"
-                      : "bg-black/40 text-white ring-white/10"
-                  )}
+                      : "bg-black/40 text-white ring-white/10",
+                  ].join(" ")}
                 >
                   <div className="text-xs opacity-80">⚡</div>
                   <div className="text-sm font-semibold">
@@ -900,7 +951,7 @@ export default function InventoryPage() {
                     }
                   }}
                   placeholder="Scan barcode or type item"
-                  className="w-full rounded-2xl bg-white text-black px-4 py-4 pr-14"
+                  className="w-full rounded-2xl bg-white text-black px-4 py-3 pr-14"
                 />
                 <button
                   onClick={() => startScanner()}
@@ -930,15 +981,15 @@ export default function InventoryPage() {
               <QtyBtn onClick={() => setQty((q) => Math.max(1, q - 1))}>
                 −
               </QtyBtn>
-              <div className="flex-1 rounded-2xl bg-white px-4 py-4 text-center text-black">
-                <span className="text-xl font-extrabold">{qty}</span>
+              <div className="flex-1 rounded-2xl bg-white px-4 py-3 text-center text-black">
+                <span className="text-lg font-semibold">{qty}</span>
               </div>
               <QtyBtn onClick={() => setQty((q) => q + 1)}>+</QtyBtn>
             </div>
 
             {/* Submit */}
             <button
-              className="mt-3 w-full rounded-2xl bg-black/80 px-4 py-4 text-white font-extrabold ring-1 ring-white/10 disabled:opacity-60"
+              className="mt-3 w-full rounded-2xl bg-black/80 px-4 py-4 text-white font-semibold disabled:opacity-60"
               disabled={!item || locked}
               onClick={submit}
             >
@@ -1056,7 +1107,7 @@ export default function InventoryPage() {
                     playsInline
                   />
                   <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-                    <div className="h-56 w-80 rounded-2xl ring-2 ring-white/40" />
+                    <div className="h-52 w-80 rounded-2xl ring-2 ring-white/40" />
                   </div>
                 </div>
 
@@ -1072,104 +1123,8 @@ export default function InventoryPage() {
               </div>
             )}
           </div>
-        ) : tab === "Transactions" ? (
-          <div className="mt-3 rounded-[28px] bg-white/5 p-4 ring-1 ring-white/10">
-            <div className="flex items-start justify-between gap-2">
-              <div>
-                <div className="text-lg font-extrabold">Transactions</div>
-                <div className="text-xs text-white/60">
-                  This device’s submitted transactions (from your audit log).
-                </div>
-              </div>
-              <div className="text-right">
-                <div className="text-[11px] text-white/60">Total qty</div>
-                <div className="text-lg font-extrabold">{txStats.totalQty}</div>
-              </div>
-            </div>
-
-            <div className="mt-3 grid grid-cols-3 gap-2">
-              <div className="rounded-2xl bg-black/30 p-3 ring-1 ring-white/10">
-                <div className="text-[11px] text-white/60">USE</div>
-                <div className="text-lg font-extrabold">{txStats.uses}</div>
-              </div>
-              <div className="rounded-2xl bg-black/30 p-3 ring-1 ring-white/10">
-                <div className="text-[11px] text-white/60">RESTOCK</div>
-                <div className="text-lg font-extrabold">{txStats.restocks}</div>
-              </div>
-              <button
-                onClick={() => {
-                  if (!confirm("Clear this device’s transaction log?")) return;
-                  const kept = audit.filter((a) => a.action !== "SUBMIT_TX");
-                  setAudit(kept);
-                }}
-                className="rounded-2xl bg-white/10 p-3 ring-1 ring-white/10 text-left"
-              >
-                <div className="text-[11px] text-white/60">Action</div>
-                <div className="text-sm font-extrabold">Clear Tx</div>
-              </button>
-            </div>
-
-            <div className="mt-3 space-y-2">
-              {txEvents.length === 0 ? (
-                <div className="rounded-2xl bg-black/30 p-3 text-sm text-white/60 ring-1 ring-white/10">
-                  No submitted transactions yet.
-                </div>
-              ) : (
-                txEvents.map((t) => {
-                  const isUse = t._mode === "USE";
-                  return (
-                    <div
-                      key={t.id}
-                      className="rounded-2xl bg-black/30 p-3 ring-1 ring-white/10"
-                    >
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="min-w-0">
-                          <div className="text-sm font-extrabold break-words">
-                            {t._item}
-                          </div>
-                          <div className="mt-1 text-xs text-white/60 break-words">
-                            {t._area} • Staff:{" "}
-                            <span className="font-semibold text-white/80">
-                              {t.staff}
-                            </span>
-                          </div>
-                          <div className="mt-1 text-[11px] text-white/50">
-                            {new Date(t.ts).toLocaleString()}
-                            {t._override === "MAIN" ? " • MAIN override" : ""}
-                          </div>
-                        </div>
-
-                        <div
-                          className={cn(
-                            "shrink-0 rounded-2xl px-3 py-2 text-right ring-1",
-                            isUse
-                              ? "bg-red-600/20 ring-red-500/30 text-red-100"
-                              : "bg-emerald-500/15 ring-emerald-500/25 text-emerald-100"
-                          )}
-                        >
-                          <div className="text-[11px] font-semibold opacity-80">
-                            {t._mode}
-                          </div>
-                          <div className="text-lg font-extrabold">
-                            {isUse ? "-" : "+"}
-                            {t._qty}
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })
-              )}
-            </div>
-
-            <div className="mt-3 text-[11px] text-white/50">
-              Want this to show building-wide transactions from Supabase (all
-              devices)? Tell me and I’ll wire it to a server-side API route so
-              RLS never blocks you.
-            </div>
-          </div>
         ) : tab === "Totals" ? (
-          <div className="mt-3 rounded-[28px] bg-white/5 p-4 ring-1 ring-white/10">
+          <div className="mt-3 rounded-3xl bg-white/5 p-4 ring-1 ring-white/10">
             <div className="flex items-center justify-between gap-2">
               <div className="text-lg font-semibold">Building Totals</div>
               <div className="text-xs text-white/60">
@@ -1186,12 +1141,12 @@ export default function InventoryPage() {
               />
               <button
                 onClick={() => setTotalsLowOnly((v) => !v)}
-                className={cn(
+                className={[
                   "rounded-2xl px-4 py-3 font-extrabold ring-1 text-sm",
                   totalsLowOnly
                     ? "bg-red-600 text-white ring-red-500/30"
-                    : "bg-white/10 text-white ring-white/10"
-                )}
+                    : "bg-white/10 text-white ring-white/10",
+                ].join(" ")}
               >
                 {totalsLowOnly ? "LOW ONLY" : "ALL ITEMS"}
               </button>
@@ -1205,7 +1160,9 @@ export default function InventoryPage() {
                 Refresh
               </button>
               <button
-                onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
+                onClick={() => {
+                  window.scrollTo({ top: 0, behavior: "smooth" });
+                }}
                 className="rounded-2xl bg-white/10 px-4 py-3 text-sm font-semibold ring-1 ring-white/10"
               >
                 ↑
@@ -1219,82 +1176,81 @@ export default function InventoryPage() {
             )}
 
             <div className="mt-3 space-y-2">
-              {filteredTotals(totals, totalsSearch, totalsLowOnly)
-                .slice(0, 250)
-                .map((r) => {
-                  const onHand = r.total_on_hand ?? 0;
-                  const low = r.low_level ?? 0;
-                  const isLow = low > 0 && onHand <= low;
+              {filteredTotals.slice(0, 200).map((r) => {
+                const onHand = r.total_on_hand ?? 0;
+                const low = r.low_level ?? 0;
+                const isLow = low > 0 && onHand <= low;
 
-                  return (
-                    <button
-                      key={`${r.name}-${r.reference_number ?? ""}`}
-                      onClick={() => openTotalsEditor(r)}
-                      className="w-full text-left rounded-2xl bg-black/30 p-3 ring-1 ring-white/10"
-                    >
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="min-w-0">
-                          <div className="text-sm font-semibold break-words">
-                            {r.name}
-                          </div>
-                          <div className="mt-1 text-xs text-white/60 break-words">
-                            {r.vendor ?? "—"} • {r.category ?? "—"}{" "}
-                            {r.reference_number ? `• ${r.reference_number}` : ""}
-                          </div>
+                return (
+                  <button
+                    key={`${r.name}-${r.reference_number ?? ""}`}
+                    onClick={() => openTotalsEditor(r)}
+                    className="w-full text-left rounded-2xl bg-black/30 p-3 ring-1 ring-white/10"
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <div className="text-sm font-semibold break-words">
+                          {r.name}
                         </div>
-
-                        <div
-                          className={cn(
-                            "shrink-0 rounded-2xl px-3 py-2 text-sm font-extrabold ring-1",
-                            isLow
-                              ? "bg-red-600 text-white ring-red-500/30"
-                              : "bg-white/10 text-white ring-white/10"
-                          )}
-                        >
-                          {onHand}
-                          <div className="text-[10px] font-semibold opacity-80">
-                            on hand
-                          </div>
+                        <div className="mt-1 text-xs text-white/60 break-words">
+                          {r.vendor ?? "—"} • {r.category ?? "—"}{" "}
+                          {r.reference_number ? `• ${r.reference_number}` : ""}
                         </div>
                       </div>
 
-                      <div className="mt-2 grid grid-cols-3 gap-2 text-xs">
-                        <div className="rounded-xl bg-white/5 p-2 ring-1 ring-white/10">
-                          <div className="text-white/60">Par</div>
-                          <div className="font-semibold">{r.par_level ?? 0}</div>
-                        </div>
-                        <div className="rounded-xl bg-white/5 p-2 ring-1 ring-white/10">
-                          <div className="text-white/60">Low</div>
-                          <div className="font-semibold">{r.low_level ?? 0}</div>
-                        </div>
-                        <div className="rounded-xl bg-white/5 p-2 ring-1 ring-white/10">
-                          <div className="text-white/60">Unit</div>
-                          <div className="font-semibold">{r.unit ?? "—"}</div>
+                      <div
+                        className={[
+                          "shrink-0 rounded-2xl px-3 py-2 text-sm font-extrabold ring-1",
+                          isLow
+                            ? "bg-red-600 text-white ring-red-500/30"
+                            : "bg-white/10 text-white ring-white/10",
+                        ].join(" ")}
+                      >
+                        {onHand}
+                        <div className="text-[10px] font-semibold opacity-80">
+                          on hand
                         </div>
                       </div>
+                    </div>
 
-                      {r.notes && (
-                        <div className="mt-2 text-[11px] text-white/60 break-words">
-                          Notes: {r.notes}
-                        </div>
-                      )}
-
-                      <div className="mt-2 text-[11px] text-white/50">
-                        Tap to edit on-hand
-                        {locked ? " (PIN required)" : ""}
+                    <div className="mt-2 grid grid-cols-3 gap-2 text-xs">
+                      <div className="rounded-xl bg-white/5 p-2 ring-1 ring-white/10">
+                        <div className="text-white/60">Par</div>
+                        <div className="font-semibold">{r.par_level ?? 0}</div>
                       </div>
-                    </button>
-                  );
-                })}
+                      <div className="rounded-xl bg-white/5 p-2 ring-1 ring-white/10">
+                        <div className="text-white/60">Low</div>
+                        <div className="font-semibold">{r.low_level ?? 0}</div>
+                      </div>
+                      <div className="rounded-xl bg-white/5 p-2 ring-1 ring-white/10">
+                        <div className="text-white/60">Unit</div>
+                        <div className="font-semibold">{r.unit ?? "—"}</div>
+                      </div>
+                    </div>
+
+                    {r.notes && (
+                      <div className="mt-2 text-[11px] text-white/60 break-words">
+                        Notes: {r.notes}
+                      </div>
+                    )}
+
+                    <div className="mt-2 text-[11px] text-white/50">
+                      Tap to edit on-hand / par
+                      {locked ? " (PIN required)" : ""}
+                    </div>
+                  </button>
+                );
+              })}
             </div>
 
             <div className="mt-3 text-[11px] text-white/50">
-              Showing up to 250 rows on phones for speed.
+              Showing up to 200 rows to keep it fast on phones.
             </div>
 
+            {/* Totals Edit Modal */}
             {totalsEditOpen && totalsEditRow && (
               <Modal
-                title="Edit building on-hand"
+                title="Edit building totals"
                 okText="Close"
                 onCancel={() => setTotalsEditOpen(false)}
                 onOk={() => setTotalsEditOpen(false)}
@@ -1310,6 +1266,7 @@ export default function InventoryPage() {
                   </div>
                 </div>
 
+                {/* SET exact */}
                 <div className="mt-4 rounded-2xl bg-black/30 p-3 ring-1 ring-white/10">
                   <div className="text-sm font-semibold">Set exact on-hand</div>
                   <div className="mt-2 flex gap-2">
@@ -1339,6 +1296,37 @@ export default function InventoryPage() {
                   </div>
                 </div>
 
+                {/* ✅ NEW: SET PAR */}
+                <div className="mt-3 rounded-2xl bg-black/30 p-3 ring-1 ring-white/10">
+                  <div className="text-sm font-semibold">Set Par Level</div>
+                  <div className="mt-2 flex gap-2">
+                    <input
+                      value={parInput}
+                      onChange={(e) =>
+                        setParInput(e.target.value.replace(/[^\d]/g, ""))
+                      }
+                      inputMode="numeric"
+                      className="flex-1 rounded-2xl bg-white text-black px-4 py-3"
+                      placeholder="e.g., 30"
+                    />
+                    <button
+                      onClick={async () => {
+                        const n = parseIntSafe(parInput);
+                        if (n === null || n < 0)
+                          return alert("Enter a valid Par (0 or more).");
+                        await doTotalsSetPar(totalsEditRow, n);
+                      }}
+                      className="rounded-2xl bg-white px-4 py-3 text-sm font-extrabold text-black"
+                    >
+                      Set Par
+                    </button>
+                  </div>
+                  <div className="mt-2 text-[11px] text-white/55">
+                    Sets the purchasing/stock target for this item.
+                  </div>
+                </div>
+
+                {/* ADJUST +/- */}
                 <div className="mt-3 rounded-2xl bg-black/30 p-3 ring-1 ring-white/10">
                   <div className="text-sm font-semibold">Adjust + / −</div>
                   <div className="mt-2 grid grid-cols-3 gap-2">
@@ -1404,7 +1392,7 @@ export default function InventoryPage() {
             )}
           </div>
         ) : tab === "Audit" ? (
-          <div className="mt-3 rounded-[28px] bg-white/5 p-4 ring-1 ring-white/10 overflow-hidden">
+          <div className="mt-3 rounded-3xl bg-white/5 p-4 ring-1 ring-white/10 overflow-hidden">
             <div className="text-lg font-semibold">Audit</div>
             <div className="mt-1 text-xs text-white/60">
               Set staff name (saved on this device). Actions are logged below.
@@ -1419,7 +1407,8 @@ export default function InventoryPage() {
                 placeholder="e.g., Jeremy Johnson"
               />
               <div className="mt-2 text-xs text-white/50">
-                Tip: set staff name per device.
+                Tip: set staff name per device (or later enforce via server-side
+                audit).
               </div>
             </div>
 
@@ -1459,7 +1448,7 @@ export default function InventoryPage() {
                   No audit events yet.
                 </div>
               ) : (
-                audit.slice(0, 80).map((e) => (
+                audit.slice(0, 60).map((e) => (
                   <div
                     key={e.id}
                     className="rounded-2xl bg-black/30 p-3 ring-1 ring-white/10"
@@ -1484,7 +1473,7 @@ export default function InventoryPage() {
             </div>
           </div>
         ) : (
-          <div className="mt-3 rounded-[28px] bg-white/5 p-4 ring-1 ring-white/10">
+          <div className="mt-3 rounded-3xl bg-white/5 p-4 ring-1 ring-white/10">
             <div className="text-lg font-semibold">Settings</div>
             <div className="mt-3 text-sm text-white/70">
               Set/Change PIN (min 4 digits):
@@ -1495,36 +1484,6 @@ export default function InventoryPage() {
       </div>
     </div>
   );
-}
-
-function filteredTotals(
-  totals: BuildingTotalRow[],
-  totalsSearch: string,
-  totalsLowOnly: boolean
-) {
-  const q = totalsSearch.trim().toLowerCase();
-  let list = totals;
-
-  if (q) {
-    list = list.filter((r) => {
-      return (
-        (r.name || "").toLowerCase().includes(q) ||
-        (r.vendor || "").toLowerCase().includes(q) ||
-        (r.category || "").toLowerCase().includes(q) ||
-        (r.reference_number || "").toLowerCase().includes(q)
-      );
-    });
-  }
-
-  if (totalsLowOnly) {
-    list = list.filter((r) => {
-      const onHand = r.total_on_hand ?? 0;
-      const low = r.low_level ?? 0;
-      return low > 0 && onHand <= low;
-    });
-  }
-
-  return list;
 }
 
 function TabBtn({
@@ -1539,12 +1498,12 @@ function TabBtn({
   return (
     <button
       onClick={onClick}
-      className={cn(
-        "rounded-2xl px-2 py-2 text-xs font-extrabold ring-1 transition",
+      className={[
+        "rounded-2xl px-2 py-2 text-xs font-extrabold ring-1",
         active
           ? "bg-white text-black ring-white/20"
-          : "bg-white/5 text-white ring-white/10 hover:bg-white/10"
-      )}
+          : "bg-white/5 text-white ring-white/10",
+      ].join(" ")}
     >
       {children}
     </button>
@@ -1559,10 +1518,10 @@ function ModeBtn({ active, danger, onClick, children }: any) {
   return (
     <button
       onClick={onClick}
-      className={cn(
-        "rounded-2xl px-3 py-2 text-sm font-bold ring-1 transition",
-        active ? activeCls : inactiveCls
-      )}
+      className={[
+        "rounded-2xl px-3 py-2 text-sm font-bold ring-1",
+        active ? activeCls : inactiveCls,
+      ].join(" ")}
     >
       {children}
     </button>
