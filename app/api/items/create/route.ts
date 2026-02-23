@@ -1,79 +1,71 @@
-// app/api/items/create/route.ts
 import { NextResponse } from "next/server";
-import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { createClient } from "@supabase/supabase-js";
+
+function getServiceClient() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !key) throw new Error("Missing env for service client");
+  return createClient(url, key, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+}
 
 export async function POST(req: Request) {
   try {
-    const body = await req.json();
+    const body = (await req.json()) as {
+      name?: string;
+      barcode?: string;
+      storage_area_id?: string;
+      par_level?: number;
+    };
 
-    const name = String(body?.name ?? "").trim();
-    const barcode = String(body?.barcode ?? "").trim();
-    const storage_area_id = String(body?.area_id ?? body?.storage_area_id ?? "").trim();
-    const par_level = Number(body?.par_level ?? 0);
+    const name = (body.name || "").trim();
+    const barcode = (body.barcode || "").trim();
+    const storage_area_id = (body.storage_area_id || "").trim();
+    const par_level = Number(body.par_level ?? 0);
 
-    if (!name) return NextResponse.json({ ok: false, error: "Missing name" }, { status: 400 });
-    if (!barcode) return NextResponse.json({ ok: false, error: "Missing barcode" }, { status: 400 });
-    if (!storage_area_id) return NextResponse.json({ ok: false, error: "Missing storage_area_id" }, { status: 400 });
+    if (!name) return NextResponse.json({ ok: false, error: "Missing name" });
+    if (!barcode) return NextResponse.json({ ok: false, error: "Missing barcode" });
+    if (!storage_area_id)
+      return NextResponse.json({ ok: false, error: "Missing storage_area_id" });
+    if (!Number.isFinite(par_level) || par_level < 0)
+      return NextResponse.json({ ok: false, error: "par_level must be >= 0" });
 
-    // Create item
-    const { data: newItem, error: itemErr } = await supabaseAdmin
+    const supabase = getServiceClient();
+
+    // 1) Create the item (global PAR stored in items.par_level)
+    const { data: item, error: itemErr } = await supabase
       .from("items")
       .insert({
         name,
         barcode,
-        par_level: Number.isFinite(par_level) ? par_level : 0,
-        active: true,
+        par_level: Math.trunc(par_level),
       })
       .select("id,name,barcode")
       .single();
 
-    if (itemErr) return NextResponse.json({ ok: false, error: itemErr.message }, { status: 500 });
+    if (itemErr) throw itemErr;
 
-    // Create barcode mapping too (if you use item_barcodes)
-    await supabaseAdmin.from("item_barcodes").insert({
-      item_id: newItem.id,
-      barcode,
-    });
-
-    // Ensure storage_inventory row exists for this area/item
-    const { data: invRow, error: invErr } = await supabaseAdmin
-      .from("storage_inventory")
-      .select("storage_area_id,item_id,on_hand,par_level")
-      .eq("storage_area_id", storage_area_id)
-      .eq("item_id", newItem.id)
-      .maybeSingle();
-
-    if (invErr) return NextResponse.json({ ok: false, error: invErr.message }, { status: 500 });
-
-    if (!invRow) {
-      const { error: insErr } = await supabaseAdmin.from("storage_inventory").insert({
+    // 2) Ensure storage_inventory row exists for this location (per-location PAR too)
+    const { error: invErr } = await supabase.from("storage_inventory").upsert(
+      {
         storage_area_id,
-        item_id: newItem.id,
+        item_id: item.id,
         on_hand: 0,
-        par_level: Number.isFinite(par_level) ? par_level : 0,
-        low: false,
-        low_notified: false,
-      });
-
-      if (insErr) return NextResponse.json({ ok: false, error: insErr.message }, { status: 500 });
-    }
-
-    // Optional audit log (won't break if table doesn't match)
-    try {
-      await supabaseAdmin.from("inventory_events").insert({
-        event_type: "CREATE_ITEM",
-        item_id: newItem.id,
-        storage_area_id,
-        qty: 0,
-        note: `Created item ${name}`,
-      });
-    } catch {}
-
-    return NextResponse.json(
-      { ok: true, item: { id: newItem.id, name: newItem.name, barcode: newItem.barcode ?? barcode } },
-      { status: 200 }
+        par_level: Math.trunc(par_level),
+      },
+      { onConflict: "storage_area_id,item_id" }
     );
+
+    if (invErr) throw invErr;
+
+    // 3) Ensure building totals row exists
+    await supabase
+      .from("building_inventory")
+      .upsert({ item_id: item.id, total_on_hand: 0 }, { onConflict: "item_id" });
+
+    return NextResponse.json({ ok: true, item });
   } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message ?? "Unknown error" }, { status: 500 });
+    return NextResponse.json({ ok: false, error: e?.message ?? "Unknown error" });
   }
 }
