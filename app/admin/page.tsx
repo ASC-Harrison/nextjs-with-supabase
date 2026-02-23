@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabaseClient";
 
@@ -118,16 +118,42 @@ function StatChip({
   );
 }
 
+type ApiResp = {
+  ok: boolean;
+  rows?: Row[];
+  nextCursor?: string | null;
+  hasMore?: boolean;
+  error?: string;
+};
+
+function useDebounced<T>(value: T, ms: number) {
+  const [v, setV] = useState(value);
+  useEffect(() => {
+    const t = setTimeout(() => setV(value), ms);
+    return () => clearTimeout(t);
+  }, [value, ms]);
+  return v;
+}
+
 export default function AdminPage() {
   const [locked, setLocked] = useState(true);
   const [pinEntry, setPinEntry] = useState("");
+  const [toast, setToast] = useState<string | null>(null);
+
   const [rows, setRows] = useState<Row[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(true);
+  const [cursor, setCursor] = useState<string | null>(null);
+
   const [savingKey, setSavingKey] = useState<string | null>(null);
-  const [toast, setToast] = useState<string | null>(null);
 
   const [q, setQ] = useState("");
   const [onlyLow, setOnlyLow] = useState(false);
+  const dq = useDebounced(q, 300);
+
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     try {
@@ -143,43 +169,6 @@ export default function AdminPage() {
     const t = setTimeout(() => setToast(null), 2200);
     return () => clearTimeout(t);
   }, [toast]);
-
-  async function fetchRows() {
-    setLoading(true);
-    setToast(null);
-
-    const { data, error } = await supabase
-      .from("storage_inventory")
-      .select(
-        `
-        storage_area_id,
-        item_id,
-        on_hand,
-        par_level,
-        low,
-        low_notified,
-        updated_at,
-        storage_areas:storage_area_id ( name ),
-        items:item_id ( name, barcode, vendor, category )
-      `
-      )
-      .order("updated_at", { ascending: false });
-
-    if (error) {
-      setToast(`Load failed: ${error.message}`);
-      setRows([]);
-      setLoading(false);
-      return;
-    }
-
-    setRows((data as Row[]) || []);
-    setLoading(false);
-  }
-
-  useEffect(() => {
-    fetchRows();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   function openPinAndUnlock() {
     const stored = localStorage.getItem(LS_PIN) || "";
@@ -203,27 +192,101 @@ export default function AdminPage() {
     setToast("Locked 🔒");
   }
 
-  const filtered = useMemo(() => {
-    const needle = q.trim().toLowerCase();
-    return rows.filter((r) => {
-      if (onlyLow && !r.low) return false;
-      if (!needle) return true;
+  async function loadFirstPage() {
+    setLoading(true);
+    setToast(null);
+    setCursor(null);
+    setHasMore(true);
+    setRows([]);
 
-      const area = (r.storage_areas?.name || "").toLowerCase();
-      const name = (r.items?.name || "").toLowerCase();
-      const barcode = (r.items?.barcode || "").toLowerCase();
-      const vendor = (r.items?.vendor || "").toLowerCase();
-      const cat = (r.items?.category || "").toLowerCase();
+    abortRef.current?.abort();
+    const ac = new AbortController();
+    abortRef.current = ac;
 
-      return (
-        area.includes(needle) ||
-        name.includes(needle) ||
-        barcode.includes(needle) ||
-        vendor.includes(needle) ||
-        cat.includes(needle)
-      );
+    const params = new URLSearchParams();
+    if (dq.trim()) params.set("q", dq.trim());
+    if (onlyLow) params.set("onlyLow", "1");
+    params.set("limit", "200");
+
+    const res = await fetch(`/api/admin-inventory?${params.toString()}`, {
+      signal: ac.signal,
     });
-  }, [rows, q, onlyLow]);
+    const json = (await res.json()) as ApiResp;
+
+    if (!json.ok) {
+      setToast(`Load failed: ${json.error || "unknown error"}`);
+      setLoading(false);
+      return;
+    }
+
+    setRows(json.rows || []);
+    setCursor(json.nextCursor || null);
+    setHasMore(Boolean(json.hasMore));
+    setLoading(false);
+  }
+
+  async function loadMore() {
+    if (!hasMore) return;
+    if (loadingMore) return;
+    if (!cursor) return;
+
+    setLoadingMore(true);
+    setToast(null);
+
+    const params = new URLSearchParams();
+    if (dq.trim()) params.set("q", dq.trim());
+    if (onlyLow) params.set("onlyLow", "1");
+    params.set("limit", "200");
+    params.set("cursor", cursor);
+
+    const res = await fetch(`/api/admin-inventory?${params.toString()}`);
+    const json = (await res.json()) as ApiResp;
+
+    if (!json.ok) {
+      setToast(`Load failed: ${json.error || "unknown error"}`);
+      setLoadingMore(false);
+      return;
+    }
+
+    const incoming = json.rows || [];
+
+    // De-dupe by composite key
+    const seen = new Set(rows.map((r) => `${r.storage_area_id}:${r.item_id}`));
+    const merged = [...rows];
+    for (const r of incoming) {
+      const key = `${r.storage_area_id}:${r.item_id}`;
+      if (!seen.has(key)) merged.push(r);
+    }
+
+    setRows(merged);
+    setCursor(json.nextCursor || null);
+    setHasMore(Boolean(json.hasMore));
+    setLoadingMore(false);
+  }
+
+  // Load whenever filters change (debounced search + low toggle)
+  useEffect(() => {
+    loadFirstPage();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dq, onlyLow]);
+
+  // Infinite scroll observer
+  useEffect(() => {
+    const el = sentinelRef.current;
+    if (!el) return;
+
+    const io = new IntersectionObserver(
+      (entries) => {
+        const first = entries[0];
+        if (first.isIntersecting) loadMore();
+      },
+      { root: null, rootMargin: "900px", threshold: 0 }
+    );
+
+    io.observe(el);
+    return () => io.disconnect();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cursor, hasMore, loadingMore, dq, onlyLow]);
 
   const stats = useMemo(() => {
     const total = rows.length;
@@ -353,7 +416,7 @@ export default function AdminPage() {
 
               <button
                 type="button"
-                onClick={fetchRows}
+                onClick={loadFirstPage}
                 className="rounded-2xl bg-white/5 px-4 py-3 text-sm font-extrabold ring-1 ring-white/10 hover:bg-white/10"
               >
                 Refresh
@@ -385,7 +448,6 @@ export default function AdminPage() {
         <div className="overflow-hidden rounded-3xl border border-white/10 bg-white/[0.03] ring-1 ring-white/5">
           <div className="overflow-x-auto">
             <div className="min-w-[980px]">
-              {/* sticky header */}
               <div className="sticky top-0 z-20 grid grid-cols-12 gap-0 border-b border-white/10 bg-black/70 px-4 py-3 text-xs font-semibold tracking-wider text-white/55">
                 <div className="col-span-3 sticky left-0 z-30 bg-black/70 pr-2">AREA</div>
                 <div className="col-span-4 sticky left-[240px] z-30 bg-black/70 pr-2">ITEM</div>
@@ -397,11 +459,11 @@ export default function AdminPage() {
 
               {loading ? (
                 <div className="p-6 text-white/60">Loading…</div>
-              ) : filtered.length === 0 ? (
+              ) : rows.length === 0 ? (
                 <div className="p-6 text-white/60">No results.</div>
               ) : (
                 <div className="divide-y divide-white/10">
-                  {filtered.map((r) => {
+                  {rows.map((r) => {
                     const areaName = r.storage_areas?.name || "(unknown area)";
                     const itemName = r.items?.name || "(unknown item)";
                     const barcode = r.items?.barcode || "";
@@ -419,7 +481,6 @@ export default function AdminPage() {
                           r.low ? "bg-amber-500/8 hover:bg-amber-500/14" : "hover:bg-white/[0.04]"
                         )}
                       >
-                        {/* ✅ sticky AREA */}
                         <div className="col-span-3 sticky left-0 z-10 bg-black/60 pr-2">
                           <div className="text-sm font-extrabold text-white/90">{areaName}</div>
                           <div className="mt-0.5 text-xs text-white/45">
@@ -427,7 +488,6 @@ export default function AdminPage() {
                           </div>
                         </div>
 
-                        {/* ✅ sticky ITEM */}
                         <div className="col-span-4 sticky left-[240px] z-10 bg-black/60 pr-2 min-w-0">
                           <div className="text-sm font-extrabold truncate">{itemName}</div>
                           <div className="mt-0.5 text-xs text-white/45">
@@ -467,7 +527,6 @@ export default function AdminPage() {
                           />
                         </div>
 
-                        {/* ✅ sticky STATUS */}
                         <div className="col-span-1 sticky right-0 z-10 bg-black/60 pl-2 flex justify-end">
                           <div className="flex items-center gap-2">
                             {(savingKey === onHandKey || savingKey === parKey) && (
@@ -479,6 +538,16 @@ export default function AdminPage() {
                       </div>
                     );
                   })}
+                </div>
+              )}
+
+              {/* Sentinel */}
+              <div ref={sentinelRef} className="h-10" />
+
+              {/* Footer loader */}
+              {rows.length > 0 && (
+                <div className="px-4 py-4 text-sm text-white/55">
+                  {loadingMore ? "Loading more…" : hasMore ? "Scroll to load more…" : "End of results."}
                 </div>
               )}
             </div>
