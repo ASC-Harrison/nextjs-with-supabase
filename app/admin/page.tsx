@@ -4,17 +4,6 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabaseClient";
 
-/**
- * ADMIN TABLE VIEW (Elite UI)
- * - Reads: storage_inventory + joined storage_areas + items
- * - Edits ONLY: storage_inventory.on_hand, storage_inventory.par_level
- * - PIN gate is localStorage-based
- *
- * ✅ NO LIMIT (loads all rows)
- * ✅ Desktop elite table
- * ✅ Mobile now looks like desktop: same table, horizontal scroll
- */
-
 const LS_PIN = "ASC_ADMIN_PIN";
 const LS_UNLOCK = "ASC_ADMIN_UNLOCKED";
 
@@ -174,7 +163,7 @@ export default function AdminPage() {
         items:item_id ( name, barcode, vendor, category )
       `
       )
-      .order("updated_at", { ascending: false }); // ✅ NO LIMIT
+      .order("updated_at", { ascending: false });
 
     if (error) {
       setToast(`Load failed: ${error.message}`);
@@ -286,14 +275,14 @@ export default function AdminPage() {
 
   return (
     <div className="min-h-screen bg-black text-white overflow-x-hidden">
-      {/* Elite background */}
+      {/* background */}
       <div className="pointer-events-none fixed inset-0 opacity-70">
         <div className="absolute -top-24 left-1/2 h-80 w-[980px] -translate-x-1/2 rounded-full bg-white/10 blur-3xl" />
         <div className="absolute top-40 left-10 h-64 w-64 rounded-full bg-white/5 blur-3xl" />
         <div className="absolute bottom-10 right-10 h-80 w-80 rounded-full bg-white/5 blur-3xl" />
       </div>
 
-      {/* Sticky header */}
+      {/* header */}
       <div className="sticky top-0 z-20 border-b border-white/10 bg-black/70">
         <div className="mx-auto w-full max-w-6xl px-4 py-4">
           <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
@@ -338,7 +327,6 @@ export default function AdminPage() {
             </div>
           </div>
 
-          {/* Controls */}
           <div className="mt-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
             <div className="flex w-full flex-col gap-2 md:flex-row md:items-center">
               <div className="relative w-full md:max-w-xl">
@@ -392,22 +380,19 @@ export default function AdminPage() {
         </div>
       </div>
 
-      {/* Content */}
+      {/* table */}
       <div className="mx-auto w-full max-w-6xl px-4 py-6">
-        {/* ✅ One table for ALL sizes (desktop look everywhere) */}
         <div className="overflow-hidden rounded-3xl border border-white/10 bg-white/[0.03] ring-1 ring-white/5">
-          {/* Horizontal scroll shell for mobile */}
           <div className="overflow-x-auto">
-            {/* Make sure table doesn't squish on mobile */}
             <div className="min-w-[980px]">
-              {/* Header row (sticky inside scroll area) */}
-              <div className="sticky top-0 z-10 grid grid-cols-12 gap-0 border-b border-white/10 bg-black/60 px-4 py-3 text-xs font-semibold tracking-wider text-white/55">
-                <div className="col-span-3">AREA</div>
-                <div className="col-span-4">ITEM</div>
+              {/* sticky header */}
+              <div className="sticky top-0 z-20 grid grid-cols-12 gap-0 border-b border-white/10 bg-black/70 px-4 py-3 text-xs font-semibold tracking-wider text-white/55">
+                <div className="col-span-3 sticky left-0 z-30 bg-black/70 pr-2">AREA</div>
+                <div className="col-span-4 sticky left-[240px] z-30 bg-black/70 pr-2">ITEM</div>
                 <div className="col-span-2">BARCODE</div>
                 <div className="col-span-1 text-center">ON HAND</div>
                 <div className="col-span-1 text-center">PAR</div>
-                <div className="col-span-1 text-right">STATUS</div>
+                <div className="col-span-1 sticky right-0 z-30 bg-black/70 text-right pl-2">STATUS</div>
               </div>
 
               {loading ? (
@@ -421,28 +406,29 @@ export default function AdminPage() {
                     const itemName = r.items?.name || "(unknown item)";
                     const barcode = r.items?.barcode || "";
                     const statusTone = r.low ? "warn" : "good";
+                    const rowKey = `${r.storage_area_id}:${r.item_id}`;
 
-                    const onHandKey = `${r.storage_area_id}:${r.item_id}:on_hand`;
-                    const parKey = `${r.storage_area_id}:${r.item_id}:par_level`;
+                    const onHandKey = `${rowKey}:on_hand`;
+                    const parKey = `${rowKey}:par_level`;
 
                     return (
                       <div
-                        key={`${r.storage_area_id}:${r.item_id}`}
+                        key={rowKey}
                         className={cn(
                           "grid grid-cols-12 items-center gap-0 px-4 py-3 transition",
-                          r.low
-                            ? "bg-amber-500/8 hover:bg-amber-500/14"
-                            : "hover:bg-white/[0.04]"
+                          r.low ? "bg-amber-500/8 hover:bg-amber-500/14" : "hover:bg-white/[0.04]"
                         )}
                       >
-                        <div className="col-span-3">
+                        {/* ✅ sticky AREA */}
+                        <div className="col-span-3 sticky left-0 z-10 bg-black/60 pr-2">
                           <div className="text-sm font-extrabold text-white/90">{areaName}</div>
                           <div className="mt-0.5 text-xs text-white/45">
                             {r.items?.vendor ? r.items.vendor : r.items?.category ? r.items.category : ""}
                           </div>
                         </div>
 
-                        <div className="col-span-4 min-w-0">
+                        {/* ✅ sticky ITEM */}
+                        <div className="col-span-4 sticky left-[240px] z-10 bg-black/60 pr-2 min-w-0">
                           <div className="text-sm font-extrabold truncate">{itemName}</div>
                           <div className="mt-0.5 text-xs text-white/45">
                             {r.items?.category ? `Category: ${r.items.category}` : ""}
@@ -457,11 +443,11 @@ export default function AdminPage() {
                           <input
                             disabled={locked}
                             defaultValue={String(r.on_hand ?? 0)}
+                            onFocus={(e) => e.currentTarget.select()}
                             onBlur={(e) => saveCell(r, "on_hand", e.target.value)}
                             className={cn(
                               "w-20 rounded-2xl bg-white/5 px-3 py-2 text-center text-sm font-extrabold tabular-nums",
                               "ring-1 ring-white/10 outline-none focus:ring-white/30",
-                              "shadow-[inset_0_0_0_1px_rgba(255,255,255,0.03)]",
                               locked && "opacity-60"
                             )}
                           />
@@ -471,17 +457,18 @@ export default function AdminPage() {
                           <input
                             disabled={locked}
                             defaultValue={String(r.par_level ?? 0)}
+                            onFocus={(e) => e.currentTarget.select()}
                             onBlur={(e) => saveCell(r, "par_level", e.target.value)}
                             className={cn(
                               "w-20 rounded-2xl bg-white/5 px-3 py-2 text-center text-sm font-extrabold tabular-nums",
                               "ring-1 ring-white/10 outline-none focus:ring-white/30",
-                              "shadow-[inset_0_0_0_1px_rgba(255,255,255,0.03)]",
                               locked && "opacity-60"
                             )}
                           />
                         </div>
 
-                        <div className="col-span-1 flex justify-end">
+                        {/* ✅ sticky STATUS */}
+                        <div className="col-span-1 sticky right-0 z-10 bg-black/60 pl-2 flex justify-end">
                           <div className="flex items-center gap-2">
                             {(savingKey === onHandKey || savingKey === parKey) && (
                               <Pill tone="neutral">Saving…</Pill>
@@ -498,17 +485,6 @@ export default function AdminPage() {
           </div>
         </div>
 
-        <div className="mt-3 text-xs text-white/45">
-          Tip: On mobile, swipe sideways to see all columns. (This keeps the true desktop look.)
-        </div>
-
-        <div className="mt-1 text-xs text-white/45">
-          Note: This edits only{" "}
-          <span className="font-semibold text-white/70">storage_inventory.on_hand</span> and{" "}
-          <span className="font-semibold text-white/70">storage_inventory.par_level</span>.
-        </div>
-
-        {/* Toast */}
         {toast && (
           <div className="fixed bottom-4 left-1/2 z-50 -translate-x-1/2 rounded-2xl bg-black/80 px-4 py-3 text-sm font-semibold text-white ring-1 ring-white/15 backdrop-blur-xl">
             {toast}
