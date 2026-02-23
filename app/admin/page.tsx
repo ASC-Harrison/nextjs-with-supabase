@@ -11,7 +11,8 @@ import { supabase } from "@/lib/supabaseClient";
  * - PIN gate is localStorage-based
  *
  * ✅ LIMIT REMOVED: loads ALL rows
- * ✅ UI upgrade: mobile becomes "desktop-like" compact grid/table
+ * ✅ Desktop layout kept
+ * ✅ Mobile redesigned to "Elite Command Cards" (not table, not basic cards)
  */
 
 const LS_PIN = "ASC_ADMIN_PIN";
@@ -55,7 +56,13 @@ function Pill({
       : "bg-white/5 text-white/75 ring-white/10";
 
   return (
-    <span className={cn("inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold ring-1", toneCls)}>
+    <span
+      className={cn(
+        "inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold ring-1",
+        "shadow-[0_0_0_1px_rgba(255,255,255,0.03)]",
+        toneCls
+      )}
+    >
       {children}
     </span>
   );
@@ -88,6 +95,65 @@ function IconButton({
   );
 }
 
+function StatChip({
+  label,
+  value,
+  tone = "neutral",
+}: {
+  label: string;
+  value: React.ReactNode;
+  tone?: "neutral" | "good" | "warn" | "bad";
+}) {
+  const toneCls =
+    tone === "good"
+      ? "bg-emerald-500/8 ring-emerald-400/20"
+      : tone === "warn"
+      ? "bg-amber-500/8 ring-amber-400/20"
+      : tone === "bad"
+      ? "bg-rose-500/8 ring-rose-400/20"
+      : "bg-white/5 ring-white/10";
+
+  return (
+    <div
+      className={cn(
+        "rounded-2xl px-3 py-2 ring-1",
+        "shadow-[0_12px_40px_rgba(0,0,0,0.25)]",
+        toneCls
+      )}
+    >
+      <div className="text-[10px] tracking-[0.22em] text-white/45">{label}</div>
+      <div className="mt-0.5 text-sm font-extrabold text-white/90 tabular-nums">
+        {value}
+      </div>
+    </div>
+  );
+}
+
+function NumField({
+  disabled,
+  defaultValue,
+  onBlur,
+}: {
+  disabled: boolean;
+  defaultValue: string;
+  onBlur: (v: string) => void;
+}) {
+  return (
+    <input
+      disabled={disabled}
+      inputMode="numeric"
+      defaultValue={defaultValue}
+      onBlur={(e) => onBlur(e.target.value)}
+      className={cn(
+        "w-full rounded-2xl bg-black/35 px-3 py-3 text-center text-lg font-extrabold tabular-nums",
+        "ring-1 ring-white/10 outline-none focus:ring-white/30",
+        "shadow-[inset_0_0_0_1px_rgba(255,255,255,0.03)]",
+        disabled && "opacity-55"
+      )}
+    />
+  );
+}
+
 export default function AdminPage() {
   const [locked, setLocked] = useState(true);
   const [pinEntry, setPinEntry] = useState("");
@@ -99,7 +165,6 @@ export default function AdminPage() {
   const [q, setQ] = useState("");
   const [onlyLow, setOnlyLow] = useState(false);
 
-  // Load lock state
   useEffect(() => {
     try {
       const unlocked = localStorage.getItem(LS_UNLOCK) === "true";
@@ -109,7 +174,6 @@ export default function AdminPage() {
     }
   }, []);
 
-  // Toast auto-hide
   useEffect(() => {
     if (!toast) return;
     const t = setTimeout(() => setToast(null), 2200);
@@ -246,11 +310,11 @@ export default function AdminPage() {
 
   return (
     <div className="min-h-screen bg-black text-white overflow-x-hidden">
-      {/* Background */}
-      <div className="pointer-events-none fixed inset-0 opacity-60">
-        <div className="absolute -top-24 left-1/2 h-72 w-[900px] -translate-x-1/2 rounded-full bg-white/10 blur-3xl" />
-        <div className="absolute top-40 left-10 h-60 w-60 rounded-full bg-white/5 blur-3xl" />
-        <div className="absolute bottom-10 right-10 h-72 w-72 rounded-full bg-white/5 blur-3xl" />
+      {/* Elite background */}
+      <div className="pointer-events-none fixed inset-0 opacity-70">
+        <div className="absolute -top-24 left-1/2 h-80 w-[980px] -translate-x-1/2 rounded-full bg-white/10 blur-3xl" />
+        <div className="absolute top-40 left-10 h-64 w-64 rounded-full bg-white/5 blur-3xl" />
+        <div className="absolute bottom-10 right-10 h-80 w-80 rounded-full bg-white/5 blur-3xl" />
       </div>
 
       {/* Sticky header */}
@@ -258,13 +322,16 @@ export default function AdminPage() {
         <div className="mx-auto w-full max-w-6xl px-4 py-4">
           <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
             <div className="min-w-0">
-              <div className="text-xs tracking-widest text-white/50">BAXTER ASC</div>
+              <div className="text-[11px] tracking-[0.25em] text-white/45">
+                BAXTER ASC • ADMIN CONSOLE
+              </div>
               <h1 className="mt-1 text-3xl font-extrabold leading-tight">
-                Admin Inventory <span className="text-white/60">(Table View)</span>
+                Admin Inventory <span className="text-white/55">(Table View)</span>
               </h1>
               <p className="mt-1 text-sm text-white/60">
-                Edit <span className="font-semibold text-white/80">on_hand</span> and{" "}
-                <span className="font-semibold text-white/80">par_level</span> directly.
+                Edit <span className="font-semibold text-white/85">on_hand</span> and{" "}
+                <span className="font-semibold text-white/85">par_level</span> directly.
+                Saves when you tap out.
               </p>
             </div>
 
@@ -272,26 +339,26 @@ export default function AdminPage() {
               <div className="flex w-full flex-wrap gap-2 md:w-auto md:justify-end">
                 <Link
                   href="/"
-                  className="rounded-xl bg-white/5 px-4 py-2 text-sm font-semibold ring-1 ring-white/10 hover:bg-white/10"
+                  className="rounded-2xl bg-white/5 px-4 py-2.5 text-sm font-extrabold ring-1 ring-white/10 hover:bg-white/10"
                 >
                   Home
                 </Link>
                 <Link
                   href="/inventory"
-                  className="rounded-xl bg-white/5 px-4 py-2 text-sm font-semibold ring-1 ring-white/10 hover:bg-white/10"
+                  className="rounded-2xl bg-white/5 px-4 py-2.5 text-sm font-extrabold ring-1 ring-white/10 hover:bg-white/10"
                 >
                   App
                 </Link>
                 <IconButton onClick={lockNow} active={locked === true}>
-                  {locked ? "Locked" : "Lock"}
+                  {locked ? "🔒 Locked" : "Lock"}
                 </IconButton>
               </div>
 
-              <div className="flex w-full flex-wrap items-center gap-2 md:w-auto md:justify-end">
-                <Pill tone={locked ? "bad" : "good"}>{locked ? "PIN Required" : "Unlocked"}</Pill>
-                <Pill tone="neutral">{stats.total} rows</Pill>
-                <Pill tone={stats.low ? "warn" : "neutral"}>{stats.low} low</Pill>
-                <Pill tone={stats.notified ? "warn" : "neutral"}>{stats.notified} notified</Pill>
+              <div className="grid grid-cols-4 gap-2 w-full md:w-auto">
+                <StatChip label="STATE" value={locked ? "LOCKED" : "OPEN"} tone={locked ? "bad" : "good"} />
+                <StatChip label="ROWS" value={stats.total} />
+                <StatChip label="LOW" value={stats.low} tone={stats.low ? "warn" : "neutral"} />
+                <StatChip label="NOTIFIED" value={stats.notified} tone={stats.notified ? "warn" : "neutral"} />
               </div>
             </div>
           </div>
@@ -312,19 +379,19 @@ export default function AdminPage() {
                 type="button"
                 onClick={() => setOnlyLow((v) => !v)}
                 className={cn(
-                  "rounded-2xl px-4 py-3 text-sm font-semibold ring-1 transition",
+                  "rounded-2xl px-4 py-3 text-sm font-extrabold ring-1 transition",
                   onlyLow
                     ? "bg-amber-400/20 text-amber-100 ring-amber-300/30"
                     : "bg-white/5 text-white/80 ring-white/10 hover:bg-white/10"
                 )}
               >
-                {onlyLow ? "Showing: LOW only" : "Filter: LOW only"}
+                {onlyLow ? "Showing: LOW" : "Filter: LOW"}
               </button>
 
               <button
                 type="button"
                 onClick={fetchRows}
-                className="rounded-2xl bg-white/5 px-4 py-3 text-sm font-semibold ring-1 ring-white/10 hover:bg-white/10"
+                className="rounded-2xl bg-white/5 px-4 py-3 text-sm font-extrabold ring-1 ring-white/10 hover:bg-white/10"
               >
                 Refresh
               </button>
@@ -352,7 +419,7 @@ export default function AdminPage() {
 
       {/* Content */}
       <div className="mx-auto w-full max-w-6xl px-4 py-6">
-        {/* Desktop table (unchanged) */}
+        {/* Desktop table (kept) */}
         <div className="hidden md:block">
           <div className="overflow-hidden rounded-3xl border border-white/10 bg-white/[0.03] ring-1 ring-white/5">
             <div className="grid grid-cols-12 gap-0 border-b border-white/10 px-4 py-3 text-xs font-semibold tracking-wider text-white/50">
@@ -443,108 +510,119 @@ export default function AdminPage() {
               </div>
             )}
           </div>
+
+          <div className="mt-3 text-xs text-white/45">
+            Note: This edits only <span className="font-semibold text-white/70">storage_inventory.on_hand</span> and{" "}
+            <span className="font-semibold text-white/70">storage_inventory.par_level</span>.
+          </div>
         </div>
 
-        {/* ✅ MOBILE: Desktop-like compact grid */}
+        {/* ✅ Mobile: Elite Command Cards */}
         <div className="md:hidden">
-          <div className="overflow-hidden rounded-3xl border border-white/10 bg-white/[0.03] ring-1 ring-white/5">
-            {/* Sticky header row */}
-            <div className="sticky top-[132px] z-10 border-b border-white/10 bg-black/80 px-3 py-2">
-              <div className="grid grid-cols-[1fr_74px_74px_56px] gap-2 text-[11px] font-extrabold tracking-wider text-white/50">
-                <div>AREA / ITEM</div>
-                <div className="text-center">ON</div>
-                <div className="text-center">PAR</div>
-                <div className="text-right">STAT</div>
-              </div>
+          {loading ? (
+            <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-6 text-white/60 ring-1 ring-white/5">
+              Loading…
             </div>
+          ) : filtered.length === 0 ? (
+            <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-6 text-white/60 ring-1 ring-white/5">
+              No results.
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {filtered.map((r) => {
+                const areaName = r.storage_areas?.name || "(unknown area)";
+                const itemName = r.items?.name || "(unknown item)";
+                const barcode = r.items?.barcode || "";
 
-            {loading ? (
-              <div className="p-5 text-white/60">Loading…</div>
-            ) : filtered.length === 0 ? (
-              <div className="p-5 text-white/60">No results.</div>
-            ) : (
-              <div className="divide-y divide-white/10">
-                {filtered.map((r) => {
-                  const areaName = r.storage_areas?.name || "(unknown area)";
-                  const itemName = r.items?.name || "(unknown item)";
-                  const barcode = r.items?.barcode || "";
-                  const onHandKey = `${r.storage_area_id}:${r.item_id}:on_hand`;
-                  const parKey = `${r.storage_area_id}:${r.item_id}:par_level`;
+                const onHandKey = `${r.storage_area_id}:${r.item_id}:on_hand`;
+                const parKey = `${r.storage_area_id}:${r.item_id}:par_level`;
+                const saving = savingKey === onHandKey || savingKey === parKey;
 
-                  return (
+                return (
+                  <div
+                    key={`${r.storage_area_id}:${r.item_id}`}
+                    className={cn(
+                      "rounded-3xl border bg-white/[0.03] p-4 ring-1 ring-white/5",
+                      "shadow-[0_20px_60px_rgba(0,0,0,0.35)]",
+                      r.low ? "border-amber-400/20" : "border-white/10"
+                    )}
+                  >
+                    {/* Top: Item + status */}
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="text-base font-extrabold leading-tight break-words">
+                          {itemName}
+                        </div>
+                        <div className="mt-1 text-xs text-white/55 break-words">
+                          <span className="font-semibold text-white/70">Area:</span>{" "}
+                          {areaName}
+                        </div>
+                        {barcode ? (
+                          <div className="mt-1 text-[11px] text-white/40 break-all">
+                            {barcode}
+                          </div>
+                        ) : null}
+                      </div>
+
+                      <div className="flex flex-col items-end gap-2 shrink-0">
+                        {saving ? <Pill tone="neutral">Saving…</Pill> : null}
+                        <Pill tone={r.low ? "warn" : "good"}>{r.low ? "LOW" : "OK"}</Pill>
+                        {r.low_notified ? <Pill tone="warn">Notified</Pill> : null}
+                      </div>
+                    </div>
+
+                    {/* Control dock */}
                     <div
-                      key={`${r.storage_area_id}:${r.item_id}`}
                       className={cn(
-                        "px-3 py-3",
-                        r.low ? "bg-amber-500/5" : ""
+                        "mt-4 rounded-2xl bg-black/30 p-3 ring-1",
+                        r.low ? "ring-amber-400/20" : "ring-white/10"
                       )}
                     >
-                      <div className="grid grid-cols-[1fr_74px_74px_56px] items-center gap-2">
-                        {/* Left: area + item */}
-                        <div className="min-w-0">
-                          <div className="text-[11px] text-white/55 truncate">{areaName}</div>
-                          <div className="text-sm font-extrabold truncate">{itemName}</div>
-                          {barcode ? (
-                            <div className="mt-0.5 text-[11px] text-white/45 truncate">
-                              {barcode}
-                            </div>
-                          ) : null}
-                        </div>
-
-                        {/* On hand */}
-                        <div className="flex justify-center">
-                          <input
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <div className="text-[10px] tracking-[0.22em] text-white/45">
+                            ON HAND
+                          </div>
+                          <NumField
                             disabled={locked}
                             defaultValue={String(r.on_hand ?? 0)}
-                            onBlur={(e) => saveCell(r, "on_hand", e.target.value)}
-                            className={cn(
-                              "w-full rounded-xl bg-white/5 px-2 py-2 text-center text-sm font-extrabold tabular-nums",
-                              "ring-1 ring-white/10 outline-none focus:ring-white/30",
-                              locked && "opacity-60"
-                            )}
+                            onBlur={(v) => saveCell(r, "on_hand", v)}
                           />
                         </div>
 
-                        {/* Par */}
-                        <div className="flex justify-center">
-                          <input
+                        <div>
+                          <div className="text-[10px] tracking-[0.22em] text-white/45">
+                            PAR
+                          </div>
+                          <NumField
                             disabled={locked}
                             defaultValue={String(r.par_level ?? 0)}
-                            onBlur={(e) => saveCell(r, "par_level", e.target.value)}
-                            className={cn(
-                              "w-full rounded-xl bg-white/5 px-2 py-2 text-center text-sm font-extrabold tabular-nums",
-                              "ring-1 ring-white/10 outline-none focus:ring-white/30",
-                              locked && "opacity-60"
-                            )}
+                            onBlur={(v) => saveCell(r, "par_level", v)}
                           />
-                        </div>
-
-                        {/* Status */}
-                        <div className="flex justify-end">
-                          <div className="flex flex-col items-end gap-1">
-                            {(savingKey === onHandKey || savingKey === parKey) ? (
-                              <Pill tone="neutral">…</Pill>
-                            ) : null}
-                            <Pill tone={r.low ? "warn" : "good"}>{r.low ? "LOW" : "OK"}</Pill>
-                          </div>
                         </div>
                       </div>
 
-                      {/* Notified line (subtle) */}
-                      {r.low_notified ? (
-                        <div className="mt-2 text-[11px] text-amber-200/80">
-                          Notified
+                      {locked ? (
+                        <div className="mt-2 text-[11px] text-white/45">
+                          Locked: enter admin PIN above to edit.
                         </div>
-                      ) : null}
+                      ) : (
+                        <div className="mt-2 text-[11px] text-white/45">
+                          Tap out of the field to save.
+                        </div>
+                      )}
                     </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
 
-          <div className="mt-3 text-xs text-white/45">
-            Tip: This mobile view is “desktop-like” for speed. Values save when you tap out.
+          <div className="mt-4 text-xs text-white/45">
+            Note: This edits only{" "}
+            <span className="font-semibold text-white/70">storage_inventory.on_hand</span>{" "}
+            and{" "}
+            <span className="font-semibold text-white/70">storage_inventory.par_level</span>.
           </div>
         </div>
 
