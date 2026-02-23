@@ -28,7 +28,8 @@ type AuditEvent = {
     | "SCANNER_OPEN"
     | "SCANNER_CLOSE"
     | "TOTALS_SET"
-    | "TOTALS_ADJUST";
+    | "TOTALS_ADJUST"
+    | "PAR_EDIT";
   details?: string;
 };
 
@@ -95,7 +96,7 @@ export default function InventoryPage() {
   const [locked, setLocked] = useState(true);
   const [pinOpen, setPinOpen] = useState(false);
   const [pinPurpose, setPinPurpose] = useState<
-    "unlock" | "lock" | "changeLocation" | "addItem" | "totalsEdit"
+    "unlock" | "lock" | "changeLocation" | "addItem" | "totalsEdit" | "parEdit"
   >("unlock");
   const [pinInput, setPinInput] = useState("");
   const [pendingArea, setPendingArea] = useState("");
@@ -134,6 +135,11 @@ export default function InventoryPage() {
   const [pendingTotalsAction, setPendingTotalsAction] = useState<
     null | { kind: "SET"; value: number } | { kind: "ADJUST"; delta: number }
   >(null);
+
+  // ✅ Par edit (Transaction tab) modal
+  const [parEditOpen, setParEditOpen] = useState(false);
+  const [parInput, setParInput] = useState<string>("");
+  const [pendingParValue, setPendingParValue] = useState<number | null>(null);
 
   const filteredTotals = useMemo(() => {
     const q = totalsSearch.trim().toLowerCase();
@@ -334,7 +340,6 @@ export default function InventoryPage() {
       setStatus("Scanning…");
       pushAudit({ action: "SCAN", details: `Area=${selectedAreaName}` });
 
-      // ✅ Prefer back camera + higher resolution
       const constraints: MediaStreamConstraints = {
         video: {
           facingMode: { ideal: "environment" },
@@ -514,7 +519,6 @@ export default function InventoryPage() {
     }
 
     if (pinPurpose === "totalsEdit") {
-      // perform pending totals action after PIN passes
       const action = pendingTotalsAction;
       setPendingTotalsAction(null);
       if (!action || !totalsEditRow) return;
@@ -524,6 +528,14 @@ export default function InventoryPage() {
       } else {
         await doTotalsAdjust(totalsEditRow, action.delta, true);
       }
+      return;
+    }
+
+    if (pinPurpose === "parEdit") {
+      const val = pendingParValue;
+      setPendingParValue(null);
+      if (!item?.id || !areaId) return;
+      await doParUpdate(val, true);
       return;
     }
   }
@@ -627,6 +639,60 @@ export default function InventoryPage() {
         details: `Area=${selectedAreaName}`,
       });
       return next;
+    });
+  }
+
+  // ---------- PAR EDIT (Transaction tab) ----------
+  function openParEditor() {
+    if (!item?.id) return alert("Scan an item first.");
+    if (!areaId) return alert("Select a location first.");
+
+    setParInput("");
+    setParEditOpen(true);
+  }
+
+  function parsePar(raw: string): number | null {
+    const cleaned = raw.trim();
+    if (cleaned === "") return null; // allow null
+    if (!/^\d+$/.test(cleaned)) return NaN;
+    const n = Number(cleaned);
+    if (!Number.isFinite(n) || n < 0) return NaN;
+    return n;
+  }
+
+  async function doParUpdate(value: number | null, pinAlreadyPassed = false) {
+    if (!item?.id) return;
+    if (!areaId) return;
+
+    if (locked && !pinAlreadyPassed) {
+      setPendingParValue(value);
+      openPin("parEdit");
+      return;
+    }
+
+    const res = await fetch("/api/par-level", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      cache: "no-store",
+      body: JSON.stringify({
+        storage_area_id: areaId,
+        item_id: item.id,
+        par_level: value,
+      }),
+    });
+
+    const json = await res.json();
+    if (!json.ok) {
+      alert(`Par update failed: ${json.error}`);
+      return;
+    }
+
+    setParEditOpen(false);
+    setStatus(`✅ Par updated to ${json.par_level ?? "—"}`);
+
+    pushAudit({
+      action: "PAR_EDIT",
+      details: `Item=${item.name} Area=${selectedAreaName} Par=${json.par_level ?? "null"}`,
     });
   }
 
@@ -917,12 +983,22 @@ export default function InventoryPage() {
             </div>
 
             {item && (
-              <div className="mt-3 rounded-2xl bg-black/30 p-3 ring-1 ring-white/10">
-                <div className="text-sm font-semibold">{item.name}</div>
-                <div className="text-xs text-white/60 break-all">
-                  {item.barcode}
+              <>
+                <div className="mt-3 rounded-2xl bg-black/30 p-3 ring-1 ring-white/10">
+                  <div className="text-sm font-semibold">{item.name}</div>
+                  <div className="text-xs text-white/60 break-all">
+                    {item.barcode}
+                  </div>
                 </div>
-              </div>
+
+                {/* ✅ Edit Par button */}
+                <button
+                  onClick={openParEditor}
+                  className="mt-2 w-full rounded-2xl bg-white/10 px-4 py-3 text-sm font-extrabold ring-1 ring-white/10"
+                >
+                  ✏️ Edit Par (This Location)
+                </button>
+              </>
             )}
 
             {/* Qty */}
@@ -944,6 +1020,44 @@ export default function InventoryPage() {
             >
               Submit
             </button>
+
+            {/* ✅ Par Edit Modal */}
+            {parEditOpen && item && (
+              <Modal
+                title="Edit Par (This Location)"
+                okText="Save"
+                onCancel={() => setParEditOpen(false)}
+                onOk={async () => {
+                  const v = parsePar(parInput);
+                  if (Number.isNaN(v as any)) {
+                    alert("Enter a valid par (0 or higher). Leave blank for null.");
+                    return;
+                  }
+                  await doParUpdate(v);
+                }}
+              >
+                <div className="mt-1 text-xs text-white/60">
+                  Item: <span className="text-white/90 font-semibold">{item.name}</span>
+                </div>
+                <div className="mt-1 text-xs text-white/60">
+                  Location: <span className="text-white/90 font-semibold">{selectedAreaName}</span>
+                </div>
+
+                <div className="mt-3">
+                  <div className="text-xs text-white/60 mb-1">Par level</div>
+                  <input
+                    value={parInput}
+                    onChange={(e) => setParInput(e.target.value.replace(/[^\d]/g, ""))}
+                    inputMode="numeric"
+                    className="w-full rounded-2xl bg-white text-black px-4 py-3"
+                    placeholder="e.g., 10"
+                  />
+                  <div className="mt-2 text-[11px] text-white/55">
+                    If locked, you’ll be asked for PIN before saving.
+                  </div>
+                </div>
+              </Modal>
+            )}
 
             {/* Add Item Modal */}
             {addOpen && (
@@ -998,13 +1112,16 @@ export default function InventoryPage() {
                     ? "Enter PIN to change location"
                     : pinPurpose === "addItem"
                     ? "Enter PIN to add item"
-                    : "Enter PIN to edit totals"
+                    : pinPurpose === "totalsEdit"
+                    ? "Enter PIN to edit totals"
+                    : "Enter PIN to edit par"
                 }
                 okText="OK"
                 onCancel={() => {
                   setPinOpen(false);
                   setPendingArea("");
                   setPendingTotalsAction(null);
+                  setPendingParValue(null);
                 }}
                 onOk={onPinConfirm}
               >
@@ -1110,7 +1227,6 @@ export default function InventoryPage() {
               </button>
               <button
                 onClick={() => {
-                  // quick scroll to top
                   window.scrollTo({ top: 0, behavior: "smooth" });
                 }}
                 className="rounded-2xl bg-white/10 px-4 py-3 text-sm font-semibold ring-1 ring-white/10"
