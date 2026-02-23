@@ -10,9 +10,9 @@ import { supabase } from "@/lib/supabaseClient";
  * - Edits ONLY: storage_inventory.on_hand, storage_inventory.par_level
  * - PIN gate is localStorage-based
  *
- * ✅ LIMIT REMOVED: loads ALL rows
- * ✅ Desktop layout kept
- * ✅ Mobile redesigned to "Elite Command Cards" (not table, not basic cards)
+ * ✅ NO LIMIT (loads all rows)
+ * ✅ Desktop elite table
+ * ✅ Mobile now looks like desktop: same table, horizontal scroll
  */
 
 const LS_PIN = "ASC_ADMIN_PIN";
@@ -50,16 +50,16 @@ function Pill({
     tone === "good"
       ? "bg-emerald-500/10 text-emerald-200 ring-emerald-400/20"
       : tone === "warn"
-      ? "bg-amber-500/10 text-amber-200 ring-amber-400/25"
+      ? "bg-amber-500/12 text-amber-100 ring-amber-300/25"
       : tone === "bad"
-      ? "bg-rose-500/10 text-rose-200 ring-rose-400/25"
+      ? "bg-rose-500/12 text-rose-200 ring-rose-300/25"
       : "bg-white/5 text-white/75 ring-white/10";
 
   return (
     <span
       className={cn(
         "inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold ring-1",
-        "shadow-[0_0_0_1px_rgba(255,255,255,0.03)]",
+        "shadow-[inset_0_0_0_1px_rgba(255,255,255,0.03)]",
         toneCls
       )}
     >
@@ -85,7 +85,7 @@ function IconButton({
       title={title}
       onClick={onClick}
       className={cn(
-        "rounded-xl px-4 py-2 text-sm font-semibold transition",
+        "rounded-2xl px-4 py-2.5 text-sm font-extrabold transition",
         "ring-1 ring-white/10 bg-white/5 hover:bg-white/10",
         active && "bg-white text-black ring-white/40 hover:bg-white"
       )}
@@ -126,31 +126,6 @@ function StatChip({
         {value}
       </div>
     </div>
-  );
-}
-
-function NumField({
-  disabled,
-  defaultValue,
-  onBlur,
-}: {
-  disabled: boolean;
-  defaultValue: string;
-  onBlur: (v: string) => void;
-}) {
-  return (
-    <input
-      disabled={disabled}
-      inputMode="numeric"
-      defaultValue={defaultValue}
-      onBlur={(e) => onBlur(e.target.value)}
-      className={cn(
-        "w-full rounded-2xl bg-black/35 px-3 py-3 text-center text-lg font-extrabold tabular-nums",
-        "ring-1 ring-white/10 outline-none focus:ring-white/30",
-        "shadow-[inset_0_0_0_1px_rgba(255,255,255,0.03)]",
-        disabled && "opacity-55"
-      )}
-    />
   );
 }
 
@@ -243,13 +218,14 @@ export default function AdminPage() {
     const needle = q.trim().toLowerCase();
     return rows.filter((r) => {
       if (onlyLow && !r.low) return false;
-
       if (!needle) return true;
+
       const area = (r.storage_areas?.name || "").toLowerCase();
       const name = (r.items?.name || "").toLowerCase();
       const barcode = (r.items?.barcode || "").toLowerCase();
       const vendor = (r.items?.vendor || "").toLowerCase();
       const cat = (r.items?.category || "").toLowerCase();
+
       return (
         area.includes(needle) ||
         name.includes(needle) ||
@@ -330,8 +306,7 @@ export default function AdminPage() {
               </h1>
               <p className="mt-1 text-sm text-white/60">
                 Edit <span className="font-semibold text-white/85">on_hand</span> and{" "}
-                <span className="font-semibold text-white/85">par_level</span> directly.
-                Saves when you tap out.
+                <span className="font-semibold text-white/85">par_level</span> directly. Saves when you tap out.
               </p>
             </div>
 
@@ -385,7 +360,7 @@ export default function AdminPage() {
                     : "bg-white/5 text-white/80 ring-white/10 hover:bg-white/10"
                 )}
               >
-                {onlyLow ? "Showing: LOW" : "Filter: LOW"}
+                {onlyLow ? "Showing: LOW" : "Filter: LOW only"}
               </button>
 
               <button
@@ -419,211 +394,118 @@ export default function AdminPage() {
 
       {/* Content */}
       <div className="mx-auto w-full max-w-6xl px-4 py-6">
-        {/* Desktop table (kept) */}
-        <div className="hidden md:block">
-          <div className="overflow-hidden rounded-3xl border border-white/10 bg-white/[0.03] ring-1 ring-white/5">
-            <div className="grid grid-cols-12 gap-0 border-b border-white/10 px-4 py-3 text-xs font-semibold tracking-wider text-white/50">
-              <div className="col-span-3">AREA</div>
-              <div className="col-span-4">ITEM</div>
-              <div className="col-span-2">BARCODE</div>
-              <div className="col-span-1 text-center">ON HAND</div>
-              <div className="col-span-1 text-center">PAR</div>
-              <div className="col-span-1 text-right">STATUS</div>
-            </div>
-
-            {loading ? (
-              <div className="p-6 text-white/60">Loading…</div>
-            ) : filtered.length === 0 ? (
-              <div className="p-6 text-white/60">No results.</div>
-            ) : (
-              <div className="divide-y divide-white/10">
-                {filtered.map((r) => {
-                  const areaName = r.storage_areas?.name || "(unknown area)";
-                  const itemName = r.items?.name || "(unknown item)";
-                  const barcode = r.items?.barcode || "";
-                  const statusTone = r.low ? "warn" : "good";
-
-                  const onHandKey = `${r.storage_area_id}:${r.item_id}:on_hand`;
-                  const parKey = `${r.storage_area_id}:${r.item_id}:par_level`;
-
-                  return (
-                    <div
-                      key={`${r.storage_area_id}:${r.item_id}`}
-                      className={cn(
-                        "grid grid-cols-12 items-center gap-0 px-4 py-3 transition",
-                        r.low ? "bg-amber-500/5 hover:bg-amber-500/10" : "hover:bg-white/[0.04]"
-                      )}
-                    >
-                      <div className="col-span-3">
-                        <div className="text-sm font-semibold">{areaName}</div>
-                        <div className="mt-0.5 text-xs text-white/45">
-                          {r.items?.vendor ? r.items.vendor : r.items?.category ? r.items.category : ""}
-                        </div>
-                      </div>
-
-                      <div className="col-span-4 min-w-0">
-                        <div className="text-sm font-semibold truncate">{itemName}</div>
-                        <div className="mt-0.5 text-xs text-white/45">
-                          {r.items?.category ? `Category: ${r.items.category}` : ""}
-                        </div>
-                      </div>
-
-                      <div className="col-span-2">
-                        <div className="text-sm text-white/80 break-all">{barcode || "—"}</div>
-                      </div>
-
-                      <div className="col-span-1 flex justify-center">
-                        <input
-                          disabled={locked}
-                          defaultValue={String(r.on_hand ?? 0)}
-                          onBlur={(e) => saveCell(r, "on_hand", e.target.value)}
-                          className={cn(
-                            "w-20 rounded-xl bg-white/5 px-3 py-2 text-center text-sm font-semibold tabular-nums",
-                            "ring-1 ring-white/10 outline-none focus:ring-white/30",
-                            locked && "opacity-60"
-                          )}
-                        />
-                      </div>
-
-                      <div className="col-span-1 flex justify-center">
-                        <input
-                          disabled={locked}
-                          defaultValue={String(r.par_level ?? 0)}
-                          onBlur={(e) => saveCell(r, "par_level", e.target.value)}
-                          className={cn(
-                            "w-20 rounded-xl bg-white/5 px-3 py-2 text-center text-sm font-semibold tabular-nums",
-                            "ring-1 ring-white/10 outline-none focus:ring-white/30",
-                            locked && "opacity-60"
-                          )}
-                        />
-                      </div>
-
-                      <div className="col-span-1 flex justify-end">
-                        <div className="flex items-center gap-2">
-                          {(savingKey === onHandKey || savingKey === parKey) && <Pill tone="neutral">Saving…</Pill>}
-                          <Pill tone={statusTone as any}>{r.low ? "LOW" : "OK"}</Pill>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
+        {/* ✅ One table for ALL sizes (desktop look everywhere) */}
+        <div className="overflow-hidden rounded-3xl border border-white/10 bg-white/[0.03] ring-1 ring-white/5">
+          {/* Horizontal scroll shell for mobile */}
+          <div className="overflow-x-auto">
+            {/* Make sure table doesn't squish on mobile */}
+            <div className="min-w-[980px]">
+              {/* Header row (sticky inside scroll area) */}
+              <div className="sticky top-0 z-10 grid grid-cols-12 gap-0 border-b border-white/10 bg-black/60 px-4 py-3 text-xs font-semibold tracking-wider text-white/55">
+                <div className="col-span-3">AREA</div>
+                <div className="col-span-4">ITEM</div>
+                <div className="col-span-2">BARCODE</div>
+                <div className="col-span-1 text-center">ON HAND</div>
+                <div className="col-span-1 text-center">PAR</div>
+                <div className="col-span-1 text-right">STATUS</div>
               </div>
-            )}
-          </div>
 
-          <div className="mt-3 text-xs text-white/45">
-            Note: This edits only <span className="font-semibold text-white/70">storage_inventory.on_hand</span> and{" "}
-            <span className="font-semibold text-white/70">storage_inventory.par_level</span>.
+              {loading ? (
+                <div className="p-6 text-white/60">Loading…</div>
+              ) : filtered.length === 0 ? (
+                <div className="p-6 text-white/60">No results.</div>
+              ) : (
+                <div className="divide-y divide-white/10">
+                  {filtered.map((r) => {
+                    const areaName = r.storage_areas?.name || "(unknown area)";
+                    const itemName = r.items?.name || "(unknown item)";
+                    const barcode = r.items?.barcode || "";
+                    const statusTone = r.low ? "warn" : "good";
+
+                    const onHandKey = `${r.storage_area_id}:${r.item_id}:on_hand`;
+                    const parKey = `${r.storage_area_id}:${r.item_id}:par_level`;
+
+                    return (
+                      <div
+                        key={`${r.storage_area_id}:${r.item_id}`}
+                        className={cn(
+                          "grid grid-cols-12 items-center gap-0 px-4 py-3 transition",
+                          r.low
+                            ? "bg-amber-500/8 hover:bg-amber-500/14"
+                            : "hover:bg-white/[0.04]"
+                        )}
+                      >
+                        <div className="col-span-3">
+                          <div className="text-sm font-extrabold text-white/90">{areaName}</div>
+                          <div className="mt-0.5 text-xs text-white/45">
+                            {r.items?.vendor ? r.items.vendor : r.items?.category ? r.items.category : ""}
+                          </div>
+                        </div>
+
+                        <div className="col-span-4 min-w-0">
+                          <div className="text-sm font-extrabold truncate">{itemName}</div>
+                          <div className="mt-0.5 text-xs text-white/45">
+                            {r.items?.category ? `Category: ${r.items.category}` : ""}
+                          </div>
+                        </div>
+
+                        <div className="col-span-2">
+                          <div className="text-sm text-white/80 break-all">{barcode || "—"}</div>
+                        </div>
+
+                        <div className="col-span-1 flex justify-center">
+                          <input
+                            disabled={locked}
+                            defaultValue={String(r.on_hand ?? 0)}
+                            onBlur={(e) => saveCell(r, "on_hand", e.target.value)}
+                            className={cn(
+                              "w-20 rounded-2xl bg-white/5 px-3 py-2 text-center text-sm font-extrabold tabular-nums",
+                              "ring-1 ring-white/10 outline-none focus:ring-white/30",
+                              "shadow-[inset_0_0_0_1px_rgba(255,255,255,0.03)]",
+                              locked && "opacity-60"
+                            )}
+                          />
+                        </div>
+
+                        <div className="col-span-1 flex justify-center">
+                          <input
+                            disabled={locked}
+                            defaultValue={String(r.par_level ?? 0)}
+                            onBlur={(e) => saveCell(r, "par_level", e.target.value)}
+                            className={cn(
+                              "w-20 rounded-2xl bg-white/5 px-3 py-2 text-center text-sm font-extrabold tabular-nums",
+                              "ring-1 ring-white/10 outline-none focus:ring-white/30",
+                              "shadow-[inset_0_0_0_1px_rgba(255,255,255,0.03)]",
+                              locked && "opacity-60"
+                            )}
+                          />
+                        </div>
+
+                        <div className="col-span-1 flex justify-end">
+                          <div className="flex items-center gap-2">
+                            {(savingKey === onHandKey || savingKey === parKey) && (
+                              <Pill tone="neutral">Saving…</Pill>
+                            )}
+                            <Pill tone={statusTone as any}>{r.low ? "LOW" : "OK"}</Pill>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
           </div>
         </div>
 
-        {/* ✅ Mobile: Elite Command Cards */}
-        <div className="md:hidden">
-          {loading ? (
-            <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-6 text-white/60 ring-1 ring-white/5">
-              Loading…
-            </div>
-          ) : filtered.length === 0 ? (
-            <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-6 text-white/60 ring-1 ring-white/5">
-              No results.
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {filtered.map((r) => {
-                const areaName = r.storage_areas?.name || "(unknown area)";
-                const itemName = r.items?.name || "(unknown item)";
-                const barcode = r.items?.barcode || "";
+        <div className="mt-3 text-xs text-white/45">
+          Tip: On mobile, swipe sideways to see all columns. (This keeps the true desktop look.)
+        </div>
 
-                const onHandKey = `${r.storage_area_id}:${r.item_id}:on_hand`;
-                const parKey = `${r.storage_area_id}:${r.item_id}:par_level`;
-                const saving = savingKey === onHandKey || savingKey === parKey;
-
-                return (
-                  <div
-                    key={`${r.storage_area_id}:${r.item_id}`}
-                    className={cn(
-                      "rounded-3xl border bg-white/[0.03] p-4 ring-1 ring-white/5",
-                      "shadow-[0_20px_60px_rgba(0,0,0,0.35)]",
-                      r.low ? "border-amber-400/20" : "border-white/10"
-                    )}
-                  >
-                    {/* Top: Item + status */}
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <div className="text-base font-extrabold leading-tight break-words">
-                          {itemName}
-                        </div>
-                        <div className="mt-1 text-xs text-white/55 break-words">
-                          <span className="font-semibold text-white/70">Area:</span>{" "}
-                          {areaName}
-                        </div>
-                        {barcode ? (
-                          <div className="mt-1 text-[11px] text-white/40 break-all">
-                            {barcode}
-                          </div>
-                        ) : null}
-                      </div>
-
-                      <div className="flex flex-col items-end gap-2 shrink-0">
-                        {saving ? <Pill tone="neutral">Saving…</Pill> : null}
-                        <Pill tone={r.low ? "warn" : "good"}>{r.low ? "LOW" : "OK"}</Pill>
-                        {r.low_notified ? <Pill tone="warn">Notified</Pill> : null}
-                      </div>
-                    </div>
-
-                    {/* Control dock */}
-                    <div
-                      className={cn(
-                        "mt-4 rounded-2xl bg-black/30 p-3 ring-1",
-                        r.low ? "ring-amber-400/20" : "ring-white/10"
-                      )}
-                    >
-                      <div className="grid grid-cols-2 gap-3">
-                        <div>
-                          <div className="text-[10px] tracking-[0.22em] text-white/45">
-                            ON HAND
-                          </div>
-                          <NumField
-                            disabled={locked}
-                            defaultValue={String(r.on_hand ?? 0)}
-                            onBlur={(v) => saveCell(r, "on_hand", v)}
-                          />
-                        </div>
-
-                        <div>
-                          <div className="text-[10px] tracking-[0.22em] text-white/45">
-                            PAR
-                          </div>
-                          <NumField
-                            disabled={locked}
-                            defaultValue={String(r.par_level ?? 0)}
-                            onBlur={(v) => saveCell(r, "par_level", v)}
-                          />
-                        </div>
-                      </div>
-
-                      {locked ? (
-                        <div className="mt-2 text-[11px] text-white/45">
-                          Locked: enter admin PIN above to edit.
-                        </div>
-                      ) : (
-                        <div className="mt-2 text-[11px] text-white/45">
-                          Tap out of the field to save.
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-
-          <div className="mt-4 text-xs text-white/45">
-            Note: This edits only{" "}
-            <span className="font-semibold text-white/70">storage_inventory.on_hand</span>{" "}
-            and{" "}
-            <span className="font-semibold text-white/70">storage_inventory.par_level</span>.
-          </div>
+        <div className="mt-1 text-xs text-white/45">
+          Note: This edits only{" "}
+          <span className="font-semibold text-white/70">storage_inventory.on_hand</span> and{" "}
+          <span className="font-semibold text-white/70">storage_inventory.par_level</span>.
         </div>
 
         {/* Toast */}
