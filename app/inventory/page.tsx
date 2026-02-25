@@ -222,44 +222,54 @@ export default function InventoryPage() {
     setAudit((prev) => [entry, ...prev].slice(0, 500));
   }
 
-  // ---------- LOAD LOCATIONS ----------
-  useEffect(() => {
-    (async () => {
-      setAreasLoading(true);
-      try {
-        const res = await fetch("/api/locations", {
-          method: "GET",
-          cache: "no-store",
-          headers: { "Cache-Control": "no-cache" },
-        });
+  // ---------- LOAD LOCATIONS (REFRESHABLE) ----------
+  async function loadLocations() {
+    setAreasLoading(true);
+    try {
+      const res = await fetch("/api/locations", {
+        method: "GET",
+        cache: "no-store",
+        headers: { "Cache-Control": "no-cache" },
+      });
 
-        const json = await res.json();
+      const json = await res.json();
 
-        if (!json.ok) {
-          setStatus(`Locations error: ${json.error}`);
-          setAreas([]);
-          setAreaId("");
-          return;
-        }
-
-        const list: Area[] = json.locations ?? [];
-        setAreas(list);
-
-        setAreaId((prev) => {
-          if (!list.length) return "";
-          return list.some((a) => a.id === prev) ? prev : list[0].id;
-        });
-
-        setStatus("");
-      } catch (e: any) {
-        setStatus(`Locations fetch failed: ${e?.message ?? "unknown"}`);
+      if (!json.ok) {
+        setStatus(`Locations error: ${json.error}`);
         setAreas([]);
         setAreaId("");
-      } finally {
-        setAreasLoading(false);
+        return;
       }
-    })();
+
+      const list: Area[] = json.locations ?? [];
+      setAreas(list);
+
+      setAreaId((prev) => {
+        if (!list.length) return "";
+        return list.some((a) => a.id === prev) ? prev : list[0].id;
+      });
+
+      setStatus("");
+    } catch (e: any) {
+      setStatus(`Locations fetch failed: ${e?.message ?? "unknown"}`);
+      setAreas([]);
+      setAreaId("");
+    } finally {
+      setAreasLoading(false);
+    }
+  }
+
+  // Load once on mount
+  useEffect(() => {
+    loadLocations();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Also refresh when returning to Transaction tab (so Supabase edits show up)
+  useEffect(() => {
+    if (tab === "Transaction") loadLocations();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab]);
 
   // ---------- LOAD TOTALS (when tab opens) ----------
   async function loadTotals() {
@@ -603,6 +613,11 @@ export default function InventoryPage() {
     setMainOverride(false);
     setQty(1);
     setStatus(`✅ Updated on-hand to ${json.on_hand}`);
+
+    // ✅ Keep totals fresh if you're currently looking at them
+    if (tab === "Totals") {
+      await loadTotals();
+    }
 
     pushAudit({
       action: "SUBMIT_TX",
@@ -1265,7 +1280,8 @@ export default function InventoryPage() {
                     </button>
                   </div>
                   <div className="mt-2 text-[11px] text-white/55">
-                    PAR is stored in <span className="font-semibold">items.par_level</span>.
+                    PAR is stored in{" "}
+                    <span className="font-semibold">items.par_level</span>.
                   </div>
                 </div>
 
