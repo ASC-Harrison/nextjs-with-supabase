@@ -13,22 +13,48 @@ function getServiceClient() {
 export async function POST(req: Request) {
   try {
     const { barcode } = (await req.json()) as { barcode?: string };
-
     const bc = (barcode || "").trim();
     if (!bc) return NextResponse.json({ ok: false, error: "Missing barcode" });
 
     const supabase = getServiceClient();
 
-    // ✅ match trimmed barcode to avoid space issues
-    const { data, error } = await supabase
+    // 1) Try items.barcode first (your current behavior)
+    const { data: directItem, error: directErr } = await supabase
       .from("items")
       .select("id,name,barcode")
-      .ilike("barcode", bc) // case-insensitive exact-ish match for text
+      .eq("barcode", bc)
       .maybeSingle();
 
-    if (error) throw error;
+    if (directErr) throw directErr;
+    if (directItem) return NextResponse.json({ ok: true, item: directItem });
 
-    return NextResponse.json({ ok: true, item: data ?? null });
+    // 2) Fallback: item_barcodes table -> map to items
+    const { data: mapRow, error: mapErr } = await supabase
+      .from("item_barcodes")
+      .select("item_id,barcode")
+      .eq("barcode", bc)
+      .maybeSingle();
+
+    if (mapErr) throw mapErr;
+
+    if (!mapRow?.item_id) {
+      return NextResponse.json({ ok: true, item: null });
+    }
+
+    const { data: mappedItem, error: itemErr } = await supabase
+      .from("items")
+      .select("id,name")
+      .eq("id", mapRow.item_id)
+      .maybeSingle();
+
+    if (itemErr) throw itemErr;
+
+    if (!mappedItem) return NextResponse.json({ ok: true, item: null });
+
+    return NextResponse.json({
+      ok: true,
+      item: { ...mappedItem, barcode: bc },
+    });
   } catch (e: any) {
     return NextResponse.json({ ok: false, error: e?.message ?? "Unknown error" });
   }
