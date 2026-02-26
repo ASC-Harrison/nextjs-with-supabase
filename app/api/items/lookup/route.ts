@@ -19,10 +19,11 @@ export async function POST(req: Request) {
 
     const supabase = getServiceClient();
 
+    // ✅ match trimmed barcode to avoid space issues
     const { data, error } = await supabase
       .from("items")
       .select("id,name,barcode")
-      .eq("barcode", bc)
+      .ilike("barcode", bc) // case-insensitive exact-ish match for text
       .maybeSingle();
 
     if (error) throw error;
