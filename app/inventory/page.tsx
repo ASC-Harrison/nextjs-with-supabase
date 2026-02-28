@@ -28,7 +28,9 @@ type AuditEvent = {
     | "SCANNER_OPEN"
     | "SCANNER_CLOSE"
     | "TOTALS_SET"
-    | "TOTALS_ADJUST";
+    | "TOTALS_ADJUST"
+    | "AREA_LIST_LOAD"
+    | "AREA_LIST_TOGGLE";
   details?: string;
 };
 
@@ -41,6 +43,21 @@ type BuildingTotalRow = {
   par_level: number | null;
   low_level: number | null;
   unit: string | null;
+  notes: string | null;
+};
+
+type AreaInvRow = {
+  storage_area_id: string;
+  storage_area_name: string;
+  item_id: string;
+  item_name: string;
+  on_hand: number | null;
+  par_level: number | null;
+  low_level: number | null;
+  unit: string | null;
+  vendor: string | null;
+  category: string | null;
+  reference_number: string | null;
   notes: string | null;
 };
 
@@ -69,7 +86,7 @@ function safeJsonParse<T>(raw: string | null, fallback: T): T {
   }
 }
 
-// ✅ Client-side Supabase for Totals tab (reads from a VIEW)
+// ✅ Client-side Supabase (reads VIEWs)
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
@@ -121,7 +138,6 @@ export default function InventoryPage() {
   const [totalsError, setTotalsError] = useState("");
   const [totalsSearch, setTotalsSearch] = useState("");
   const [totalsLowOnly, setTotalsLowOnly] = useState(false);
-  const [totalsParOnly, setTotalsParOnly] = useState(false); // ✅ ADDED
 
   // ✅ Totals edit modal
   const [totalsEditOpen, setTotalsEditOpen] = useState(false);
@@ -134,11 +150,17 @@ export default function InventoryPage() {
 
   // pending totals action gated by PIN (if locked)
   const [pendingTotalsAction, setPendingTotalsAction] = useState<
-    | null
-    | { kind: "SET"; value: number }
-    | { kind: "ADJUST"; delta: number }
-    | { kind: "SET_PAR"; par_level: number }
+    null | { kind: "SET"; value: number } | { kind: "ADJUST"; delta: number }
   >(null);
+
+  // ✅ NEW: Area List (per selected storage area)
+  const [areaListOpen, setAreaListOpen] = useState(false);
+  const [areaInv, setAreaInv] = useState<AreaInvRow[]>([]);
+  const [areaInvLoading, setAreaInvLoading] = useState(false);
+  const [areaInvError, setAreaInvError] = useState("");
+  const [areaInvSearch, setAreaInvSearch] = useState("");
+  const [areaParOnly, setAreaParOnly] = useState(true);
+  const [areaLowOnly, setAreaLowOnly] = useState(false);
 
   const filteredTotals = useMemo(() => {
     const q = totalsSearch.trim().toLowerCase();
@@ -163,12 +185,38 @@ export default function InventoryPage() {
       });
     }
 
-    if (totalsParOnly) {
+    return list;
+  }, [totals, totalsSearch, totalsLowOnly]);
+
+  const filteredAreaInv = useMemo(() => {
+    const q = areaInvSearch.trim().toLowerCase();
+    let list = areaInv;
+
+    if (q) {
+      list = list.filter((r) => {
+        return (
+          (r.item_name || "").toLowerCase().includes(q) ||
+          (r.vendor || "").toLowerCase().includes(q) ||
+          (r.category || "").toLowerCase().includes(q) ||
+          (r.reference_number || "").toLowerCase().includes(q)
+        );
+      });
+    }
+
+    if (areaParOnly) {
       list = list.filter((r) => (r.par_level ?? 0) > 0);
     }
 
+    if (areaLowOnly) {
+      list = list.filter((r) => {
+        const onHand = r.on_hand ?? 0;
+        const low = r.low_level ?? 0;
+        return low > 0 && onHand <= low;
+      });
+    }
+
     return list;
-  }, [totals, totalsSearch, totalsLowOnly, totalsParOnly]);
+  }, [areaInv, areaInvSearch, areaParOnly, areaLowOnly]);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const readerRef = useRef<BrowserMultiFormatReader | null>(null);
@@ -267,13 +315,11 @@ export default function InventoryPage() {
     }
   }
 
-  // Load once on mount
   useEffect(() => {
     loadLocations();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Also refresh when returning to Transaction tab (so Supabase edits show up)
   useEffect(() => {
     if (tab === "Transaction") loadLocations();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -308,6 +354,46 @@ export default function InventoryPage() {
     loadTotals();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab]);
+
+  // ---------- NEW: LOAD AREA INVENTORY (Tx tab, when opened / area changes) ----------
+  async function loadAreaInventory() {
+    if (!areaId) return;
+
+    setAreaInvLoading(true);
+    setAreaInvError("");
+
+    try {
+      const { data, error } = await supabase
+        .from("storage_inventory_area_view")
+        .select(
+          "storage_area_id,storage_area_name,item_id,item_name,on_hand,par_level,low_level,unit,vendor,category,reference_number,notes"
+        )
+        .eq("storage_area_id", areaId)
+        .order("item_name", { ascending: true });
+
+      if (error) throw error;
+
+      setAreaInv((data as AreaInvRow[]) ?? []);
+      pushAudit({
+        action: "AREA_LIST_LOAD",
+        details: `Area=${selectedAreaName} Rows=${(data as any[])?.length ?? 0}`,
+      });
+    } catch (e: any) {
+      setAreaInv([]);
+      setAreaInvError(e?.message ?? "Failed to load area list");
+    } finally {
+      setAreaInvLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    // only when Tx tab + list is open
+    if (tab !== "Transaction") return;
+    if (!areaListOpen) return;
+    if (!areaId) return;
+    loadAreaInventory();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, areaListOpen, areaId]);
 
   // ---------- SCANNER LIFECYCLE ----------
   useEffect(() => {
@@ -353,7 +439,6 @@ export default function InventoryPage() {
       setStatus("Scanning…");
       pushAudit({ action: "SCAN", details: `Area=${selectedAreaName}` });
 
-      // ✅ Prefer back camera + higher resolution
       const constraints: MediaStreamConstraints = {
         video: {
           facingMode: { ideal: "environment" },
@@ -539,10 +624,8 @@ export default function InventoryPage() {
 
       if (action.kind === "SET") {
         await doTotalsSet(totalsEditRow, action.value, true);
-      } else if (action.kind === "ADJUST") {
-        await doTotalsAdjust(totalsEditRow, action.delta, true);
       } else {
-        await doTotalsSetPar(totalsEditRow, action.par_level, true);
+        await doTotalsAdjust(totalsEditRow, action.delta, true);
       }
       return;
     }
@@ -624,10 +707,9 @@ export default function InventoryPage() {
     setQty(1);
     setStatus(`✅ Updated on-hand to ${json.on_hand}`);
 
-    // ✅ Keep totals fresh if you're currently looking at them
-    if (tab === "Totals") {
-      await loadTotals();
-    }
+    // keep lists fresh
+    if (tab === "Totals") await loadTotals();
+    if (tab === "Transaction" && areaListOpen) await loadAreaInventory();
 
     pushAudit({
       action: "SUBMIT_TX",
@@ -671,49 +753,6 @@ export default function InventoryPage() {
     const n = Number(cleaned);
     if (!Number.isFinite(n)) return null;
     return n;
-  }
-
-  async function doTotalsSetPar(
-    row: BuildingTotalRow,
-    par_level: number,
-    pinAlreadyPassed = false
-  ) {
-    if (!staffName.trim()) {
-      setTab("Audit");
-      alert("Enter staff name in Audit tab first.");
-      return;
-    }
-
-    if (locked && !pinAlreadyPassed) {
-      setPendingTotalsAction({ kind: "SET_PAR", par_level });
-      openPin("totalsEdit");
-      return;
-    }
-
-    const res = await fetch("/api/building-inventory/update", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      cache: "no-store",
-      body: JSON.stringify({
-        name: row.name,
-        action: "SET_PAR",
-        par_level,
-      }),
-    });
-
-    const json = await res.json();
-    if (!json.ok) {
-      alert(`PAR update failed: ${json.error}`);
-      return;
-    }
-
-    pushAudit({
-      action: "TOTALS_ADJUST",
-      details: `PAR Set Item=${row.name} Par=${par_level}`,
-    });
-
-    setTotalsEditOpen(false);
-    await loadTotals();
   }
 
   async function doTotalsSet(
@@ -814,7 +853,6 @@ export default function InventoryPage() {
         className="w-full max-w-md px-3 pb-6 overflow-x-hidden"
         style={{ paddingTop: "env(safe-area-inset-top)" }}
       >
-        {/* Back */}
         <div className="mt-3 mb-2">
           <button
             onClick={() => router.push("/")}
@@ -824,7 +862,6 @@ export default function InventoryPage() {
           </button>
         </div>
 
-        {/* Header card */}
         <div className="rounded-3xl bg-white/5 p-3 ring-1 ring-white/10">
           <div className="grid grid-cols-[1fr_auto] gap-3 items-start">
             <div className="min-w-0">
@@ -851,7 +888,6 @@ export default function InventoryPage() {
             </div>
           </div>
 
-          {/* Tabs */}
           <div className="mt-3 grid grid-cols-4 gap-2">
             <TabBtn
               active={tab === "Transaction"}
@@ -874,7 +910,6 @@ export default function InventoryPage() {
           </div>
         </div>
 
-        {/* TAB CONTENT */}
         {tab === "Transaction" ? (
           <div className="mt-3 rounded-3xl bg-white/5 p-4 ring-1 ring-white/10">
             <div className="text-sm text-white/70">Select location</div>
@@ -903,156 +938,307 @@ export default function InventoryPage() {
               </div>
             )}
 
-            <div className="mt-3 rounded-2xl bg-black/30 p-4 ring-1 ring-white/10">
-              <div className="flex items-center justify-between gap-3">
-                <div className="min-w-0">
-                  <div className="text-lg font-semibold">One-time override</div>
-                  <div className="mt-1 text-sm text-white/70">
-                    Grabbed it from MAIN supply room? Tap once.
-                  </div>
-                </div>
-                <button
-                  onClick={onToggleOverride}
-                  className={[
-                    "shrink-0 rounded-2xl px-4 py-3 ring-1",
-                    mainOverride
-                      ? "bg-white text-black ring-white/20"
-                      : "bg-black/40 text-white ring-white/10",
-                  ].join(" ")}
-                >
-                  <div className="text-xs opacity-80">⚡</div>
-                  <div className="text-sm font-semibold">
-                    MAIN <span className="opacity-70">(1x)</span>
-                  </div>
-                </button>
-              </div>
-            </div>
-
-            <div className="mt-3 rounded-2xl bg-black/30 p-4 ring-1 ring-white/10">
-              <div className="flex items-center justify-between gap-2">
-                <div className="min-w-0">
-                  <div className="text-lg font-semibold">Mode</div>
-                  <div className="mt-1 text-sm text-white/70">
-                    {mode === "USE"
-                      ? "Use removes items from on-hand."
-                      : "Restock adds items to on-hand."}
-                  </div>
-                </div>
-                <div className="flex gap-2 shrink-0">
-                  <ModeBtn
-                    active={mode === "USE"}
-                    danger
-                    onClick={() => setMode("USE")}
-                  >
-                    USE
-                  </ModeBtn>
-                  <ModeBtn
-                    active={mode === "RESTOCK"}
-                    onClick={() => setMode("RESTOCK")}
-                  >
-                    RESTOCK
-                  </ModeBtn>
-                </div>
-              </div>
-            </div>
-
-            {/* Scan / type */}
-            <div className="mt-3">
-              <div className="relative">
-                <input
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                  onKeyDown={async (e) => {
-                    if (e.key === "Enter") {
-                      const v = query.trim();
-                      if (v) await lookupBarcode(v);
-                    }
-                  }}
-                  placeholder="Scan barcode or type item"
-                  className="w-full rounded-2xl bg-white text-black px-4 py-3 pr-14"
-                />
-                <button
-                  onClick={() => startScanner()}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 rounded-xl bg-black/10 px-3 py-2 text-black"
-                  aria-label="Start scanner"
-                >
-                  📷
-                </button>
-              </div>
-            </div>
-
-            <div className="mt-2 text-sm text-white/70 break-words">
-              {status || "Ready."}
-            </div>
-
-            {item && (
-              <div className="mt-3 rounded-2xl bg-black/30 p-3 ring-1 ring-white/10">
-                <div className="text-sm font-semibold">{item.name}</div>
-                <div className="text-xs text-white/60 break-all">
-                  {item.barcode}
-                </div>
-              </div>
-            )}
-
-            {/* Qty */}
-            <div className="mt-3 flex items-center gap-3">
-              <QtyBtn onClick={() => setQty((q) => Math.max(1, q - 1))}>
-                −
-              </QtyBtn>
-              <div className="flex-1 rounded-2xl bg-white px-4 py-3 text-center text-black">
-                <span className="text-lg font-semibold">{qty}</span>
-              </div>
-              <QtyBtn onClick={() => setQty((q) => q + 1)}>+</QtyBtn>
-            </div>
-
-            {/* Submit */}
-            <button
-              className="mt-3 w-full rounded-2xl bg-black/80 px-4 py-4 text-white font-semibold disabled:opacity-60"
-              disabled={!item || locked}
-              onClick={submit}
-            >
-              Submit
-            </button>
-
-            {/* Add Item Modal */}
-            {addOpen && (
-              <Modal
-                title="Item not found"
-                okText="Add Item"
-                onCancel={() => setAddOpen(false)}
-                onOk={() => addItemNow()}
+            {/* ✅ NEW: Toggle between Scan mode and Area List */}
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              <button
+                onClick={() => {
+                  setAreaListOpen(false);
+                  pushAudit({ action: "AREA_LIST_TOGGLE", details: "SCAN" });
+                }}
+                className={[
+                  "rounded-2xl px-4 py-3 font-extrabold ring-1 text-sm",
+                  !areaListOpen
+                    ? "bg-white text-black ring-white/20"
+                    : "bg-white/10 text-white ring-white/10",
+                ].join(" ")}
               >
-                <div className="mt-1 text-sm text-white/70 break-all">
-                  Barcode: {query}
-                </div>
+                SCAN MODE
+              </button>
+              <button
+                onClick={() => {
+                  setAreaListOpen(true);
+                  pushAudit({
+                    action: "AREA_LIST_TOGGLE",
+                    details: `AREA_LIST Area=${selectedAreaName}`,
+                  });
+                }}
+                className={[
+                  "rounded-2xl px-4 py-3 font-extrabold ring-1 text-sm",
+                  areaListOpen
+                    ? "bg-white text-black ring-white/20"
+                    : "bg-white/10 text-white ring-white/10",
+                ].join(" ")}
+              >
+                AREA LIST
+              </button>
+            </div>
 
-                <div className="mt-3">
-                  <div className="text-xs text-white/60 mb-1">Item name</div>
-                  <input
-                    value={addName}
-                    onChange={(e) => setAddName(e.target.value)}
-                    className="w-full rounded-2xl bg-white text-black px-4 py-3"
-                    placeholder="Type item name…"
-                  />
-                </div>
-
-                <div className="mt-3">
-                  <div className="text-xs text-white/60 mb-1">
-                    Par level (optional)
+            {/* -------- Area List Panel -------- */}
+            {areaListOpen ? (
+              <div className="mt-3 rounded-2xl bg-black/30 p-3 ring-1 ring-white/10">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="text-lg font-semibold">{selectedAreaName}</div>
+                  <div className="text-xs text-white/60">
+                    {areaInvLoading ? "Loading…" : `${areaInv.length} rows`}
                   </div>
+                </div>
+
+                <div className="mt-3 grid grid-cols-3 gap-2">
+                  <button
+                    onClick={() => setAreaParOnly((v) => !v)}
+                    className={[
+                      "rounded-2xl px-3 py-3 font-extrabold ring-1 text-xs",
+                      areaParOnly
+                        ? "bg-white text-black ring-white/20"
+                        : "bg-white/10 text-white ring-white/10",
+                    ].join(" ")}
+                  >
+                    PAR: {areaParOnly ? "ONLY" : "ALL"}
+                  </button>
+
+                  <button
+                    onClick={() => setAreaLowOnly((v) => !v)}
+                    className={[
+                      "rounded-2xl px-3 py-3 font-extrabold ring-1 text-xs",
+                      areaLowOnly
+                        ? "bg-red-600 text-white ring-red-500/30"
+                        : "bg-white/10 text-white ring-white/10",
+                    ].join(" ")}
+                  >
+                    LOW: {areaLowOnly ? "ONLY" : "ALL"}
+                  </button>
+
+                  <button
+                    onClick={() => loadAreaInventory()}
+                    className="rounded-2xl bg-white/10 px-3 py-3 text-xs font-extrabold ring-1 ring-white/10"
+                  >
+                    Refresh
+                  </button>
+                </div>
+
+                <div className="mt-2">
                   <input
-                    value={String(addPar)}
-                    onChange={(e) => setAddPar(Number(e.target.value || 0))}
-                    inputMode="numeric"
+                    value={areaInvSearch}
+                    onChange={(e) => setAreaInvSearch(e.target.value)}
+                    placeholder="Search item/vendor/category…"
                     className="w-full rounded-2xl bg-white text-black px-4 py-3"
-                    placeholder="0"
                   />
                 </div>
 
-                <div className="mt-2 text-xs text-white/50">
-                  If locked, you’ll be asked for a PIN before adding.
+                {areaInvError && (
+                  <div className="mt-2 text-sm text-red-300 break-words">
+                    {areaInvError}
+                  </div>
+                )}
+
+                <div className="mt-3 space-y-2">
+                  {filteredAreaInv.slice(0, 200).map((r) => {
+                    const onHand = r.on_hand ?? 0;
+                    const par = r.par_level ?? 0;
+                    const low = r.low_level ?? 0;
+                    const isLow = low > 0 && onHand <= low;
+
+                    return (
+                      <div
+                        key={`${r.storage_area_id}-${r.item_id}`}
+                        className="w-full rounded-2xl bg-black/20 p-3 ring-1 ring-white/10"
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <div className="text-sm font-semibold break-words">
+                              {r.item_name}
+                            </div>
+                            <div className="mt-1 text-xs text-white/60 break-words">
+                              {r.vendor ?? "—"} • {r.category ?? "—"}{" "}
+                              {r.reference_number ? `• ${r.reference_number}` : ""}
+                            </div>
+                          </div>
+
+                          <div
+                            className={[
+                              "shrink-0 rounded-2xl px-3 py-2 text-sm font-extrabold ring-1",
+                              isLow
+                                ? "bg-red-600 text-white ring-red-500/30"
+                                : "bg-white/10 text-white ring-white/10",
+                            ].join(" ")}
+                          >
+                            {onHand}
+                            <div className="text-[10px] font-semibold opacity-80">
+                              on hand
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="mt-2 grid grid-cols-3 gap-2 text-xs">
+                          <div className="rounded-xl bg-white/5 p-2 ring-1 ring-white/10">
+                            <div className="text-white/60">Par</div>
+                            <div className="font-semibold">{par}</div>
+                          </div>
+                          <div className="rounded-xl bg-white/5 p-2 ring-1 ring-white/10">
+                            <div className="text-white/60">Low</div>
+                            <div className="font-semibold">{low}</div>
+                          </div>
+                          <div className="rounded-xl bg-white/5 p-2 ring-1 ring-white/10">
+                            <div className="text-white/60">Unit</div>
+                            <div className="font-semibold">{r.unit ?? "—"}</div>
+                          </div>
+                        </div>
+
+                        {r.notes && (
+                          <div className="mt-2 text-[11px] text-white/60 break-words">
+                            Notes: {r.notes}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
-              </Modal>
+
+                <div className="mt-3 text-[11px] text-white/50">
+                  Showing up to 200 rows to keep it fast on phones.
+                </div>
+              </div>
+            ) : (
+              <>
+                {/* Override */}
+                <div className="mt-3 rounded-2xl bg-black/30 p-4 ring-1 ring-white/10">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="text-lg font-semibold">One-time override</div>
+                      <div className="mt-1 text-sm text-white/70">
+                        Grabbed it from MAIN supply room? Tap once.
+                      </div>
+                    </div>
+                    <button
+                      onClick={onToggleOverride}
+                      className={[
+                        "shrink-0 rounded-2xl px-4 py-3 ring-1",
+                        mainOverride
+                          ? "bg-white text-black ring-white/20"
+                          : "bg-black/40 text-white ring-white/10",
+                      ].join(" ")}
+                    >
+                      <div className="text-xs opacity-80">⚡</div>
+                      <div className="text-sm font-semibold">
+                        MAIN <span className="opacity-70">(1x)</span>
+                      </div>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Mode */}
+                <div className="mt-3 rounded-2xl bg-black/30 p-4 ring-1 ring-white/10">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="text-lg font-semibold">Mode</div>
+                      <div className="mt-1 text-sm text-white/70">
+                        {mode === "USE"
+                          ? "Use removes items from on-hand."
+                          : "Restock adds items to on-hand."}
+                      </div>
+                    </div>
+                    <div className="flex gap-2 shrink-0">
+                      <ModeBtn active={mode === "USE"} danger onClick={() => setMode("USE")}>
+                        USE
+                      </ModeBtn>
+                      <ModeBtn active={mode === "RESTOCK"} onClick={() => setMode("RESTOCK")}>
+                        RESTOCK
+                      </ModeBtn>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Scan / type */}
+                <div className="mt-3">
+                  <div className="relative">
+                    <input
+                      value={query}
+                      onChange={(e) => setQuery(e.target.value)}
+                      onKeyDown={async (e) => {
+                        if (e.key === "Enter") {
+                          const v = query.trim();
+                          if (v) await lookupBarcode(v);
+                        }
+                      }}
+                      placeholder="Scan barcode or type item"
+                      className="w-full rounded-2xl bg-white text-black px-4 py-3 pr-14"
+                    />
+                    <button
+                      onClick={() => startScanner()}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 rounded-xl bg-black/10 px-3 py-2 text-black"
+                      aria-label="Start scanner"
+                    >
+                      📷
+                    </button>
+                  </div>
+                </div>
+
+                <div className="mt-2 text-sm text-white/70 break-words">
+                  {status || "Ready."}
+                </div>
+
+                {item && (
+                  <div className="mt-3 rounded-2xl bg-black/30 p-3 ring-1 ring-white/10">
+                    <div className="text-sm font-semibold">{item.name}</div>
+                    <div className="text-xs text-white/60 break-all">{item.barcode}</div>
+                  </div>
+                )}
+
+                {/* Qty */}
+                <div className="mt-3 flex items-center gap-3">
+                  <QtyBtn onClick={() => setQty((q) => Math.max(1, q - 1))}>−</QtyBtn>
+                  <div className="flex-1 rounded-2xl bg-white px-4 py-3 text-center text-black">
+                    <span className="text-lg font-semibold">{qty}</span>
+                  </div>
+                  <QtyBtn onClick={() => setQty((q) => q + 1)}>+</QtyBtn>
+                </div>
+
+                {/* Submit */}
+                <button
+                  className="mt-3 w-full rounded-2xl bg-black/80 px-4 py-4 text-white font-semibold disabled:opacity-60"
+                  disabled={!item || locked}
+                  onClick={submit}
+                >
+                  Submit
+                </button>
+
+                {/* Add Item Modal */}
+                {addOpen && (
+                  <Modal
+                    title="Item not found"
+                    okText="Add Item"
+                    onCancel={() => setAddOpen(false)}
+                    onOk={() => addItemNow()}
+                  >
+                    <div className="mt-1 text-sm text-white/70 break-all">Barcode: {query}</div>
+
+                    <div className="mt-3">
+                      <div className="text-xs text-white/60 mb-1">Item name</div>
+                      <input
+                        value={addName}
+                        onChange={(e) => setAddName(e.target.value)}
+                        className="w-full rounded-2xl bg-white text-black px-4 py-3"
+                        placeholder="Type item name…"
+                      />
+                    </div>
+
+                    <div className="mt-3">
+                      <div className="text-xs text-white/60 mb-1">Par level (optional)</div>
+                      <input
+                        value={String(addPar)}
+                        onChange={(e) => setAddPar(Number(e.target.value || 0))}
+                        inputMode="numeric"
+                        className="w-full rounded-2xl bg-white text-black px-4 py-3"
+                        placeholder="0"
+                      />
+                    </div>
+
+                    <div className="mt-2 text-xs text-white/50">
+                      If locked, you’ll be asked for a PIN before adding.
+                    </div>
+                  </Modal>
+                )}
+              </>
             )}
 
             {/* PIN Modal */}
@@ -1079,16 +1265,14 @@ export default function InventoryPage() {
               >
                 <input
                   value={pinInput}
-                  onChange={(e) =>
-                    setPinInput(e.target.value.replace(/\D/g, "").slice(0, 6))
-                  }
+                  onChange={(e) => setPinInput(e.target.value.replace(/\D/g, "").slice(0, 6))}
                   inputMode="numeric"
                   className="mt-3 w-full rounded-2xl bg-white text-black px-4 py-3"
                   placeholder="PIN"
                 />
                 <div className="mt-2 text-xs text-white/50">
-                  Default PIN is <span className="font-semibold">1234</span>{" "}
-                  until set in Settings.
+                  Default PIN is <span className="font-semibold">1234</span> until set in
+                  Settings.
                 </div>
               </Modal>
             )}
@@ -1103,9 +1287,7 @@ export default function InventoryPage() {
                     paddingBottom: "12px",
                   }}
                 >
-                  <div className="text-lg font-semibold text-white">
-                    Scan barcode
-                  </div>
+                  <div className="text-lg font-semibold text-white">Scan barcode</div>
                   <button
                     onClick={closeScanner}
                     className="rounded-2xl bg-white/10 px-4 py-2 text-sm font-semibold text-white ring-1 ring-white/10"
@@ -1114,10 +1296,7 @@ export default function InventoryPage() {
                   </button>
                 </div>
 
-                <div
-                  className="relative w-full"
-                  style={{ height: "calc(100vh - 120px)" }}
-                >
+                <div className="relative w-full" style={{ height: "calc(100vh - 120px)" }}>
                   <video
                     ref={videoRef}
                     className="absolute inset-0 h-full w-full object-cover"
@@ -1135,8 +1314,7 @@ export default function InventoryPage() {
                     paddingBottom: "calc(env(safe-area-inset-bottom) + 16px)",
                   }}
                 >
-                  Hold the barcode steady inside the box. Best distance: 6–10
-                  inches.
+                  Hold the barcode steady inside the box. Best distance: 6–10 inches.
                 </div>
               </div>
             )}
@@ -1150,27 +1328,13 @@ export default function InventoryPage() {
               </div>
             </div>
 
-            {/* ✅ UPDATED: search + PAR ONLY + LOW ONLY */}
-            <div className="mt-3 grid grid-cols-3 gap-2">
+            <div className="mt-3 grid grid-cols-2 gap-2">
               <input
                 value={totalsSearch}
                 onChange={(e) => setTotalsSearch(e.target.value)}
                 placeholder="Search name, vendor, category…"
-                className="col-span-1 w-full rounded-2xl bg-white text-black px-4 py-3"
+                className="w-full rounded-2xl bg-white text-black px-4 py-3"
               />
-
-              <button
-                onClick={() => setTotalsParOnly((v) => !v)}
-                className={[
-                  "rounded-2xl px-4 py-3 font-extrabold ring-1 text-sm",
-                  totalsParOnly
-                    ? "bg-white text-black ring-white/20"
-                    : "bg-white/10 text-white ring-white/10",
-                ].join(" ")}
-              >
-                {totalsParOnly ? "PAR ONLY" : "PAR: ALL"}
-              </button>
-
               <button
                 onClick={() => setTotalsLowOnly((v) => !v)}
                 className={[
@@ -1180,7 +1344,7 @@ export default function InventoryPage() {
                     : "bg-white/10 text-white ring-white/10",
                 ].join(" ")}
               >
-                {totalsLowOnly ? "LOW ONLY" : "LOW: ALL"}
+                {totalsLowOnly ? "LOW ONLY" : "ALL ITEMS"}
               </button>
             </div>
 
@@ -1200,9 +1364,7 @@ export default function InventoryPage() {
             </div>
 
             {totalsError && (
-              <div className="mt-2 text-sm text-red-300 break-words">
-                {totalsError}
-              </div>
+              <div className="mt-2 text-sm text-red-300 break-words">{totalsError}</div>
             )}
 
             <div className="mt-3 space-y-2">
@@ -1219,9 +1381,7 @@ export default function InventoryPage() {
                   >
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
-                        <div className="text-sm font-semibold break-words">
-                          {r.name}
-                        </div>
+                        <div className="text-sm font-semibold break-words">{r.name}</div>
                         <div className="mt-1 text-xs text-white/60 break-words">
                           {r.vendor ?? "—"} • {r.category ?? "—"}{" "}
                           {r.reference_number ? `• ${r.reference_number}` : ""}
@@ -1237,9 +1397,7 @@ export default function InventoryPage() {
                         ].join(" ")}
                       >
                         {onHand}
-                        <div className="text-[10px] font-semibold opacity-80">
-                          on hand
-                        </div>
+                        <div className="text-[10px] font-semibold opacity-80">on hand</div>
                       </div>
                     </div>
 
@@ -1263,7 +1421,6 @@ export default function InventoryPage() {
                         Notes: {r.notes}
                       </div>
                     )}
-
                     <div className="mt-2 text-[11px] text-white/50">
                       Tap to edit on-hand + PAR
                       {locked ? " (PIN required for totals updates)" : ""}
@@ -1277,7 +1434,6 @@ export default function InventoryPage() {
               Showing up to 200 rows to keep it fast on phones.
             </div>
 
-            {/* Totals Edit Modal */}
             {totalsEditOpen && totalsEditRow && (
               <Modal
                 title="Edit building totals"
@@ -1288,23 +1444,17 @@ export default function InventoryPage() {
                 <div className="mt-1 text-sm text-white/80 break-words">
                   <div className="font-semibold">{totalsEditRow.name}</div>
                   <div className="text-xs text-white/60">
-                    {totalsEditRow.vendor ?? "—"} •{" "}
-                    {totalsEditRow.category ?? "—"}{" "}
-                    {totalsEditRow.reference_number
-                      ? `• ${totalsEditRow.reference_number}`
-                      : ""}
+                    {totalsEditRow.vendor ?? "—"} • {totalsEditRow.category ?? "—"}{" "}
+                    {totalsEditRow.reference_number ? `• ${totalsEditRow.reference_number}` : ""}
                   </div>
                 </div>
 
-                {/* ✅ PAR (PIN-protected) */}
                 <div className="mt-4 rounded-2xl bg-black/30 p-3 ring-1 ring-white/10">
                   <div className="text-sm font-semibold">Set PAR level</div>
                   <div className="mt-2 flex gap-2">
                     <input
                       value={parInput}
-                      onChange={(e) =>
-                        setParInput(e.target.value.replace(/[^\d]/g, ""))
-                      }
+                      onChange={(e) => setParInput(e.target.value.replace(/[^\d]/g, ""))}
                       inputMode="numeric"
                       className="flex-1 rounded-2xl bg-white text-black px-4 py-3"
                       placeholder="e.g., 30"
@@ -1312,9 +1462,29 @@ export default function InventoryPage() {
                     <button
                       onClick={async () => {
                         const n = parseIntSafe(parInput);
-                        if (n === null || n < 0)
-                          return alert("Enter a valid PAR (0 or more).");
-                        await doTotalsSetPar(totalsEditRow, n);
+                        if (n === null || n < 0) return alert("Enter a valid PAR (0 or more).");
+
+                        const res = await fetch("/api/building-inventory/update", {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json" },
+                          cache: "no-store",
+                          body: JSON.stringify({
+                            name: totalsEditRow.name,
+                            action: "SET_PAR",
+                            par_level: n,
+                          }),
+                        });
+
+                        const json = await res.json();
+                        if (!json.ok) return alert(`PAR update failed: ${json.error}`);
+
+                        pushAudit({
+                          action: "TOTALS_ADJUST",
+                          details: `PAR Set Item=${totalsEditRow.name} Par=${n}`,
+                        });
+
+                        setTotalsEditOpen(false);
+                        await loadTotals();
                       }}
                       className="rounded-2xl bg-white px-4 py-3 text-sm font-extrabold text-black"
                     >
@@ -1322,20 +1492,16 @@ export default function InventoryPage() {
                     </button>
                   </div>
                   <div className="mt-2 text-[11px] text-white/55">
-                    PAR is stored in{" "}
-                    <span className="font-semibold">items.par_level</span>.
+                    PAR is stored in <span className="font-semibold">items.par_level</span>.
                   </div>
                 </div>
 
-                {/* SET exact */}
                 <div className="mt-3 rounded-2xl bg-black/30 p-3 ring-1 ring-white/10">
                   <div className="text-sm font-semibold">Set exact on-hand</div>
                   <div className="mt-2 flex gap-2">
                     <input
                       value={setOnHandInput}
-                      onChange={(e) =>
-                        setSetOnHandInput(e.target.value.replace(/[^\d]/g, ""))
-                      }
+                      onChange={(e) => setSetOnHandInput(e.target.value.replace(/[^\d]/g, ""))}
                       inputMode="numeric"
                       className="flex-1 rounded-2xl bg-white text-black px-4 py-3"
                       placeholder="e.g., 17"
@@ -1343,8 +1509,7 @@ export default function InventoryPage() {
                     <button
                       onClick={async () => {
                         const n = parseIntSafe(setOnHandInput);
-                        if (n === null || n < 0)
-                          return alert("Enter a valid number (0 or more).");
+                        if (n === null || n < 0) return alert("Enter a valid number (0 or more).");
                         await doTotalsSet(totalsEditRow, n);
                       }}
                       className="rounded-2xl bg-white px-4 py-3 text-sm font-extrabold text-black"
@@ -1357,7 +1522,6 @@ export default function InventoryPage() {
                   </div>
                 </div>
 
-                {/* ADJUST +/- */}
                 <div className="mt-3 rounded-2xl bg-black/30 p-3 ring-1 ring-white/10">
                   <div className="text-sm font-semibold">Adjust + / −</div>
                   <div className="mt-2 grid grid-cols-3 gap-2">
@@ -1373,9 +1537,7 @@ export default function InventoryPage() {
                     <input
                       value={deltaInput}
                       onChange={(e) =>
-                        setDeltaInput(
-                          e.target.value.replace(/[^\d-]/g, "").slice(0, 7)
-                        )
+                        setDeltaInput(e.target.value.replace(/[^\d-]/g, "").slice(0, 7))
                       }
                       inputMode="numeric"
                       className="rounded-2xl bg-white text-black px-4 py-3 text-center"
@@ -1468,9 +1630,7 @@ export default function InventoryPage() {
               </button>
             </div>
 
-            <div className="mt-4 text-sm font-semibold text-white/80">
-              Recent events
-            </div>
+            <div className="mt-4 text-sm font-semibold text-white/80">Recent events</div>
 
             <div className="mt-2 space-y-2">
               {audit.length === 0 ? (
@@ -1479,10 +1639,7 @@ export default function InventoryPage() {
                 </div>
               ) : (
                 audit.slice(0, 60).map((e) => (
-                  <div
-                    key={e.id}
-                    className="rounded-2xl bg-black/30 p-3 ring-1 ring-white/10"
-                  >
+                  <div key={e.id} className="rounded-2xl bg-black/30 p-3 ring-1 ring-white/10">
                     <div className="flex items-center justify-between gap-2">
                       <div className="text-sm font-semibold">{e.action}</div>
                       <div className="text-[11px] text-white/55">
@@ -1493,9 +1650,7 @@ export default function InventoryPage() {
                       Staff: <span className="font-semibold">{e.staff}</span>
                     </div>
                     {e.details && (
-                      <div className="mt-1 text-xs text-white/55 break-words">
-                        {e.details}
-                      </div>
+                      <div className="mt-1 text-xs text-white/55 break-words">{e.details}</div>
                     )}
                   </div>
                 ))
@@ -1505,9 +1660,7 @@ export default function InventoryPage() {
         ) : (
           <div className="mt-3 rounded-3xl bg-white/5 p-4 ring-1 ring-white/10">
             <div className="text-lg font-semibold">Settings</div>
-            <div className="mt-3 text-sm text-white/70">
-              Set/Change PIN (min 4 digits):
-            </div>
+            <div className="mt-3 text-sm text-white/70">Set/Change PIN (min 4 digits):</div>
             <PinSetter onSave={savePin} />
           </div>
         )}
@@ -1530,9 +1683,7 @@ function TabBtn({
       onClick={onClick}
       className={[
         "rounded-2xl px-2 py-2 text-xs font-extrabold ring-1",
-        active
-          ? "bg-white text-black ring-white/20"
-          : "bg-white/5 text-white ring-white/10",
+        active ? "bg-white text-black ring-white/20" : "bg-white/5 text-white ring-white/10",
       ].join(" ")}
     >
       {children}
