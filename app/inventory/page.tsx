@@ -8,7 +8,9 @@ import { createClient } from "@supabase/supabase-js";
 type Tab = "Transaction" | "Totals" | "Audit" | "Settings";
 type Mode = "USE" | "RESTOCK";
 type Area = { id: string; name: string };
-type Item = { id: string; name: string; barcode: string };
+
+// ✅ UPDATED: include reference_number so we can select items by Ref #
+type Item = { id: string; name: string; barcode: string | null; reference_number?: string | null };
 
 type AuditEvent = {
   id: string;
@@ -121,6 +123,11 @@ export default function InventoryPage() {
   const [item, setItem] = useState<Item | null>(null);
   const [status, setStatus] = useState("");
 
+  // ✅ NEW: manual lookup suggestions for Ref# / name
+  const [suggestions, setSuggestions] = useState<Item[]>([]);
+  const [showSug, setShowSug] = useState(false);
+  const [searching, setSearching] = useState(false);
+
   const [addOpen, setAddOpen] = useState(false);
   const [addName, setAddName] = useState("");
   const [addPar, setAddPar] = useState<number>(0);
@@ -222,6 +229,8 @@ export default function InventoryPage() {
   const readerRef = useRef<BrowserMultiFormatReader | null>(null);
   const lastScanRef = useRef<string>("");
   const scanCooldownRef = useRef<number>(0);
+
+  const inputRef = useRef<HTMLInputElement | null>(null);
 
   // ---------- LOAD SAVED STATE ----------
   useEffect(() => {
@@ -475,6 +484,8 @@ export default function InventoryPage() {
           lastScanRef.current = text;
 
           setQuery(text);
+          setSuggestions([]);
+          setShowSug(false);
 
           stopScanner();
           setScannerOpen(false);
@@ -498,6 +509,8 @@ export default function InventoryPage() {
             lastScanRef.current = text;
 
             setQuery(text);
+            setSuggestions([]);
+            setShowSug(false);
 
             stopScanner();
             setScannerOpen(false);
@@ -572,6 +585,71 @@ export default function InventoryPage() {
       action: "LOOKUP_FOUND",
       details: `Item=${json.item.name} Barcode=${barcode}`,
     });
+  }
+
+  // ✅ NEW: Manual lookup for Ref# / name using /api/items/search
+  async function lookupManual(raw: string) {
+    const q = raw.trim();
+    if (!q) return;
+
+    // If it looks like a barcode (mostly digits and longer), we keep your old behavior.
+    const maybeBarcode = q.length >= 6 && /^[0-9]+$/.test(q);
+
+    setSearching(true);
+    setStatus("Searching…");
+    setItem(null);
+
+    try {
+      if (maybeBarcode) {
+        // use the existing barcode flow so Add Item still works
+        await lookupBarcode(q);
+        return;
+      }
+
+      const res = await fetch(`/api/items/search?q=${encodeURIComponent(q)}`, {
+        method: "GET",
+        cache: "no-store",
+        headers: { "Cache-Control": "no-cache" },
+      });
+
+      const json = await res.json();
+
+      if (!json.ok) {
+        setStatus(`Search failed: ${json.error}`);
+        return;
+      }
+
+      const list: Item[] = (json.items ?? []) as Item[];
+      setSuggestions(list);
+      setShowSug(true);
+
+      if (list.length === 0) {
+        setStatus("No match. Try another Ref # or name.");
+        pushAudit({ action: "LOOKUP_NOT_FOUND", details: `Manual=${q}` });
+        return;
+      }
+
+      if (list.length === 1) {
+        setItem(list[0]);
+        setShowSug(false);
+        setStatus(`Found: ${list[0].name}`);
+        pushAudit({
+          action: "LOOKUP_FOUND",
+          details: `Manual=${q} Picked=${list[0].name}`,
+        });
+        return;
+      }
+
+      setStatus(`Select an item (${list.length} matches)…`);
+      pushAudit({
+        action: "LOOKUP_FOUND",
+        details: `Manual=${q} Matches=${list.length}`,
+      });
+    } catch (e: any) {
+      setStatus(`Search failed: ${e?.message ?? "unknown"}`);
+    } finally {
+      setSearching(false);
+    }
   }
 
   function openPin(purpose: typeof pinPurpose) {
@@ -684,7 +762,7 @@ export default function InventoryPage() {
       setTab("Audit");
       return alert("Enter staff name in Audit tab first.");
     }
-    if (!item?.id) return alert("Scan an item first.");
+    if (!item?.id) return alert("Scan or select an item first.");
     if (!areaId && !mainOverride) return alert("Select a location.");
 
     const res = await fetch("/api/transaction", {
@@ -717,6 +795,10 @@ export default function InventoryPage() {
         mainOverride ? "MAIN" : "NO"
       }`,
     });
+
+    // ✅ keep your typed query but hide suggestions after submit
+    setSuggestions([]);
+    setShowSug(false);
   }
 
   function savePin(newPin: string) {
@@ -938,7 +1020,7 @@ export default function InventoryPage() {
               </div>
             )}
 
-            {/* ✅ NEW: Toggle between Scan mode and Area List */}
+            {/* ✅ Toggle between Scan mode and Area List */}
             <div className="mt-3 grid grid-cols-2 gap-2">
               <button
                 onClick={() => {
@@ -1148,19 +1230,29 @@ export default function InventoryPage() {
                   </div>
                 </div>
 
-                {/* Scan / type */}
+                {/* Scan / type + Ref# lookup */}
                 <div className="mt-3">
                   <div className="relative">
                     <input
+                      ref={inputRef}
                       value={query}
-                      onChange={(e) => setQuery(e.target.value)}
+                      onChange={(e) => {
+                        setQuery(e.target.value);
+                        setItem(null);
+                        setShowSug(true);
+                      }}
+                      onFocus={() => setShowSug(true)}
+                      onBlur={() => {
+                        // tiny delay so clicking a suggestion still works
+                        setTimeout(() => setShowSug(false), 150);
+                      }}
                       onKeyDown={async (e) => {
                         if (e.key === "Enter") {
                           const v = query.trim();
-                          if (v) await lookupBarcode(v);
+                          if (v) await lookupManual(v);
                         }
                       }}
-                      placeholder="Scan barcode or type item"
+                      placeholder="Scan barcode or type Ref # / name"
                       className="w-full rounded-2xl bg-white text-black px-4 py-3 pr-14"
                     />
                     <button
@@ -1170,17 +1262,53 @@ export default function InventoryPage() {
                     >
                       📷
                     </button>
+
+                    {/* Suggestions dropdown */}
+                    {showSug && suggestions.length > 0 && (
+                      <div className="absolute left-0 right-0 mt-2 rounded-2xl bg-[#111] ring-1 ring-white/10 overflow-hidden z-20">
+                        {suggestions.slice(0, 10).map((s) => (
+                          <button
+                            key={s.id}
+                            className="w-full text-left px-4 py-3 hover:bg-white/10"
+                            onMouseDown={(ev) => ev.preventDefault()}
+                            onClick={() => {
+                              setItem(s);
+                              setStatus(`Selected: ${s.name}`);
+                              setShowSug(false);
+                              pushAudit({
+                                action: "LOOKUP_FOUND",
+                                details: `Picked=${s.name} Ref=${s.reference_number ?? "—"}`,
+                              });
+                            }}
+                          >
+                            <div className="text-sm font-semibold text-white">{s.name}</div>
+                            <div className="text-[11px] text-white/60 break-words">
+                              Ref: {s.reference_number ?? "—"}{" "}
+                              {s.barcode ? `• Barcode: ${s.barcode}` : ""}
+                            </div>
+                          </button>
+                        ))}
+                        <div className="px-4 py-2 text-[11px] text-white/50">
+                          Tip: type Ref # then press Enter to filter.
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
 
                 <div className="mt-2 text-sm text-white/70 break-words">
-                  {status || "Ready."}
+                  {searching ? "Searching…" : status || "Ready."}
                 </div>
 
                 {item && (
                   <div className="mt-3 rounded-2xl bg-black/30 p-3 ring-1 ring-white/10">
                     <div className="text-sm font-semibold">{item.name}</div>
-                    <div className="text-xs text-white/60 break-all">{item.barcode}</div>
+                    <div className="text-xs text-white/60 break-words">
+                      Ref: {item.reference_number ?? "—"}
+                    </div>
+                    {item.barcode && (
+                      <div className="text-xs text-white/60 break-all">{item.barcode}</div>
+                    )}
                   </div>
                 )}
 
@@ -1321,6 +1449,7 @@ export default function InventoryPage() {
           </div>
         ) : tab === "Totals" ? (
           <div className="mt-3 rounded-3xl bg-white/5 p-4 ring-1 ring-white/10">
+            {/* (UNCHANGED Totals UI BELOW) */}
             <div className="flex items-center justify-between gap-2">
               <div className="text-lg font-semibold">Building Totals</div>
               <div className="text-xs text-white/60">
@@ -1434,6 +1563,7 @@ export default function InventoryPage() {
               Showing up to 200 rows to keep it fast on phones.
             </div>
 
+            {/* Totals modal stays the same (unchanged from your code) */}
             {totalsEditOpen && totalsEditRow && (
               <Modal
                 title="Edit building totals"
