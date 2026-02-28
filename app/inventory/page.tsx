@@ -121,6 +121,7 @@ export default function InventoryPage() {
   const [totalsError, setTotalsError] = useState("");
   const [totalsSearch, setTotalsSearch] = useState("");
   const [totalsLowOnly, setTotalsLowOnly] = useState(false);
+  const [totalsParOnly, setTotalsParOnly] = useState(false); // ✅ ADDED
 
   // ✅ Totals edit modal
   const [totalsEditOpen, setTotalsEditOpen] = useState(false);
@@ -133,7 +134,10 @@ export default function InventoryPage() {
 
   // pending totals action gated by PIN (if locked)
   const [pendingTotalsAction, setPendingTotalsAction] = useState<
-    null | { kind: "SET"; value: number } | { kind: "ADJUST"; delta: number }
+    | null
+    | { kind: "SET"; value: number }
+    | { kind: "ADJUST"; delta: number }
+    | { kind: "SET_PAR"; par_level: number }
   >(null);
 
   const filteredTotals = useMemo(() => {
@@ -159,8 +163,12 @@ export default function InventoryPage() {
       });
     }
 
+    if (totalsParOnly) {
+      list = list.filter((r) => (r.par_level ?? 0) > 0);
+    }
+
     return list;
-  }, [totals, totalsSearch, totalsLowOnly]);
+  }, [totals, totalsSearch, totalsLowOnly, totalsParOnly]);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const readerRef = useRef<BrowserMultiFormatReader | null>(null);
@@ -531,8 +539,10 @@ export default function InventoryPage() {
 
       if (action.kind === "SET") {
         await doTotalsSet(totalsEditRow, action.value, true);
-      } else {
+      } else if (action.kind === "ADJUST") {
         await doTotalsAdjust(totalsEditRow, action.delta, true);
+      } else {
+        await doTotalsSetPar(totalsEditRow, action.par_level, true);
       }
       return;
     }
@@ -661,6 +671,49 @@ export default function InventoryPage() {
     const n = Number(cleaned);
     if (!Number.isFinite(n)) return null;
     return n;
+  }
+
+  async function doTotalsSetPar(
+    row: BuildingTotalRow,
+    par_level: number,
+    pinAlreadyPassed = false
+  ) {
+    if (!staffName.trim()) {
+      setTab("Audit");
+      alert("Enter staff name in Audit tab first.");
+      return;
+    }
+
+    if (locked && !pinAlreadyPassed) {
+      setPendingTotalsAction({ kind: "SET_PAR", par_level });
+      openPin("totalsEdit");
+      return;
+    }
+
+    const res = await fetch("/api/building-inventory/update", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      cache: "no-store",
+      body: JSON.stringify({
+        name: row.name,
+        action: "SET_PAR",
+        par_level,
+      }),
+    });
+
+    const json = await res.json();
+    if (!json.ok) {
+      alert(`PAR update failed: ${json.error}`);
+      return;
+    }
+
+    pushAudit({
+      action: "TOTALS_ADJUST",
+      details: `PAR Set Item=${row.name} Par=${par_level}`,
+    });
+
+    setTotalsEditOpen(false);
+    await loadTotals();
   }
 
   async function doTotalsSet(
@@ -1097,13 +1150,27 @@ export default function InventoryPage() {
               </div>
             </div>
 
-            <div className="mt-3 grid grid-cols-2 gap-2">
+            {/* ✅ UPDATED: search + PAR ONLY + LOW ONLY */}
+            <div className="mt-3 grid grid-cols-3 gap-2">
               <input
                 value={totalsSearch}
                 onChange={(e) => setTotalsSearch(e.target.value)}
                 placeholder="Search name, vendor, category…"
-                className="w-full rounded-2xl bg-white text-black px-4 py-3"
+                className="col-span-1 w-full rounded-2xl bg-white text-black px-4 py-3"
               />
+
+              <button
+                onClick={() => setTotalsParOnly((v) => !v)}
+                className={[
+                  "rounded-2xl px-4 py-3 font-extrabold ring-1 text-sm",
+                  totalsParOnly
+                    ? "bg-white text-black ring-white/20"
+                    : "bg-white/10 text-white ring-white/10",
+                ].join(" ")}
+              >
+                {totalsParOnly ? "PAR ONLY" : "PAR: ALL"}
+              </button>
+
               <button
                 onClick={() => setTotalsLowOnly((v) => !v)}
                 className={[
@@ -1113,7 +1180,7 @@ export default function InventoryPage() {
                     : "bg-white/10 text-white ring-white/10",
                 ].join(" ")}
               >
-                {totalsLowOnly ? "LOW ONLY" : "ALL ITEMS"}
+                {totalsLowOnly ? "LOW ONLY" : "LOW: ALL"}
               </button>
             </div>
 
@@ -1229,7 +1296,7 @@ export default function InventoryPage() {
                   </div>
                 </div>
 
-                {/* ✅ PAR (updates items.par_level via SET_PAR) */}
+                {/* ✅ PAR (PIN-protected) */}
                 <div className="mt-4 rounded-2xl bg-black/30 p-3 ring-1 ring-white/10">
                   <div className="text-sm font-semibold">Set PAR level</div>
                   <div className="mt-2 flex gap-2">
@@ -1247,32 +1314,7 @@ export default function InventoryPage() {
                         const n = parseIntSafe(parInput);
                         if (n === null || n < 0)
                           return alert("Enter a valid PAR (0 or more).");
-
-                        const res = await fetch(
-                          "/api/building-inventory/update",
-                          {
-                            method: "POST",
-                            headers: { "Content-Type": "application/json" },
-                            cache: "no-store",
-                            body: JSON.stringify({
-                              name: totalsEditRow.name,
-                              action: "SET_PAR",
-                              par_level: n,
-                            }),
-                          }
-                        );
-
-                        const json = await res.json();
-                        if (!json.ok)
-                          return alert(`PAR update failed: ${json.error}`);
-
-                        pushAudit({
-                          action: "TOTALS_ADJUST",
-                          details: `PAR Set Item=${totalsEditRow.name} Par=${n}`,
-                        });
-
-                        setTotalsEditOpen(false);
-                        await loadTotals();
+                        await doTotalsSetPar(totalsEditRow, n);
                       }}
                       className="rounded-2xl bg-white px-4 py-3 text-sm font-extrabold text-black"
                     >
