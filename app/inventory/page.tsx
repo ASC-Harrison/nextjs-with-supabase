@@ -10,7 +10,12 @@ type Mode = "USE" | "RESTOCK";
 type LookupMode = "BARCODE" | "REF" | "NAME";
 
 type Area = { id: string; name: string };
-type Item = { id: string; name: string; barcode: string; reference_number?: string | null };
+type Item = {
+  id: string;
+  name: string;
+  barcode: string;
+  reference_number?: string | null;
+};
 
 type AuditEvent = {
   id: string;
@@ -127,9 +132,10 @@ export default function InventoryPage() {
   const [addName, setAddName] = useState("");
   const [addPar, setAddPar] = useState<number>(0);
 
-  // ✅ NEW: easy lookup controls
+  // ✅ Lookup controls + matches
   const [lookupMode, setLookupMode] = useState<LookupMode>("BARCODE");
   const [matches, setMatches] = useState<Item[]>([]);
+  const [suggestLoading, setSuggestLoading] = useState(false);
 
   // ✅ Audit + staff
   const [staffName, setStaffName] = useState("");
@@ -147,7 +153,9 @@ export default function InventoryPage() {
 
   // ✅ Totals edit modal
   const [totalsEditOpen, setTotalsEditOpen] = useState(false);
-  const [totalsEditRow, setTotalsEditRow] = useState<BuildingTotalRow | null>(null);
+  const [totalsEditRow, setTotalsEditRow] = useState<BuildingTotalRow | null>(
+    null
+  );
   const [setOnHandInput, setSetOnHandInput] = useState<string>("");
   const [deltaInput, setDeltaInput] = useState<string>("");
   const [parInput, setParInput] = useState<string>("");
@@ -157,7 +165,7 @@ export default function InventoryPage() {
     null | { kind: "SET"; value: number } | { kind: "ADJUST"; delta: number }
   >(null);
 
-  // ✅ NEW: Area List (per selected storage area)
+  // ✅ Area List (per selected storage area)
   const [areaListOpen, setAreaListOpen] = useState(false);
   const [areaInv, setAreaInv] = useState<AreaInvRow[]>([]);
   const [areaInvLoading, setAreaInvLoading] = useState(false);
@@ -359,7 +367,7 @@ export default function InventoryPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab]);
 
-  // ---------- NEW: LOAD AREA INVENTORY (Tx tab, when opened / area changes) ----------
+  // ---------- LOAD AREA INVENTORY (Tx tab, when opened / area changes) ----------
   async function loadAreaInventory() {
     if (!areaId) return;
 
@@ -391,7 +399,6 @@ export default function InventoryPage() {
   }
 
   useEffect(() => {
-    // only when Tx tab + list is open
     if (tab !== "Transaction") return;
     if (!areaListOpen) return;
     if (!areaId) return;
@@ -458,7 +465,9 @@ export default function InventoryPage() {
       v.srcObject = stream;
       await v.play();
 
-      const decodeFromVideoElement = (reader as any).decodeFromVideoElement?.bind(reader);
+      const decodeFromVideoElement = (reader as any).decodeFromVideoElement?.bind(
+        reader
+      );
 
       if (decodeFromVideoElement) {
         await decodeFromVideoElement(videoRef.current, async (result: any) => {
@@ -470,7 +479,8 @@ export default function InventoryPage() {
           if (now < scanCooldownRef.current) return;
           scanCooldownRef.current = now + 900;
 
-          if (text === lastScanRef.current && now < scanCooldownRef.current + 1) return;
+          if (text === lastScanRef.current && now < scanCooldownRef.current + 1)
+            return;
           lastScanRef.current = text;
 
           setQuery(text);
@@ -483,27 +493,31 @@ export default function InventoryPage() {
           await lookup(text);
         });
       } else {
-        await reader.decodeFromVideoDevice(undefined, videoRef.current, async (result) => {
-          if (!result) return;
-          const text = result.getText?.() ?? "";
-          if (!text) return;
+        await reader.decodeFromVideoDevice(
+          undefined,
+          videoRef.current,
+          async (result) => {
+            if (!result) return;
+            const text = result.getText?.() ?? "";
+            if (!text) return;
 
-          const now = Date.now();
-          if (now < scanCooldownRef.current) return;
-          scanCooldownRef.current = now + 900;
+            const now = Date.now();
+            if (now < scanCooldownRef.current) return;
+            scanCooldownRef.current = now + 900;
 
-          if (text === lastScanRef.current) return;
-          lastScanRef.current = text;
+            if (text === lastScanRef.current) return;
+            lastScanRef.current = text;
 
-          setQuery(text);
+            setQuery(text);
 
-          stopScanner();
-          setScannerOpen(false);
+            stopScanner();
+            setScannerOpen(false);
 
-          // Always barcode mode when scanning
-          setLookupMode("BARCODE");
-          await lookup(text);
-        });
+            // Always barcode mode when scanning
+            setLookupMode("BARCODE");
+            await lookup(text);
+          }
+        );
       }
     } catch {
       setScannerOpen(false);
@@ -539,7 +553,17 @@ export default function InventoryPage() {
     setStatus("Stopped.");
   }
 
-  // ---------- LOOKUP / ADD / SUBMIT ----------
+  // ---------- LOOKUP / SUGGEST / ADD / SUBMIT ----------
+  function mapItemRow(r: any): Item {
+    return {
+      id: r.id,
+      name: r.name,
+      barcode: r.barcode ?? "",
+      reference_number: r.reference_number ?? null,
+    };
+  }
+
+  // ✅ Full lookup (this is what Find/Enter/Scan uses)
   async function lookup(queryRaw: string) {
     const q = queryRaw.trim();
     if (!q) return;
@@ -563,12 +587,7 @@ export default function InventoryPage() {
     }
 
     if (json.item) {
-      const it: Item = {
-        id: json.item.id,
-        name: json.item.name,
-        barcode: json.item.barcode ?? "",
-        reference_number: json.item.reference_number ?? null,
-      };
+      const it = mapItemRow(json.item);
       setItem(it);
       setStatus(`Found: ${it.name}`);
       pushAudit({
@@ -579,12 +598,7 @@ export default function InventoryPage() {
     }
 
     const list = (json.matches ?? []) as any[];
-    const mapped: Item[] = list.map((r) => ({
-      id: r.id,
-      name: r.name,
-      barcode: r.barcode ?? "",
-      reference_number: r.reference_number ?? null,
-    }));
+    const mapped = list.map(mapItemRow);
 
     if (mapped.length) {
       setMatches(mapped);
@@ -593,10 +607,98 @@ export default function InventoryPage() {
     }
 
     setStatus("NOT FOUND — Add Item");
-    pushAudit({ action: "LOOKUP_NOT_FOUND", details: `Mode=${lookupMode} Query=${q}` });
+    pushAudit({
+      action: "LOOKUP_NOT_FOUND",
+      details: `Mode=${lookupMode} Query=${q}`,
+    });
     setAddOpen(true);
     setAddName("");
   }
+
+  // ✅ Suggestions (typeahead): never opens Add modal, never hard-fails while typing
+  async function suggest(queryRaw: string) {
+    const q = queryRaw.trim();
+    if (!q) {
+      setMatches([]);
+      setSuggestLoading(false);
+      return;
+    }
+
+    // Don’t typeahead on barcode mode (avoid hammering API for barcode strings)
+    if (lookupMode === "BARCODE") {
+      setMatches([]);
+      setSuggestLoading(false);
+      return;
+    }
+
+    // Require a couple characters so we don’t return massive lists
+    if (q.length < 2) {
+      setMatches([]);
+      setSuggestLoading(false);
+      return;
+    }
+
+    setSuggestLoading(true);
+
+    try {
+      const res = await fetch("/api/items/lookup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        cache: "no-store",
+        body: JSON.stringify({ query: q, mode: lookupMode, suggest: true }),
+      });
+
+      const json = await res.json();
+
+      if (!json.ok) {
+        setMatches([]);
+        setSuggestLoading(false);
+        return;
+      }
+
+      // If server decides it's an exact single match, still show it as a match
+      if (json.item) {
+        const it = mapItemRow(json.item);
+        setMatches([it]);
+        setSuggestLoading(false);
+        return;
+      }
+
+      const list = (json.matches ?? []) as any[];
+      const mapped = list.map(mapItemRow);
+
+      setMatches(mapped.slice(0, 8));
+    } catch {
+      setMatches([]);
+    } finally {
+      setSuggestLoading(false);
+    }
+  }
+
+  // ✅ Debounced typeahead when typing in REF/NAME
+  useEffect(() => {
+    if (tab !== "Transaction") return;
+    if (areaListOpen) return;
+    if (scannerOpen) return;
+    if (addOpen) return;
+
+    if (lookupMode === "BARCODE") {
+      // In barcode mode, we only lookup on Enter/Find/Scan
+      setSuggestLoading(false);
+      return;
+    }
+
+    const q = query.trim();
+
+    // If they already selected an item, and then keep typing, don't stomp selection
+    // (We still allow suggestions; selecting a suggestion will override.)
+    const t = window.setTimeout(() => {
+      suggest(q);
+    }, 250);
+
+    return () => window.clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [query, lookupMode, tab, areaListOpen, scannerOpen, addOpen]);
 
   function openPin(purpose: typeof pinPurpose) {
     setPinPurpose(purpose);
@@ -627,7 +729,8 @@ export default function InventoryPage() {
 
     if (pinPurpose === "changeLocation") {
       if (pendingArea) {
-        const nextName = areas.find((a) => a.id === pendingArea)?.name ?? pendingArea;
+        const nextName =
+          areas.find((a) => a.id === pendingArea)?.name ?? pendingArea;
         setAreaId(pendingArea);
         pushAudit({ action: "CHANGE_LOCATION", details: `To=${nextName}` });
       }
@@ -691,12 +794,8 @@ export default function InventoryPage() {
     const json = await res.json();
     if (!json.ok) return alert(`Add failed: ${json.error}`);
 
-    setItem({
-      id: json.item.id,
-      name: json.item.name,
-      barcode: json.item.barcode ?? "",
-      reference_number: json.item.reference_number ?? null,
-    });
+    setItem(mapItemRow(json.item));
+    setMatches([]);
 
     setAddOpen(false);
     setStatus(`Added: ${json.item.name}`);
@@ -784,7 +883,11 @@ export default function InventoryPage() {
     return n;
   }
 
-  async function doTotalsSet(row: BuildingTotalRow, value: number, pinAlreadyPassed = false) {
+  async function doTotalsSet(
+    row: BuildingTotalRow,
+    value: number,
+    pinAlreadyPassed = false
+  ) {
     if (!staffName.trim()) {
       setTab("Audit");
       alert("Enter staff name in Audit tab first.");
@@ -823,7 +926,11 @@ export default function InventoryPage() {
     await loadTotals();
   }
 
-  async function doTotalsAdjust(row: BuildingTotalRow, delta: number, pinAlreadyPassed = false) {
+  async function doTotalsAdjust(
+    row: BuildingTotalRow,
+    delta: number,
+    pinAlreadyPassed = false
+  ) {
     if (!staffName.trim()) {
       setTab("Audit");
       alert("Enter staff name in Audit tab first.");
@@ -910,7 +1017,10 @@ export default function InventoryPage() {
           </div>
 
           <div className="mt-3 grid grid-cols-4 gap-2">
-            <TabBtn active={tab === "Transaction"} onClick={() => setTab("Transaction")}>
+            <TabBtn
+              active={tab === "Transaction"}
+              onClick={() => setTab("Transaction")}
+            >
               Tx
             </TabBtn>
             <TabBtn active={tab === "Totals"} onClick={() => setTab("Totals")}>
@@ -919,7 +1029,10 @@ export default function InventoryPage() {
             <TabBtn active={tab === "Audit"} onClick={() => setTab("Audit")}>
               Audit
             </TabBtn>
-            <TabBtn active={tab === "Settings"} onClick={() => setTab("Settings")}>
+            <TabBtn
+              active={tab === "Settings"}
+              onClick={() => setTab("Settings")}
+            >
               Settings
             </TabBtn>
           </div>
@@ -953,7 +1066,7 @@ export default function InventoryPage() {
               </div>
             )}
 
-            {/* ✅ Toggle between Scan mode and Area List */}
+            {/* Toggle between Scan mode and Area List */}
             <div className="mt-3 grid grid-cols-2 gap-2">
               <button
                 onClick={() => {
@@ -988,7 +1101,7 @@ export default function InventoryPage() {
               </button>
             </div>
 
-            {/* -------- Area List Panel -------- */}
+            {/* Area List Panel */}
             {areaListOpen ? (
               <div className="mt-3 rounded-2xl bg-black/30 p-3 ring-1 ring-white/10">
                 <div className="flex items-center justify-between gap-2">
@@ -1065,7 +1178,9 @@ export default function InventoryPage() {
                             </div>
                             <div className="mt-1 text-xs text-white/60 break-words">
                               {r.vendor ?? "—"} • {r.category ?? "—"}{" "}
-                              {r.reference_number ? `• ${r.reference_number}` : ""}
+                              {r.reference_number
+                                ? `• ${r.reference_number}`
+                                : ""}
                             </div>
                           </div>
 
@@ -1095,7 +1210,9 @@ export default function InventoryPage() {
                           </div>
                           <div className="rounded-xl bg-white/5 p-2 ring-1 ring-white/10">
                             <div className="text-white/60">Unit</div>
-                            <div className="font-semibold">{r.unit ?? "—"}</div>
+                            <div className="font-semibold">
+                              {r.unit ?? "—"}
+                            </div>
                           </div>
                         </div>
 
@@ -1119,7 +1236,9 @@ export default function InventoryPage() {
                 <div className="mt-3 rounded-2xl bg-black/30 p-4 ring-1 ring-white/10">
                   <div className="flex items-center justify-between gap-3">
                     <div className="min-w-0">
-                      <div className="text-lg font-semibold">One-time override</div>
+                      <div className="text-lg font-semibold">
+                        One-time override
+                      </div>
                       <div className="mt-1 text-sm text-white/70">
                         Grabbed it from MAIN supply room? Tap once.
                       </div>
@@ -1153,20 +1272,30 @@ export default function InventoryPage() {
                       </div>
                     </div>
                     <div className="flex gap-2 shrink-0">
-                      <ModeBtn active={mode === "USE"} danger onClick={() => setMode("USE")}>
+                      <ModeBtn
+                        active={mode === "USE"}
+                        danger
+                        onClick={() => setMode("USE")}
+                      >
                         USE
                       </ModeBtn>
-                      <ModeBtn active={mode === "RESTOCK"} onClick={() => setMode("RESTOCK")}>
+                      <ModeBtn
+                        active={mode === "RESTOCK"}
+                        onClick={() => setMode("RESTOCK")}
+                      >
                         RESTOCK
                       </ModeBtn>
                     </div>
                   </div>
                 </div>
 
-                {/* ✅ EASY LOOKUP: Toggle + Input + Find + Camera */}
+                {/* EASY LOOKUP: Toggle + Input + Find + Camera */}
                 <div className="mt-3 grid grid-cols-3 gap-2">
                   <button
-                    onClick={() => setLookupMode("BARCODE")}
+                    onClick={() => {
+                      setLookupMode("BARCODE");
+                      setMatches([]);
+                    }}
                     className={[
                       "rounded-2xl px-3 py-3 font-extrabold ring-1 text-xs",
                       lookupMode === "BARCODE"
@@ -1177,7 +1306,10 @@ export default function InventoryPage() {
                     BARCODE
                   </button>
                   <button
-                    onClick={() => setLookupMode("REF")}
+                    onClick={() => {
+                      setLookupMode("REF");
+                      setMatches([]);
+                    }}
                     className={[
                       "rounded-2xl px-3 py-3 font-extrabold ring-1 text-xs",
                       lookupMode === "REF"
@@ -1188,7 +1320,10 @@ export default function InventoryPage() {
                     REF #
                   </button>
                   <button
-                    onClick={() => setLookupMode("NAME")}
+                    onClick={() => {
+                      setLookupMode("NAME");
+                      setMatches([]);
+                    }}
                     className={[
                       "rounded-2xl px-3 py-3 font-extrabold ring-1 text-xs",
                       lookupMode === "NAME"
@@ -1204,7 +1339,11 @@ export default function InventoryPage() {
                   <div className="relative flex-1">
                     <input
                       value={query}
-                      onChange={(e) => setQuery(e.target.value)}
+                      onChange={(e) => {
+                        setQuery(e.target.value);
+                        // Don’t clear selection on every keystroke; keep it until they pick another
+                        setStatus("");
+                      }}
                       onKeyDown={async (e) => {
                         if (e.key === "Enter") {
                           await lookup(query);
@@ -1236,8 +1375,21 @@ export default function InventoryPage() {
                   </button>
                 </div>
 
+                {/* Suggestions */}
+                {lookupMode !== "BARCODE" && (
+                  <div className="mt-2 text-[11px] text-white/55">
+                    {suggestLoading
+                      ? "Searching…"
+                      : matches.length
+                      ? "Suggestions:"
+                      : query.trim().length >= 2
+                      ? "No suggestions yet (press Find to search fully)."
+                      : "Type 2+ characters for suggestions."}
+                  </div>
+                )}
+
                 {matches.length > 0 && (
-                  <div className="mt-3 space-y-2">
+                  <div className="mt-2 space-y-2">
                     {matches.slice(0, 8).map((m) => (
                       <button
                         key={m.id}
@@ -1248,7 +1400,9 @@ export default function InventoryPage() {
                         }}
                         className="w-full text-left rounded-2xl bg-black/30 p-3 ring-1 ring-white/10"
                       >
-                        <div className="text-sm font-semibold break-words">{m.name}</div>
+                        <div className="text-sm font-semibold break-words">
+                          {m.name}
+                        </div>
                         <div className="mt-1 text-xs text-white/60 break-words">
                           {m.reference_number ? `Ref: ${m.reference_number}` : "Ref: —"}
                           {" • "}
@@ -1276,7 +1430,9 @@ export default function InventoryPage() {
 
                 {/* Qty */}
                 <div className="mt-3 flex items-center gap-3">
-                  <QtyBtn onClick={() => setQty((q) => Math.max(1, q - 1))}>−</QtyBtn>
+                  <QtyBtn onClick={() => setQty((q) => Math.max(1, q - 1))}>
+                    −
+                  </QtyBtn>
                   <div className="flex-1 rounded-2xl bg-white px-4 py-3 text-center text-black">
                     <span className="text-lg font-semibold">{qty}</span>
                   </div>
@@ -1315,7 +1471,9 @@ export default function InventoryPage() {
                     </div>
 
                     <div className="mt-3">
-                      <div className="text-xs text-white/60 mb-1">Par level (optional)</div>
+                      <div className="text-xs text-white/60 mb-1">
+                        Par level (optional)
+                      </div>
                       <input
                         value={String(addPar)}
                         onChange={(e) => setAddPar(Number(e.target.value || 0))}
@@ -1357,13 +1515,16 @@ export default function InventoryPage() {
               >
                 <input
                   value={pinInput}
-                  onChange={(e) => setPinInput(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                  onChange={(e) =>
+                    setPinInput(e.target.value.replace(/\D/g, "").slice(0, 6))
+                  }
                   inputMode="numeric"
                   className="mt-3 w-full rounded-2xl bg-white text-black px-4 py-3"
                   placeholder="PIN"
                 />
                 <div className="mt-2 text-xs text-white/50">
-                  Default PIN is <span className="font-semibold">1234</span> until set in Settings.
+                  Default PIN is <span className="font-semibold">1234</span>{" "}
+                  until set in Settings.
                 </div>
               </Modal>
             )}
@@ -1378,7 +1539,9 @@ export default function InventoryPage() {
                     paddingBottom: "12px",
                   }}
                 >
-                  <div className="text-lg font-semibold text-white">Scan barcode</div>
+                  <div className="text-lg font-semibold text-white">
+                    Scan barcode
+                  </div>
                   <button
                     onClick={closeScanner}
                     className="rounded-2xl bg-white/10 px-4 py-2 text-sm font-semibold text-white ring-1 ring-white/10"
@@ -1387,7 +1550,10 @@ export default function InventoryPage() {
                   </button>
                 </div>
 
-                <div className="relative w-full" style={{ height: "calc(100vh - 120px)" }}>
+                <div
+                  className="relative w-full"
+                  style={{ height: "calc(100vh - 120px)" }}
+                >
                   <video
                     ref={videoRef}
                     className="absolute inset-0 h-full w-full object-cover"
@@ -1405,7 +1571,8 @@ export default function InventoryPage() {
                     paddingBottom: "calc(env(safe-area-inset-bottom) + 16px)",
                   }}
                 >
-                  Hold the barcode steady inside the box. Best distance: 6–10 inches.
+                  Hold the barcode steady inside the box. Best distance: 6–10
+                  inches.
                 </div>
               </div>
             )}
@@ -1455,7 +1622,9 @@ export default function InventoryPage() {
             </div>
 
             {totalsError && (
-              <div className="mt-2 text-sm text-red-300 break-words">{totalsError}</div>
+              <div className="mt-2 text-sm text-red-300 break-words">
+                {totalsError}
+              </div>
             )}
 
             <div className="mt-3 space-y-2">
@@ -1472,7 +1641,9 @@ export default function InventoryPage() {
                   >
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
-                        <div className="text-sm font-semibold break-words">{r.name}</div>
+                        <div className="text-sm font-semibold break-words">
+                          {r.name}
+                        </div>
                         <div className="mt-1 text-xs text-white/60 break-words">
                           {r.vendor ?? "—"} • {r.category ?? "—"}{" "}
                           {r.reference_number ? `• ${r.reference_number}` : ""}
@@ -1488,7 +1659,9 @@ export default function InventoryPage() {
                         ].join(" ")}
                       >
                         {onHand}
-                        <div className="text-[10px] font-semibold opacity-80">on hand</div>
+                        <div className="text-[10px] font-semibold opacity-80">
+                          on hand
+                        </div>
                       </div>
                     </div>
 
@@ -1535,7 +1708,8 @@ export default function InventoryPage() {
                 <div className="mt-1 text-sm text-white/80 break-words">
                   <div className="font-semibold">{totalsEditRow.name}</div>
                   <div className="text-xs text-white/60">
-                    {totalsEditRow.vendor ?? "—"} • {totalsEditRow.category ?? "—"}{" "}
+                    {totalsEditRow.vendor ?? "—"} •{" "}
+                    {totalsEditRow.category ?? "—"}{" "}
                     {totalsEditRow.reference_number
                       ? `• ${totalsEditRow.reference_number}`
                       : ""}
@@ -1547,7 +1721,9 @@ export default function InventoryPage() {
                   <div className="mt-2 flex gap-2">
                     <input
                       value={parInput}
-                      onChange={(e) => setParInput(e.target.value.replace(/[^\d]/g, ""))}
+                      onChange={(e) =>
+                        setParInput(e.target.value.replace(/[^\d]/g, ""))
+                      }
                       inputMode="numeric"
                       className="flex-1 rounded-2xl bg-white text-black px-4 py-3"
                       placeholder="e.g., 30"
@@ -1555,7 +1731,8 @@ export default function InventoryPage() {
                     <button
                       onClick={async () => {
                         const n = parseIntSafe(parInput);
-                        if (n === null || n < 0) return alert("Enter a valid PAR (0 or more).");
+                        if (n === null || n < 0)
+                          return alert("Enter a valid PAR (0 or more).");
 
                         const res = await fetch("/api/building-inventory/update", {
                           method: "POST",
@@ -1569,7 +1746,8 @@ export default function InventoryPage() {
                         });
 
                         const json = await res.json();
-                        if (!json.ok) return alert(`PAR update failed: ${json.error}`);
+                        if (!json.ok)
+                          return alert(`PAR update failed: ${json.error}`);
 
                         pushAudit({
                           action: "TOTALS_ADJUST",
@@ -1585,7 +1763,8 @@ export default function InventoryPage() {
                     </button>
                   </div>
                   <div className="mt-2 text-[11px] text-white/55">
-                    PAR is stored in <span className="font-semibold">items.par_level</span>.
+                    PAR is stored in{" "}
+                    <span className="font-semibold">items.par_level</span>.
                   </div>
                 </div>
 
@@ -1594,7 +1773,9 @@ export default function InventoryPage() {
                   <div className="mt-2 flex gap-2">
                     <input
                       value={setOnHandInput}
-                      onChange={(e) => setSetOnHandInput(e.target.value.replace(/[^\d]/g, ""))}
+                      onChange={(e) =>
+                        setSetOnHandInput(e.target.value.replace(/[^\d]/g, ""))
+                      }
                       inputMode="numeric"
                       className="flex-1 rounded-2xl bg-white text-black px-4 py-3"
                       placeholder="e.g., 17"
@@ -1602,7 +1783,8 @@ export default function InventoryPage() {
                     <button
                       onClick={async () => {
                         const n = parseIntSafe(setOnHandInput);
-                        if (n === null || n < 0) return alert("Enter a valid number (0 or more).");
+                        if (n === null || n < 0)
+                          return alert("Enter a valid number (0 or more).");
                         await doTotalsSet(totalsEditRow, n);
                       }}
                       className="rounded-2xl bg-white px-4 py-3 text-sm font-extrabold text-black"
@@ -1610,7 +1792,9 @@ export default function InventoryPage() {
                       Set
                     </button>
                   </div>
-                  <div className="mt-2 text-[11px] text-white/55">Best for cycle counts (truth).</div>
+                  <div className="mt-2 text-[11px] text-white/55">
+                    Best for cycle counts (truth).
+                  </div>
                 </div>
 
                 <div className="mt-3 rounded-2xl bg-black/30 p-3 ring-1 ring-white/10">
@@ -1628,7 +1812,11 @@ export default function InventoryPage() {
                     <input
                       value={deltaInput}
                       onChange={(e) =>
-                        setDeltaInput(e.target.value.replace(/[^\d-]/g, "").slice(0, 7))
+                        setDeltaInput(
+                          e.target.value
+                            .replace(/[^\d-]/g, "")
+                            .slice(0, 7)
+                        )
                       }
                       inputMode="numeric"
                       className="rounded-2xl bg-white text-black px-4 py-3 text-center"
@@ -1721,7 +1909,9 @@ export default function InventoryPage() {
               </button>
             </div>
 
-            <div className="mt-4 text-sm font-semibold text-white/80">Recent events</div>
+            <div className="mt-4 text-sm font-semibold text-white/80">
+              Recent events
+            </div>
 
             <div className="mt-2 space-y-2">
               {audit.length === 0 ? (
@@ -1730,7 +1920,10 @@ export default function InventoryPage() {
                 </div>
               ) : (
                 audit.slice(0, 60).map((e) => (
-                  <div key={e.id} className="rounded-2xl bg-black/30 p-3 ring-1 ring-white/10">
+                  <div
+                    key={e.id}
+                    className="rounded-2xl bg-black/30 p-3 ring-1 ring-white/10"
+                  >
                     <div className="flex items-center justify-between gap-2">
                       <div className="text-sm font-semibold">{e.action}</div>
                       <div className="text-[11px] text-white/55">
@@ -1741,7 +1934,9 @@ export default function InventoryPage() {
                       Staff: <span className="font-semibold">{e.staff}</span>
                     </div>
                     {e.details && (
-                      <div className="mt-1 text-xs text-white/55 break-words">{e.details}</div>
+                      <div className="mt-1 text-xs text-white/55 break-words">
+                        {e.details}
+                      </div>
                     )}
                   </div>
                 ))
@@ -1751,7 +1946,9 @@ export default function InventoryPage() {
         ) : (
           <div className="mt-3 rounded-3xl bg-white/5 p-4 ring-1 ring-white/10">
             <div className="text-lg font-semibold">Settings</div>
-            <div className="mt-3 text-sm text-white/70">Set/Change PIN (min 4 digits):</div>
+            <div className="mt-3 text-sm text-white/70">
+              Set/Change PIN (min 4 digits):
+            </div>
             <PinSetter onSave={savePin} />
           </div>
         )}
@@ -1774,7 +1971,9 @@ function TabBtn({
       onClick={onClick}
       className={[
         "rounded-2xl px-2 py-2 text-xs font-extrabold ring-1",
-        active ? "bg-white text-black ring-white/20" : "bg-white/5 text-white ring-white/10",
+        active
+          ? "bg-white text-black ring-white/20"
+          : "bg-white/5 text-white ring-white/10",
       ].join(" ")}
     >
       {children}
