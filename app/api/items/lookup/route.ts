@@ -1,61 +1,118 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
+type Body = {
+  query?: string;
+  mode?: "BARCODE" | "REF" | "NAME";
+
+  // backward compatible if your older client sends { barcode }
+  barcode?: string;
+};
+
 function getServiceClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !key) throw new Error("Missing env for service client");
+  const key =
+    process.env.SUPABASE_SERVICE_ROLE_KEY ||
+    process.env.SUPABASE_SERVICE_KEY ||
+    process.env.SUPABASE_SERVICE_ROLE;
+
+  if (!url || !key) {
+    throw new Error(
+      "Missing env: NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY"
+    );
+  }
+
   return createClient(url, key, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
 }
 
+function clean(raw: string) {
+  return raw.trim();
+}
+
 export async function POST(req: Request) {
   try {
-    const { barcode } = (await req.json()) as { barcode?: string };
-    const bc = (barcode || "").trim();
-    if (!bc) return NextResponse.json({ ok: false, error: "Missing barcode" });
+    const body = (await req.json()) as Body;
+
+    const q = clean(body.query ?? body.barcode ?? "");
+    const mode = body.mode ?? "BARCODE";
+
+    if (!q) return NextResponse.json({ ok: false, error: "Missing query" });
 
     const supabase = getServiceClient();
 
-    // 1) Try items.barcode first (your current behavior)
-    const { data: directItem, error: directErr } = await supabase
-      .from("items")
-      .select("id,name,barcode")
-      .eq("barcode", bc)
-      .maybeSingle();
+    // Columns we return (keep minimal)
+    const selectCols = "id,name,barcode,reference_number";
 
-    if (directErr) throw directErr;
-    if (directItem) return NextResponse.json({ ok: true, item: directItem });
+    // 1) Mode-priority EXACT match
+    if (mode === "BARCODE") {
+      const { data, error } = await supabase
+        .from("items")
+        .select(selectCols)
+        .eq("barcode", q)
+        .limit(1)
+        .maybeSingle();
 
-    // 2) Fallback: item_barcodes table -> map to items
-    const { data: mapRow, error: mapErr } = await supabase
-      .from("item_barcodes")
-      .select("item_id,barcode")
-      .eq("barcode", bc)
-      .maybeSingle();
-
-    if (mapErr) throw mapErr;
-
-    if (!mapRow?.item_id) {
-      return NextResponse.json({ ok: true, item: null });
+      if (error) return NextResponse.json({ ok: false, error: error.message });
+      if (data) return NextResponse.json({ ok: true, item: data });
     }
 
-    const { data: mappedItem, error: itemErr } = await supabase
+    if (mode === "REF") {
+      const { data, error } = await supabase
+        .from("items")
+        .select(selectCols)
+        .eq("reference_number", q)
+        .limit(1)
+        .maybeSingle();
+
+      if (error) return NextResponse.json({ ok: false, error: error.message });
+      if (data) return NextResponse.json({ ok: true, item: data });
+    }
+
+    // 2) If NAME mode, search by name first (top 8)
+    if (mode === "NAME") {
+      const { data, error } = await supabase
+        .from("items")
+        .select(selectCols)
+        .ilike("name", `%${q}%`)
+        .order("name", { ascending: true })
+        .limit(8);
+
+      if (error) return NextResponse.json({ ok: false, error: error.message });
+
+      const rows = data ?? [];
+      if (rows.length === 1) return NextResponse.json({ ok: true, item: rows[0] });
+      return NextResponse.json({ ok: true, item: null, matches: rows });
+    }
+
+    // 3) Fallback (helpful even if wrong mode was chosen)
+    // Try exact on the other keys too
+    const { data: exact2, error: e2 } = await supabase
       .from("items")
-      .select("id,name")
-      .eq("id", mapRow.item_id)
+      .select(selectCols)
+      .or(`barcode.eq.${q},reference_number.eq.${q}`)
+      .limit(1)
       .maybeSingle();
 
-    if (itemErr) throw itemErr;
+    if (e2) return NextResponse.json({ ok: false, error: e2.message });
+    if (exact2) return NextResponse.json({ ok: true, item: exact2 });
 
-    if (!mappedItem) return NextResponse.json({ ok: true, item: null });
+    // 4) Final fallback: name contains (top 8)
+    const { data: like, error: e3 } = await supabase
+      .from("items")
+      .select(selectCols)
+      .ilike("name", `%${q}%`)
+      .order("name", { ascending: true })
+      .limit(8);
 
-    return NextResponse.json({
-      ok: true,
-      item: { ...mappedItem, barcode: bc },
-    });
+    if (e3) return NextResponse.json({ ok: false, error: e3.message });
+
+    return NextResponse.json({ ok: true, item: null, matches: like ?? [] });
   } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message ?? "Unknown error" });
+    return NextResponse.json(
+      { ok: false, error: e?.message || "Server error" },
+      { status: 500 }
+    );
   }
 }
