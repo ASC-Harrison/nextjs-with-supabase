@@ -187,6 +187,13 @@ export default function InventoryPage() {
   const [areaParOnly, setAreaParOnly] = useState(true);
   const [areaLowOnly, setAreaLowOnly] = useState(false);
 
+  // ✅ NEW: Area row edit modal
+  const [areaEditOpen, setAreaEditOpen] = useState(false);
+  const [areaEditRow, setAreaEditRow] = useState<AreaInvRow | null>(null);
+  const [areaEditPar, setAreaEditPar] = useState<string>("");
+  const [areaEditOnHand, setAreaEditOnHand] = useState<string>("");
+  const [areaEditSaving, setAreaEditSaving] = useState(false);
+
   // ✅ Last transaction for UNDO (device-only)
   const [lastTx, setLastTx] = useState<LastTx | null>(null);
   const [undoBusy, setUndoBusy] = useState(false);
@@ -833,14 +840,13 @@ export default function InventoryPage() {
         item_id: item.id,
         qty,
         mainOverride,
-        staff: staffName.trim(), // harmless even if server ignores
+        staff: staffName.trim(),
       }),
     });
 
     const json = await res.json();
     if (!json.ok) return alert(`Transaction failed: ${json.error}`);
 
-    // Save lastTx for UNDO
     const tx: LastTx = {
       storage_area_id: areaId,
       mode,
@@ -853,12 +859,10 @@ export default function InventoryPage() {
     };
     setLastTx(tx);
 
-    // Reset one-time override & qty
     setMainOverride(false);
     setQty(1);
     setStatus(`✅ Updated on-hand to ${json.on_hand}`);
 
-    // keep lists fresh
     if (tab === "Totals") await loadTotals();
     if (tab === "Transaction" && areaListOpen) await loadAreaInventory();
 
@@ -880,15 +884,16 @@ export default function InventoryPage() {
     }
 
     const ok = confirm(
-      `UNDO last transaction?\n\n${lastTx.mode} x${lastTx.qty}\n${lastTx.item_name ?? lastTx.item_id}\nArea: ${
-        lastTx.area_name ?? lastTx.storage_area_id
-      }\nMAIN override: ${lastTx.mainOverride ? "YES" : "NO"}`
+      `UNDO last transaction?\n\n${lastTx.mode} x${lastTx.qty}\n${
+        lastTx.item_name ?? lastTx.item_id
+      }\nArea: ${lastTx.area_name ?? lastTx.storage_area_id}\nMAIN override: ${
+        lastTx.mainOverride ? "YES" : "NO"
+      }`
     );
     if (!ok) return;
 
     setUndoBusy(true);
     try {
-      // We reverse by calling a dedicated undo endpoint that uses your same apply logic.
       const res = await fetch("/api/transaction/undo", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -918,10 +923,8 @@ export default function InventoryPage() {
         } Area=${lastTx.area_name ?? lastTx.storage_area_id}`,
       });
 
-      // After successful undo, clear lastTx so they can't double-undo
       setLastTx(null);
 
-      // refresh lists if open
       if (tab === "Totals") await loadTotals();
       if (tab === "Transaction" && areaListOpen) await loadAreaInventory();
     } finally {
@@ -1056,6 +1059,61 @@ export default function InventoryPage() {
     await loadTotals();
   }
 
+  // ---------- ✅ NEW: AREA LIST EDIT ----------
+  function openAreaRowEditor(row: AreaInvRow) {
+    setAreaEditRow(row);
+    setAreaEditPar(String(row.par_level ?? 0));
+    setAreaEditOnHand(String(row.on_hand ?? 0));
+    setAreaEditOpen(true);
+  }
+
+  async function saveAreaRowEdits() {
+    if (!areaEditRow) return;
+
+    if (locked) {
+      alert("Locked. Unlock first to edit par/on-hand.");
+      return;
+    }
+
+    const par = parseIntSafe(areaEditPar);
+    const onHand = parseIntSafe(areaEditOnHand);
+
+    if (par === null || par < 0) return alert("PAR must be 0 or more.");
+    if (onHand === null || onHand < 0)
+      return alert("On-hand must be 0 or more.");
+
+    setAreaEditSaving(true);
+    try {
+      const res = await fetch("/api/storage-inventory/upsert", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        cache: "no-store",
+        body: JSON.stringify({
+          storage_area_id: areaEditRow.storage_area_id,
+          item_id: areaEditRow.item_id,
+          par_level: par,
+          on_hand: onHand,
+        }),
+      });
+
+      const json = await res.json();
+      if (!json.ok) {
+        alert(`Save failed: ${json.error}`);
+        return;
+      }
+
+      pushAudit({
+        action: "TOTALS_ADJUST",
+        details: `AREA EDIT Area=${selectedAreaName} Item=${areaEditRow.item_name} Par=${par} OnHand=${onHand}`,
+      });
+
+      setAreaEditOpen(false);
+      await loadAreaInventory();
+    } finally {
+      setAreaEditSaving(false);
+    }
+  }
+
   // ---------- UI ----------
   const staffMissing = !staffName.trim();
 
@@ -1124,7 +1182,6 @@ export default function InventoryPage() {
 
         {tab === "Transaction" ? (
           <div className="mt-3 rounded-3xl bg-white/5 p-4 ring-1 ring-white/10">
-            {/* Staff warning banner */}
             {staffMissing && (
               <div className="mb-3 rounded-2xl bg-red-600/20 p-3 ring-1 ring-red-500/30">
                 <div className="text-sm font-extrabold text-red-200">
@@ -1144,7 +1201,6 @@ export default function InventoryPage() {
 
             <div className="text-sm text-white/70">Select location</div>
 
-            {/* Location: read-only when locked */}
             {locked ? (
               <div className="mt-2 rounded-2xl bg-black/40 px-4 py-3 ring-1 ring-white/10">
                 <div className="text-xs text-white/60">Locked to:</div>
@@ -1181,7 +1237,6 @@ export default function InventoryPage() {
               </div>
             )}
 
-            {/* Toggle between Scan mode and Area List */}
             <div className="mt-3 grid grid-cols-2 gap-2">
               <button
                 onClick={() => {
@@ -1216,7 +1271,6 @@ export default function InventoryPage() {
               </button>
             </div>
 
-            {/* Area List Panel */}
             {areaListOpen ? (
               <div className="mt-3 rounded-2xl bg-black/30 p-3 ring-1 ring-white/10">
                 <div className="flex items-center justify-between gap-2">
@@ -1282,9 +1336,11 @@ export default function InventoryPage() {
                     const isLow = low > 0 && onHand <= low;
 
                     return (
-                      <div
+                      <button
+                        type="button"
                         key={`${r.storage_area_id}-${r.item_id}`}
-                        className="w-full rounded-2xl bg-black/20 p-3 ring-1 ring-white/10"
+                        onClick={() => openAreaRowEditor(r)}
+                        className="w-full text-left rounded-2xl bg-black/20 p-3 ring-1 ring-white/10"
                       >
                         <div className="flex items-start justify-between gap-2">
                           <div className="min-w-0">
@@ -1336,7 +1392,12 @@ export default function InventoryPage() {
                             Notes: {r.notes}
                           </div>
                         )}
-                      </div>
+
+                        <div className="mt-2 text-[11px] text-white/50">
+                          Tap to edit PAR + On-hand
+                          {locked ? " (unlock first)" : ""}
+                        </div>
+                      </button>
                     );
                   })}
                 </div>
@@ -1344,6 +1405,61 @@ export default function InventoryPage() {
                 <div className="mt-3 text-[11px] text-white/50">
                   Showing up to 200 rows to keep it fast on phones.
                 </div>
+
+                {/* ✅ Area Edit Modal */}
+                {areaEditOpen && areaEditRow && (
+                  <Modal
+                    title="Edit area item"
+                    okText={areaEditSaving ? "Saving…" : "Save"}
+                    onCancel={() => setAreaEditOpen(false)}
+                    onOk={saveAreaRowEdits}
+                  >
+                    <div className="mt-1 text-sm text-white/80 break-words">
+                      <div className="font-semibold">{areaEditRow.item_name}</div>
+                      <div className="text-xs text-white/60">
+                        {selectedAreaName}
+                        {areaEditRow.reference_number
+                          ? ` • ${areaEditRow.reference_number}`
+                          : ""}
+                      </div>
+                    </div>
+
+                    <div className="mt-4 grid grid-cols-2 gap-2">
+                      <div>
+                        <div className="text-xs text-white/60 mb-1">PAR</div>
+                        <input
+                          value={areaEditPar}
+                          onChange={(e) =>
+                            setAreaEditPar(e.target.value.replace(/[^\d]/g, ""))
+                          }
+                          inputMode="numeric"
+                          className="w-full rounded-2xl bg-white text-black px-4 py-3"
+                          placeholder="0"
+                        />
+                      </div>
+
+                      <div>
+                        <div className="text-xs text-white/60 mb-1">On hand</div>
+                        <input
+                          value={areaEditOnHand}
+                          onChange={(e) =>
+                            setAreaEditOnHand(
+                              e.target.value.replace(/[^\d]/g, "")
+                            )
+                          }
+                          inputMode="numeric"
+                          className="w-full rounded-2xl bg-white text-black px-4 py-3"
+                          placeholder="0"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="mt-3 text-[11px] text-white/50">
+                      Saves to <span className="font-semibold">storage_inventory</span>{" "}
+                      for this area + item.
+                    </div>
+                  </Modal>
+                )}
               </div>
             ) : (
               <>
@@ -1375,7 +1491,6 @@ export default function InventoryPage() {
                   </div>
                 </div>
 
-                {/* MAIN override banner + cancel */}
                 {mainOverride && (
                   <div className="mt-3 rounded-2xl bg-yellow-500/20 p-3 ring-1 ring-yellow-500/30">
                     <div className="text-sm font-extrabold text-yellow-200">
@@ -1508,7 +1623,6 @@ export default function InventoryPage() {
                   </button>
                 </div>
 
-                {/* Suggestions */}
                 {lookupMode !== "BARCODE" && (
                   <div className="mt-2 text-[11px] text-white/55">
                     {suggestLoading
