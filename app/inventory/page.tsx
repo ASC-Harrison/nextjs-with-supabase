@@ -114,6 +114,9 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 );
 
+// ✅ MAIN Sterile Supply storage_area_id (your UUID)
+const MAIN_SUPPLY_ID = "a09eb27b-e4a1-449a-8d2e-c45b24d6514f";
+
 export default function InventoryPage() {
   const router = useRouter();
 
@@ -843,6 +846,22 @@ export default function InventoryPage() {
     return m === "USE" ? "RESTOCK" : "USE";
   }
 
+  // ✅ Helper: read on_hand after RPC so status message is accurate
+  async function fetchOnHand(area: string, itemId: string) {
+    const { data, error } = await supabase
+      .from("storage_inventory")
+      .select("on_hand")
+      .eq("storage_area_id", area)
+      .eq("item_id", itemId)
+      .maybeSingle();
+
+    if (error) throw error;
+    return (data?.on_hand ?? 0) as number;
+  }
+
+  // ✅ REPLACED: submit() now uses safe RPC math:
+  // - USE subtracts from selected area (or MAIN if override)
+  // - RESTOCK moves from MAIN -> selected area (does NOT change building totals)
   async function submit() {
     if (locked) return alert("Locked. Unlock first.");
     if (!staffName.trim()) {
@@ -850,52 +869,96 @@ export default function InventoryPage() {
       return alert("Enter staff name in Audit tab first.");
     }
     if (!item?.id) return alert("Find or scan an item first.");
-    if (!areaId && !mainOverride) return alert("Select a location.");
+    if (!areaId) return alert("Select a location.");
 
-    const res = await fetch("/api/transaction", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      cache: "no-store",
-      body: JSON.stringify({
-        storage_area_id: areaId,
-        mode,
-        item_id: item.id,
-        qty,
-        mainOverride,
-        staff: staffName.trim(),
-      }),
-    });
+    try {
+      if (mode === "USE") {
+        const useArea = mainOverride ? MAIN_SUPPLY_ID : areaId;
 
-    const json = await res.json();
-    if (!json.ok) return alert(`Transaction failed: ${json.error}`);
+        const { error } = await supabase.rpc("use_stock", {
+          p_item_id: item.id,
+          p_area_id: useArea,
+          p_qty: qty,
+        });
+        if (error) throw error;
 
-    const tx: LastTx = {
-      storage_area_id: areaId,
-      mode,
-      item_id: item.id,
-      qty,
-      mainOverride,
-      item_name: item.name,
-      area_name: selectedAreaName,
-      ts: nowIso(),
-    };
-    setLastTx(tx);
+        const newOnHand = await fetchOnHand(useArea, item.id);
 
-    setMainOverride(false);
-    setQty(1);
-    setStatus(`✅ Updated on-hand to ${json.on_hand}`);
+        const tx: LastTx = {
+          storage_area_id: useArea,
+          mode,
+          item_id: item.id,
+          qty,
+          mainOverride,
+          item_name: item.name,
+          area_name: useArea === MAIN_SUPPLY_ID ? "MAIN SUPPLY" : selectedAreaName,
+          ts: nowIso(),
+        };
+        setLastTx(tx);
 
-    if (tab === "Totals") await loadTotals();
-    if (tab === "Transaction" && areaListOpen) await loadAreaInventory();
+        setMainOverride(false);
+        setQty(1);
+        setStatus(`✅ Updated on-hand to ${newOnHand}`);
 
-    pushAudit({
-      action: "SUBMIT_TX",
-      details: `Mode=${mode} Qty=${qty} Item=${item.name} Area=${selectedAreaName} Override=${
-        mainOverride ? "MAIN" : "NO"
-      }`,
-    });
+        if (tab === "Totals") await loadTotals();
+        if (tab === "Transaction" && areaListOpen) await loadAreaInventory();
+
+        pushAudit({
+          action: "SUBMIT_TX",
+          details: `Mode=USE Qty=${qty} Item=${item.name} Area=${
+            useArea === MAIN_SUPPLY_ID ? "MAIN SUPPLY" : selectedAreaName
+          } Override=${mainOverride ? "MAIN" : "NO"}`,
+        });
+
+        return;
+      }
+
+      if (mode === "RESTOCK") {
+        // RESTOCK = MOVE from MAIN supply -> selected cabinet
+        const { error } = await supabase.rpc("move_stock", {
+          p_item_id: item.id,
+          p_from_area: MAIN_SUPPLY_ID,
+          p_to_area: areaId,
+          p_qty: qty,
+        });
+        if (error) throw error;
+
+        const newOnHand = await fetchOnHand(areaId, item.id);
+
+        const tx: LastTx = {
+          storage_area_id: areaId, // destination
+          mode,
+          item_id: item.id,
+          qty,
+          mainOverride: false,
+          item_name: item.name,
+          area_name: selectedAreaName,
+          ts: nowIso(),
+        };
+        setLastTx(tx);
+
+        setMainOverride(false);
+        setQty(1);
+        setStatus(`✅ Restocked. On-hand now ${newOnHand}`);
+
+        if (tab === "Totals") await loadTotals();
+        if (tab === "Transaction" && areaListOpen) await loadAreaInventory();
+
+        pushAudit({
+          action: "SUBMIT_TX",
+          details: `Mode=RESTOCK Qty=${qty} Item=${item.name} From=MAIN SUPPLY To=${selectedAreaName}`,
+        });
+
+        return;
+      }
+    } catch (e: any) {
+      alert(`Transaction failed: ${e?.message ?? "unknown error"}`);
+    }
   }
 
+  // ✅ REPLACED: undoLast() now reverses the real math:
+  // - undo USE = add_stock back to that same area
+  // - undo RESTOCK = move from cabinet back to MAIN
   async function undoLast() {
     if (!lastTx) return;
     if (undoBusy) return;
@@ -906,47 +969,74 @@ export default function InventoryPage() {
     }
 
     const ok = confirm(
-      `UNDO last transaction?\n\n${lastTx.mode} x${lastTx.qty}\n${lastTx.item_name ?? lastTx.item_id}\nArea: ${
-        lastTx.area_name ?? lastTx.storage_area_id
-      }\nMAIN override: ${lastTx.mainOverride ? "YES" : "NO"}`
+      `UNDO last transaction?\n\n${lastTx.mode} x${lastTx.qty}\n${
+        lastTx.item_name ?? lastTx.item_id
+      }\nArea: ${lastTx.area_name ?? lastTx.storage_area_id}\nMAIN override: ${
+        lastTx.mainOverride ? "YES" : "NO"
+      }`
     );
     if (!ok) return;
 
     setUndoBusy(true);
     try {
-      const res = await fetch("/api/transaction/undo", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        cache: "no-store",
-        body: JSON.stringify({
-          storage_area_id: lastTx.storage_area_id,
-          mode: inverseMode(lastTx.mode),
-          item_id: lastTx.item_id,
-          qty: lastTx.qty,
-          mainOverride: lastTx.mainOverride,
-          staff: staffName.trim(),
-        }),
-      });
+      if (lastTx.mode === "USE") {
+        const { error } = await supabase.rpc("add_stock", {
+          p_item_id: lastTx.item_id,
+          p_area_id: lastTx.storage_area_id,
+          p_qty: lastTx.qty,
+        });
+        if (error) throw error;
 
-      const json = await res.json();
-      if (!json.ok) {
-        alert(`Undo failed: ${json.error}`);
+        const newOnHand = await fetchOnHand(
+          lastTx.storage_area_id,
+          lastTx.item_id
+        );
+        setStatus(`↩️ UNDONE. On-hand now ${newOnHand}`);
+
+        pushAudit({
+          action: "UNDO_TX",
+          details: `Reversed=USE Qty=${lastTx.qty} Item=${
+            lastTx.item_name ?? lastTx.item_id
+          } Area=${lastTx.area_name ?? lastTx.storage_area_id}`,
+        });
+
+        setLastTx(null);
+
+        if (tab === "Totals") await loadTotals();
+        if (tab === "Transaction" && areaListOpen) await loadAreaInventory();
         return;
       }
 
-      setStatus(`↩️ UNDONE. On-hand now ${json.on_hand}`);
+      if (lastTx.mode === "RESTOCK") {
+        const { error } = await supabase.rpc("move_stock", {
+          p_item_id: lastTx.item_id,
+          p_from_area: lastTx.storage_area_id,
+          p_to_area: MAIN_SUPPLY_ID,
+          p_qty: lastTx.qty,
+        });
+        if (error) throw error;
 
-      pushAudit({
-        action: "UNDO_TX",
-        details: `Reversed=${lastTx.mode} Qty=${lastTx.qty} Item=${
-          lastTx.item_name ?? lastTx.item_id
-        } Area=${lastTx.area_name ?? lastTx.storage_area_id}`,
-      });
+        const newOnHand = await fetchOnHand(
+          lastTx.storage_area_id,
+          lastTx.item_id
+        );
+        setStatus(`↩️ UNDONE. On-hand now ${newOnHand}`);
 
-      setLastTx(null);
+        pushAudit({
+          action: "UNDO_TX",
+          details: `Reversed=RESTOCK Qty=${lastTx.qty} Item=${
+            lastTx.item_name ?? lastTx.item_id
+          } Area=${lastTx.area_name ?? lastTx.storage_area_id} (moved back to MAIN)`,
+        });
 
-      if (tab === "Totals") await loadTotals();
-      if (tab === "Transaction" && areaListOpen) await loadAreaInventory();
+        setLastTx(null);
+
+        if (tab === "Totals") await loadTotals();
+        if (tab === "Transaction" && areaListOpen) await loadAreaInventory();
+        return;
+      }
+    } catch (e: any) {
+      alert(`Undo failed: ${e?.message ?? "unknown error"}`);
     } finally {
       setUndoBusy(false);
     }
@@ -1079,7 +1169,7 @@ export default function InventoryPage() {
     await loadTotals();
   }
 
-  // ---------- AREA LIST EDIT (NEW) ----------
+  // ---------- AREA LIST EDIT ----------
   function openAreaRowEditor(row: AreaInvRow) {
     setAreaEditRow(row);
     setAreaEditOnHand(String(row.on_hand ?? 0));
@@ -1098,7 +1188,8 @@ export default function InventoryPage() {
     const par = parseIntSafe(areaEditPar);
     const low = parseIntSafe(areaEditLow);
 
-    if (onHand === null || onHand < 0) throw new Error("On-hand must be 0 or more.");
+    if (onHand === null || onHand < 0)
+      throw new Error("On-hand must be 0 or more.");
     if (par === null || par < 0) throw new Error("Par must be 0 or more.");
     if (low === null || low < 0) throw new Error("Low must be 0 or more.");
 
@@ -1459,7 +1550,9 @@ export default function InventoryPage() {
                       <div className="font-semibold">{areaEditRow.item_name}</div>
                       <div className="text-xs text-white/60">
                         {areaEditRow.storage_area_name}
-                        {areaEditRow.reference_number ? ` • ${areaEditRow.reference_number}` : ""}
+                        {areaEditRow.reference_number
+                          ? ` • ${areaEditRow.reference_number}`
+                          : ""}
                       </div>
                     </div>
 
@@ -1468,7 +1561,9 @@ export default function InventoryPage() {
                         <div className="text-xs text-white/60 mb-1">On hand</div>
                         <input
                           value={areaEditOnHand}
-                          onChange={(e) => setAreaEditOnHand(e.target.value.replace(/[^\d]/g, ""))}
+                          onChange={(e) =>
+                            setAreaEditOnHand(e.target.value.replace(/[^\d]/g, ""))
+                          }
                           inputMode="numeric"
                           className="w-full rounded-2xl bg-white text-black px-3 py-3"
                         />
@@ -1477,7 +1572,9 @@ export default function InventoryPage() {
                         <div className="text-xs text-white/60 mb-1">PAR</div>
                         <input
                           value={areaEditPar}
-                          onChange={(e) => setAreaEditPar(e.target.value.replace(/[^\d]/g, ""))}
+                          onChange={(e) =>
+                            setAreaEditPar(e.target.value.replace(/[^\d]/g, ""))
+                          }
                           inputMode="numeric"
                           className="w-full rounded-2xl bg-white text-black px-3 py-3"
                         />
@@ -1486,7 +1583,9 @@ export default function InventoryPage() {
                         <div className="text-xs text-white/60 mb-1">LOW</div>
                         <input
                           value={areaEditLow}
-                          onChange={(e) => setAreaEditLow(e.target.value.replace(/[^\d]/g, ""))}
+                          onChange={(e) =>
+                            setAreaEditLow(e.target.value.replace(/[^\d]/g, ""))
+                          }
                           inputMode="numeric"
                           className="w-full rounded-2xl bg-white text-black px-3 py-3"
                         />
@@ -1494,7 +1593,9 @@ export default function InventoryPage() {
                     </div>
 
                     <div className="mt-2 text-xs text-white/50">
-                      Saves to <span className="font-semibold">storage_inventory</span> for this area + item.
+                      Saves to{" "}
+                      <span className="font-semibold">storage_inventory</span> for this
+                      area + item.
                     </div>
                   </Modal>
                 )}
@@ -1556,10 +1657,17 @@ export default function InventoryPage() {
                       </div>
                     </div>
                     <div className="flex gap-2 shrink-0">
-                      <ModeBtn active={mode === "USE"} danger onClick={() => setMode("USE")}>
+                      <ModeBtn
+                        active={mode === "USE"}
+                        danger
+                        onClick={() => setMode("USE")}
+                      >
                         USE
                       </ModeBtn>
-                      <ModeBtn active={mode === "RESTOCK"} onClick={() => setMode("RESTOCK")}>
+                      <ModeBtn
+                        active={mode === "RESTOCK"}
+                        onClick={() => setMode("RESTOCK")}
+                      >
                         RESTOCK
                       </ModeBtn>
                     </div>
@@ -1762,7 +1870,8 @@ export default function InventoryPage() {
                   placeholder="PIN"
                 />
                 <div className="mt-2 text-xs text-white/50">
-                  Default PIN is <span className="font-semibold">1234</span> until set in Settings.
+                  Default PIN is <span className="font-semibold">1234</span> until set in
+                  Settings.
                 </div>
               </Modal>
             )}
@@ -1912,7 +2021,8 @@ export default function InventoryPage() {
                       </div>
                     )}
                     <div className="mt-2 text-[11px] text-white/50">
-                      Tap to edit on-hand + PAR {locked ? "(PIN required for totals updates)" : ""}
+                      Tap to edit on-hand + PAR{" "}
+                      {locked ? "(PIN required for totals updates)" : ""}
                     </div>
                   </button>
                 );
@@ -1930,7 +2040,9 @@ export default function InventoryPage() {
                   <div className="font-semibold">{totalsEditRow.name}</div>
                   <div className="text-xs text-white/60">
                     {totalsEditRow.vendor ?? "—"} • {totalsEditRow.category ?? "—"}{" "}
-                    {totalsEditRow.reference_number ? `• ${totalsEditRow.reference_number}` : ""}
+                    {totalsEditRow.reference_number
+                      ? `• ${totalsEditRow.reference_number}`
+                      : ""}
                   </div>
                 </div>
 
@@ -1947,7 +2059,8 @@ export default function InventoryPage() {
                     <button
                       onClick={async () => {
                         const n = parseIntSafe(parInput);
-                        if (n === null || n < 0) return alert("Enter a valid PAR (0 or more).");
+                        if (n === null || n < 0)
+                          return alert("Enter a valid PAR (0 or more).");
 
                         const res = await fetch("/api/building-inventory/update", {
                           method: "POST",
@@ -1977,7 +2090,8 @@ export default function InventoryPage() {
                     </button>
                   </div>
                   <div className="mt-2 text-[11px] text-white/55">
-                    PAR is stored in <span className="font-semibold">items.par_level</span>.
+                    PAR is stored in{" "}
+                    <span className="font-semibold">items.par_level</span>.
                   </div>
                 </div>
 
@@ -1986,7 +2100,9 @@ export default function InventoryPage() {
                   <div className="mt-2 flex gap-2">
                     <input
                       value={setOnHandInput}
-                      onChange={(e) => setSetOnHandInput(e.target.value.replace(/[^\d]/g, ""))}
+                      onChange={(e) =>
+                        setSetOnHandInput(e.target.value.replace(/[^\d]/g, ""))
+                      }
                       inputMode="numeric"
                       className="flex-1 rounded-2xl bg-white text-black px-4 py-3"
                       placeholder="e.g., 17"
@@ -1994,7 +2110,8 @@ export default function InventoryPage() {
                     <button
                       onClick={async () => {
                         const n = parseIntSafe(setOnHandInput);
-                        if (n === null || n < 0) return alert("Enter a valid number (0 or more).");
+                        if (n === null || n < 0)
+                          return alert("Enter a valid number (0 or more).");
                         await doTotalsSet(totalsEditRow, n);
                       }}
                       className="rounded-2xl bg-white px-4 py-3 text-sm font-extrabold text-black"
@@ -2019,7 +2136,9 @@ export default function InventoryPage() {
                     <input
                       value={deltaInput}
                       onChange={(e) =>
-                        setDeltaInput(e.target.value.replace(/[^\d-]/g, "").slice(0, 7))
+                        setDeltaInput(
+                          e.target.value.replace(/[^\d-]/g, "").slice(0, 7)
+                        )
                       }
                       inputMode="numeric"
                       className="rounded-2xl bg-white text-black px-4 py-3 text-center"
@@ -2124,7 +2243,9 @@ export default function InventoryPage() {
                       Staff: <span className="font-semibold">{e.staff}</span>
                     </div>
                     {e.details && (
-                      <div className="mt-1 text-xs text-white/55 break-words">{e.details}</div>
+                      <div className="mt-1 text-xs text-white/55 break-words">
+                        {e.details}
+                      </div>
                     )}
                   </div>
                 ))
@@ -2134,7 +2255,9 @@ export default function InventoryPage() {
         ) : (
           <div className="mt-3 rounded-3xl bg-white/5 p-4 ring-1 ring-white/10">
             <div className="text-lg font-semibold">Settings</div>
-            <div className="mt-3 text-sm text-white/70">Set/Change PIN (min 4 digits):</div>
+            <div className="mt-3 text-sm text-white/70">
+              Set/Change PIN (min 4 digits):
+            </div>
             <PinSetter onSave={savePin} />
           </div>
         )}
