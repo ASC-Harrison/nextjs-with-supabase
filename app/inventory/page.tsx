@@ -38,7 +38,9 @@ type AuditEvent = {
     | "TOTALS_SET"
     | "TOTALS_ADJUST"
     | "AREA_LIST_LOAD"
-    | "AREA_LIST_TOGGLE";
+    | "AREA_LIST_TOGGLE"
+    | "AREA_ROW_EDIT_OPEN"
+    | "AREA_ROW_EDIT_SAVE";
   details?: string;
 };
 
@@ -132,7 +134,7 @@ export default function InventoryPage() {
   const [locked, setLocked] = useState(true);
   const [pinOpen, setPinOpen] = useState(false);
   const [pinPurpose, setPinPurpose] = useState<
-    "unlock" | "lock" | "changeLocation" | "addItem" | "totalsEdit"
+    "unlock" | "lock" | "changeLocation" | "addItem" | "totalsEdit" | "areaRowEdit"
   >("unlock");
   const [pinInput, setPinInput] = useState("");
   const [pendingArea, setPendingArea] = useState("");
@@ -184,15 +186,27 @@ export default function InventoryPage() {
   const [areaInvLoading, setAreaInvLoading] = useState(false);
   const [areaInvError, setAreaInvError] = useState("");
   const [areaInvSearch, setAreaInvSearch] = useState("");
-  const [areaParOnly, setAreaParOnly] = useState(true);
+
+  // ✅ IMPORTANT: default to ALL so you don’t get fake “0 rows”
+  const [areaParOnly, setAreaParOnly] = useState(false);
+
   const [areaLowOnly, setAreaLowOnly] = useState(false);
 
-  // ✅ NEW: Area row edit modal
+  // ✅ Area Row Edit modal
   const [areaEditOpen, setAreaEditOpen] = useState(false);
   const [areaEditRow, setAreaEditRow] = useState<AreaInvRow | null>(null);
-  const [areaEditPar, setAreaEditPar] = useState<string>("");
   const [areaEditOnHand, setAreaEditOnHand] = useState<string>("");
-  const [areaEditSaving, setAreaEditSaving] = useState(false);
+  const [areaEditPar, setAreaEditPar] = useState<string>("");
+  const [areaEditLow, setAreaEditLow] = useState<string>("");
+
+  // pending area edit save gated by PIN (if locked)
+  const [pendingAreaRowSave, setPendingAreaRowSave] = useState<null | {
+    storage_area_id: string;
+    item_id: string;
+    on_hand: number | null;
+    par_level: number | null;
+    low_level: number | null;
+  }>(null);
 
   // ✅ Last transaction for UNDO (device-only)
   const [lastTx, setLastTx] = useState<LastTx | null>(null);
@@ -326,7 +340,7 @@ export default function InventoryPage() {
     setAudit((prev) => [entry, ...prev].slice(0, 500));
   }
 
-  // ---------- LOAD LOCATIONS (REFRESHABLE) ----------
+  // ---------- LOAD LOCATIONS ----------
   async function loadLocations() {
     setAreasLoading(true);
     try {
@@ -373,7 +387,7 @@ export default function InventoryPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab]);
 
-  // ---------- LOAD TOTALS (when tab opens) ----------
+  // ---------- LOAD TOTALS ----------
   async function loadTotals() {
     setTotalsLoading(true);
     setTotalsError("");
@@ -403,7 +417,7 @@ export default function InventoryPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab]);
 
-  // ---------- LOAD AREA INVENTORY (Tx tab, when opened / area changes) ----------
+  // ---------- LOAD AREA INVENTORY ----------
   async function loadAreaInventory() {
     if (!areaId) return;
 
@@ -442,7 +456,7 @@ export default function InventoryPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab, areaListOpen, areaId]);
 
-  // ---------- SCANNER LIFECYCLE ----------
+  // ---------- SCANNER ----------
   useEffect(() => {
     if (!scannerOpen) stopScanner();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -574,7 +588,7 @@ export default function InventoryPage() {
     setStatus("Stopped.");
   }
 
-  // ---------- LOOKUP / SUGGEST / ADD / SUBMIT ----------
+  // ---------- LOOKUP ----------
   function mapItemRow(r: any): Item {
     return {
       id: r.id,
@@ -766,6 +780,14 @@ export default function InventoryPage() {
       }
       return;
     }
+
+    if (pinPurpose === "areaRowEdit") {
+      const payload = pendingAreaRowSave;
+      setPendingAreaRowSave(null);
+      if (!payload) return;
+      await saveAreaRow(payload, true);
+      return;
+    }
   }
 
   function requestLocationChange(newId: string) {
@@ -884,11 +906,9 @@ export default function InventoryPage() {
     }
 
     const ok = confirm(
-      `UNDO last transaction?\n\n${lastTx.mode} x${lastTx.qty}\n${
-        lastTx.item_name ?? lastTx.item_id
-      }\nArea: ${lastTx.area_name ?? lastTx.storage_area_id}\nMAIN override: ${
-        lastTx.mainOverride ? "YES" : "NO"
-      }`
+      `UNDO last transaction?\n\n${lastTx.mode} x${lastTx.qty}\n${lastTx.item_name ?? lastTx.item_id}\nArea: ${
+        lastTx.area_name ?? lastTx.storage_area_id
+      }\nMAIN override: ${lastTx.mainOverride ? "YES" : "NO"}`
     );
     if (!ok) return;
 
@@ -1059,59 +1079,80 @@ export default function InventoryPage() {
     await loadTotals();
   }
 
-  // ---------- ✅ NEW: AREA LIST EDIT ----------
+  // ---------- AREA LIST EDIT (NEW) ----------
   function openAreaRowEditor(row: AreaInvRow) {
     setAreaEditRow(row);
-    setAreaEditPar(String(row.par_level ?? 0));
     setAreaEditOnHand(String(row.on_hand ?? 0));
+    setAreaEditPar(String(row.par_level ?? 0));
+    setAreaEditLow(String(row.low_level ?? 0));
     setAreaEditOpen(true);
+
+    pushAudit({
+      action: "AREA_ROW_EDIT_OPEN",
+      details: `Area=${row.storage_area_name} Item=${row.item_name}`,
+    });
   }
 
-  async function saveAreaRowEdits() {
-    if (!areaEditRow) return;
+  function buildAreaSavePayload(row: AreaInvRow) {
+    const onHand = parseIntSafe(areaEditOnHand);
+    const par = parseIntSafe(areaEditPar);
+    const low = parseIntSafe(areaEditLow);
 
-    if (locked) {
-      alert("Locked. Unlock first to edit par/on-hand.");
+    if (onHand === null || onHand < 0) throw new Error("On-hand must be 0 or more.");
+    if (par === null || par < 0) throw new Error("Par must be 0 or more.");
+    if (low === null || low < 0) throw new Error("Low must be 0 or more.");
+
+    return {
+      storage_area_id: row.storage_area_id,
+      item_id: row.item_id,
+      on_hand: onHand,
+      par_level: par,
+      low_level: low,
+    };
+  }
+
+  async function saveAreaRow(
+    payload: {
+      storage_area_id: string;
+      item_id: string;
+      on_hand: number | null;
+      par_level: number | null;
+      low_level: number | null;
+    },
+    pinAlreadyPassed = false
+  ) {
+    if (!staffName.trim()) {
+      setTab("Audit");
+      alert("Enter staff name in Audit tab first.");
       return;
     }
 
-    const par = parseIntSafe(areaEditPar);
-    const onHand = parseIntSafe(areaEditOnHand);
-
-    if (par === null || par < 0) return alert("PAR must be 0 or more.");
-    if (onHand === null || onHand < 0)
-      return alert("On-hand must be 0 or more.");
-
-    setAreaEditSaving(true);
-    try {
-      const res = await fetch("/api/storage-inventory/upsert", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        cache: "no-store",
-        body: JSON.stringify({
-          storage_area_id: areaEditRow.storage_area_id,
-          item_id: areaEditRow.item_id,
-          par_level: par,
-          on_hand: onHand,
-        }),
-      });
-
-      const json = await res.json();
-      if (!json.ok) {
-        alert(`Save failed: ${json.error}`);
-        return;
-      }
-
-      pushAudit({
-        action: "TOTALS_ADJUST",
-        details: `AREA EDIT Area=${selectedAreaName} Item=${areaEditRow.item_name} Par=${par} OnHand=${onHand}`,
-      });
-
-      setAreaEditOpen(false);
-      await loadAreaInventory();
-    } finally {
-      setAreaEditSaving(false);
+    if (locked && !pinAlreadyPassed) {
+      setPendingAreaRowSave(payload);
+      openPin("areaRowEdit");
+      return;
     }
+
+    const res = await fetch("/api/storage-inventory/update", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      cache: "no-store",
+      body: JSON.stringify(payload),
+    });
+
+    const json = await res.json();
+    if (!json.ok) {
+      alert(`Save failed: ${json.error}`);
+      return;
+    }
+
+    pushAudit({
+      action: "AREA_ROW_EDIT_SAVE",
+      details: `Area=${selectedAreaName} ItemID=${payload.item_id} on_hand=${payload.on_hand} par=${payload.par_level} low=${payload.low_level}`,
+    });
+
+    setAreaEditOpen(false);
+    await loadAreaInventory();
   }
 
   // ---------- UI ----------
@@ -1159,10 +1200,7 @@ export default function InventoryPage() {
           </div>
 
           <div className="mt-3 grid grid-cols-4 gap-2">
-            <TabBtn
-              active={tab === "Transaction"}
-              onClick={() => setTab("Transaction")}
-            >
+            <TabBtn active={tab === "Transaction"} onClick={() => setTab("Transaction")}>
               Tx
             </TabBtn>
             <TabBtn active={tab === "Totals"} onClick={() => setTab("Totals")}>
@@ -1171,10 +1209,7 @@ export default function InventoryPage() {
             <TabBtn active={tab === "Audit"} onClick={() => setTab("Audit")}>
               Audit
             </TabBtn>
-            <TabBtn
-              active={tab === "Settings"}
-              onClick={() => setTab("Settings")}
-            >
+            <TabBtn active={tab === "Settings"} onClick={() => setTab("Settings")}>
               Settings
             </TabBtn>
           </div>
@@ -1276,8 +1311,14 @@ export default function InventoryPage() {
                 <div className="flex items-center justify-between gap-2">
                   <div className="text-lg font-semibold">{selectedAreaName}</div>
                   <div className="text-xs text-white/60">
-                    {areaInvLoading ? "Loading…" : `${areaInv.length} rows`}
+                    {areaInvLoading
+                      ? "Loading…"
+                      : `${filteredAreaInv.length} shown / ${areaInv.length} total`}
                   </div>
+                </div>
+
+                <div className="mt-2 text-[11px] text-white/55">
+                  Tip: If you ever see “0 shown” but “total is not 0”, a filter is hiding rows.
                 </div>
 
                 <div className="mt-3 grid grid-cols-3 gap-2">
@@ -1337,7 +1378,6 @@ export default function InventoryPage() {
 
                     return (
                       <button
-                        type="button"
                         key={`${r.storage_area_id}-${r.item_id}`}
                         onClick={() => openAreaRowEditor(r)}
                         className="w-full text-left rounded-2xl bg-black/20 p-3 ring-1 ring-white/10"
@@ -1349,9 +1389,7 @@ export default function InventoryPage() {
                             </div>
                             <div className="mt-1 text-xs text-white/60 break-words">
                               {r.vendor ?? "—"} • {r.category ?? "—"}{" "}
-                              {r.reference_number
-                                ? `• ${r.reference_number}`
-                                : ""}
+                              {r.reference_number ? `• ${r.reference_number}` : ""}
                             </div>
                           </div>
 
@@ -1381,9 +1419,7 @@ export default function InventoryPage() {
                           </div>
                           <div className="rounded-xl bg-white/5 p-2 ring-1 ring-white/10">
                             <div className="text-white/60">Unit</div>
-                            <div className="font-semibold">
-                              {r.unit ?? "—"}
-                            </div>
+                            <div className="font-semibold">{r.unit ?? "—"}</div>
                           </div>
                         </div>
 
@@ -1394,8 +1430,7 @@ export default function InventoryPage() {
                         )}
 
                         <div className="mt-2 text-[11px] text-white/50">
-                          Tap to edit PAR + On-hand
-                          {locked ? " (unlock first)" : ""}
+                          Tap to edit (PIN required if locked).
                         </div>
                       </button>
                     );
@@ -1406,57 +1441,60 @@ export default function InventoryPage() {
                   Showing up to 200 rows to keep it fast on phones.
                 </div>
 
-                {/* ✅ Area Edit Modal */}
                 {areaEditOpen && areaEditRow && (
                   <Modal
                     title="Edit area item"
-                    okText={areaEditSaving ? "Saving…" : "Save"}
+                    okText="Save"
                     onCancel={() => setAreaEditOpen(false)}
-                    onOk={saveAreaRowEdits}
+                    onOk={async () => {
+                      try {
+                        const payload = buildAreaSavePayload(areaEditRow);
+                        await saveAreaRow(payload);
+                      } catch (e: any) {
+                        alert(e?.message ?? "Invalid values");
+                      }
+                    }}
                   >
                     <div className="mt-1 text-sm text-white/80 break-words">
                       <div className="font-semibold">{areaEditRow.item_name}</div>
                       <div className="text-xs text-white/60">
-                        {selectedAreaName}
-                        {areaEditRow.reference_number
-                          ? ` • ${areaEditRow.reference_number}`
-                          : ""}
+                        {areaEditRow.storage_area_name}
+                        {areaEditRow.reference_number ? ` • ${areaEditRow.reference_number}` : ""}
                       </div>
                     </div>
 
-                    <div className="mt-4 grid grid-cols-2 gap-2">
-                      <div>
-                        <div className="text-xs text-white/60 mb-1">PAR</div>
-                        <input
-                          value={areaEditPar}
-                          onChange={(e) =>
-                            setAreaEditPar(e.target.value.replace(/[^\d]/g, ""))
-                          }
-                          inputMode="numeric"
-                          className="w-full rounded-2xl bg-white text-black px-4 py-3"
-                          placeholder="0"
-                        />
-                      </div>
-
+                    <div className="mt-4 grid grid-cols-3 gap-2">
                       <div>
                         <div className="text-xs text-white/60 mb-1">On hand</div>
                         <input
                           value={areaEditOnHand}
-                          onChange={(e) =>
-                            setAreaEditOnHand(
-                              e.target.value.replace(/[^\d]/g, "")
-                            )
-                          }
+                          onChange={(e) => setAreaEditOnHand(e.target.value.replace(/[^\d]/g, ""))}
                           inputMode="numeric"
-                          className="w-full rounded-2xl bg-white text-black px-4 py-3"
-                          placeholder="0"
+                          className="w-full rounded-2xl bg-white text-black px-3 py-3"
+                        />
+                      </div>
+                      <div>
+                        <div className="text-xs text-white/60 mb-1">PAR</div>
+                        <input
+                          value={areaEditPar}
+                          onChange={(e) => setAreaEditPar(e.target.value.replace(/[^\d]/g, ""))}
+                          inputMode="numeric"
+                          className="w-full rounded-2xl bg-white text-black px-3 py-3"
+                        />
+                      </div>
+                      <div>
+                        <div className="text-xs text-white/60 mb-1">LOW</div>
+                        <input
+                          value={areaEditLow}
+                          onChange={(e) => setAreaEditLow(e.target.value.replace(/[^\d]/g, ""))}
+                          inputMode="numeric"
+                          className="w-full rounded-2xl bg-white text-black px-3 py-3"
                         />
                       </div>
                     </div>
 
-                    <div className="mt-3 text-[11px] text-white/50">
-                      Saves to <span className="font-semibold">storage_inventory</span>{" "}
-                      for this area + item.
+                    <div className="mt-2 text-xs text-white/50">
+                      Saves to <span className="font-semibold">storage_inventory</span> for this area + item.
                     </div>
                   </Modal>
                 )}
@@ -1467,9 +1505,7 @@ export default function InventoryPage() {
                 <div className="mt-3 rounded-2xl bg-black/30 p-4 ring-1 ring-white/10">
                   <div className="flex items-center justify-between gap-3">
                     <div className="min-w-0">
-                      <div className="text-lg font-semibold">
-                        One-time override
-                      </div>
+                      <div className="text-lg font-semibold">One-time override</div>
                       <div className="mt-1 text-sm text-white/70">
                         Grabbed it from MAIN supply room? Tap once.
                       </div>
@@ -1497,8 +1533,7 @@ export default function InventoryPage() {
                       ⚡ MAIN OVERRIDE ACTIVE (1 transaction)
                     </div>
                     <div className="mt-1 text-xs text-yellow-100/80">
-                      This submit will be treated as pulled from MAIN supply
-                      room.
+                      This submit will be treated as pulled from MAIN supply room.
                     </div>
                     <button
                       onClick={() => setMainOverride(false)}
@@ -1521,24 +1556,17 @@ export default function InventoryPage() {
                       </div>
                     </div>
                     <div className="flex gap-2 shrink-0">
-                      <ModeBtn
-                        active={mode === "USE"}
-                        danger
-                        onClick={() => setMode("USE")}
-                      >
+                      <ModeBtn active={mode === "USE"} danger onClick={() => setMode("USE")}>
                         USE
                       </ModeBtn>
-                      <ModeBtn
-                        active={mode === "RESTOCK"}
-                        onClick={() => setMode("RESTOCK")}
-                      >
+                      <ModeBtn active={mode === "RESTOCK"} onClick={() => setMode("RESTOCK")}>
                         RESTOCK
                       </ModeBtn>
                     </div>
                   </div>
                 </div>
 
-                {/* EASY LOOKUP: Toggle + Input + Find + Camera */}
+                {/* Lookup */}
                 <div className="mt-3 grid grid-cols-3 gap-2">
                   <button
                     onClick={() => {
@@ -1647,13 +1675,9 @@ export default function InventoryPage() {
                         }}
                         className="w-full text-left rounded-2xl bg-black/30 p-3 ring-1 ring-white/10"
                       >
-                        <div className="text-sm font-semibold break-words">
-                          {m.name}
-                        </div>
+                        <div className="text-sm font-semibold break-words">{m.name}</div>
                         <div className="mt-1 text-xs text-white/60 break-words">
-                          {m.reference_number
-                            ? `Ref: ${m.reference_number}`
-                            : "Ref: —"}
+                          {m.reference_number ? `Ref: ${m.reference_number}` : "Ref: —"}
                           {" • "}
                           {m.barcode ? `Barcode: ${m.barcode}` : "Barcode: —"}
                         </div>
@@ -1677,18 +1701,14 @@ export default function InventoryPage() {
                   </div>
                 )}
 
-                {/* Qty */}
                 <div className="mt-3 flex items-center gap-3">
-                  <QtyBtn onClick={() => setQty((q) => Math.max(1, q - 1))}>
-                    −
-                  </QtyBtn>
+                  <QtyBtn onClick={() => setQty((q) => Math.max(1, q - 1))}>−</QtyBtn>
                   <div className="flex-1 rounded-2xl bg-white px-4 py-3 text-center text-black">
                     <span className="text-lg font-semibold">{qty}</span>
                   </div>
                   <QtyBtn onClick={() => setQty((q) => q + 1)}>+</QtyBtn>
                 </div>
 
-                {/* Submit */}
                 <button
                   className="mt-3 w-full rounded-2xl bg-black/80 px-4 py-4 text-white font-semibold disabled:opacity-60"
                   disabled={!item || locked || staffMissing}
@@ -1697,7 +1717,6 @@ export default function InventoryPage() {
                   Submit
                 </button>
 
-                {/* UNDO last */}
                 <button
                   className="mt-2 w-full rounded-2xl bg-white/10 px-4 py-3 text-white font-extrabold ring-1 ring-white/10 disabled:opacity-60"
                   disabled={!lastTx || locked || staffMissing || undoBusy}
@@ -1705,56 +1724,6 @@ export default function InventoryPage() {
                 >
                   {undoBusy ? "Undoing…" : "↩️ Undo last transaction"}
                 </button>
-
-                {lastTx && (
-                  <div className="mt-2 text-[11px] text-white/55 break-words">
-                    Last: {lastTx.mode} x{lastTx.qty} •{" "}
-                    {lastTx.item_name ?? lastTx.item_id} •{" "}
-                    {lastTx.area_name ?? lastTx.storage_area_id}
-                    {lastTx.mainOverride ? " • MAIN" : ""}
-                  </div>
-                )}
-
-                {/* Add Item Modal */}
-                {addOpen && (
-                  <Modal
-                    title="Item not found"
-                    okText="Add Item"
-                    onCancel={() => setAddOpen(false)}
-                    onOk={() => addItemNow()}
-                  >
-                    <div className="mt-1 text-sm text-white/70 break-all">
-                      Entered: {query}
-                    </div>
-
-                    <div className="mt-3">
-                      <div className="text-xs text-white/60 mb-1">Item name</div>
-                      <input
-                        value={addName}
-                        onChange={(e) => setAddName(e.target.value)}
-                        className="w-full rounded-2xl bg-white text-black px-4 py-3"
-                        placeholder="Type item name…"
-                      />
-                    </div>
-
-                    <div className="mt-3">
-                      <div className="text-xs text-white/60 mb-1">
-                        Par level (optional)
-                      </div>
-                      <input
-                        value={String(addPar)}
-                        onChange={(e) => setAddPar(Number(e.target.value || 0))}
-                        inputMode="numeric"
-                        className="w-full rounded-2xl bg-white text-black px-4 py-3"
-                        placeholder="0"
-                      />
-                    </div>
-
-                    <div className="mt-2 text-xs text-white/50">
-                      If locked, you’ll be asked for a PIN before adding.
-                    </div>
-                  </Modal>
-                )}
               </>
             )}
 
@@ -1770,6 +1739,8 @@ export default function InventoryPage() {
                     ? "Enter PIN to change location"
                     : pinPurpose === "addItem"
                     ? "Enter PIN to add item"
+                    : pinPurpose === "areaRowEdit"
+                    ? "Enter PIN to edit this area item"
                     : "Enter PIN to edit totals"
                 }
                 okText="OK"
@@ -1777,6 +1748,7 @@ export default function InventoryPage() {
                   setPinOpen(false);
                   setPendingArea("");
                   setPendingTotalsAction(null);
+                  setPendingAreaRowSave(null);
                 }}
                 onOk={onPinConfirm}
               >
@@ -1790,8 +1762,7 @@ export default function InventoryPage() {
                   placeholder="PIN"
                 />
                 <div className="mt-2 text-xs text-white/50">
-                  Default PIN is <span className="font-semibold">1234</span>{" "}
-                  until set in Settings.
+                  Default PIN is <span className="font-semibold">1234</span> until set in Settings.
                 </div>
               </Modal>
             )}
@@ -1806,9 +1777,7 @@ export default function InventoryPage() {
                     paddingBottom: "12px",
                   }}
                 >
-                  <div className="text-lg font-semibold text-white">
-                    Scan barcode
-                  </div>
+                  <div className="text-lg font-semibold text-white">Scan barcode</div>
                   <button
                     onClick={closeScanner}
                     className="rounded-2xl bg-white/10 px-4 py-2 text-sm font-semibold text-white ring-1 ring-white/10"
@@ -1817,10 +1786,7 @@ export default function InventoryPage() {
                   </button>
                 </div>
 
-                <div
-                  className="relative w-full"
-                  style={{ height: "calc(100vh - 120px)" }}
-                >
+                <div className="relative w-full" style={{ height: "calc(100vh - 120px)" }}>
                   <video
                     ref={videoRef}
                     className="absolute inset-0 h-full w-full object-cover"
@@ -1838,8 +1804,7 @@ export default function InventoryPage() {
                     paddingBottom: "calc(env(safe-area-inset-bottom) + 16px)",
                   }}
                 >
-                  Hold the barcode steady inside the box. Best distance: 6–10
-                  inches.
+                  Hold the barcode steady inside the box. Best distance: 6–10 inches.
                 </div>
               </div>
             )}
@@ -1889,9 +1854,7 @@ export default function InventoryPage() {
             </div>
 
             {totalsError && (
-              <div className="mt-2 text-sm text-red-300 break-words">
-                {totalsError}
-              </div>
+              <div className="mt-2 text-sm text-red-300 break-words">{totalsError}</div>
             )}
 
             <div className="mt-3 space-y-2">
@@ -1908,9 +1871,7 @@ export default function InventoryPage() {
                   >
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
-                        <div className="text-sm font-semibold break-words">
-                          {r.name}
-                        </div>
+                        <div className="text-sm font-semibold break-words">{r.name}</div>
                         <div className="mt-1 text-xs text-white/60 break-words">
                           {r.vendor ?? "—"} • {r.category ?? "—"}{" "}
                           {r.reference_number ? `• ${r.reference_number}` : ""}
@@ -1926,9 +1887,7 @@ export default function InventoryPage() {
                         ].join(" ")}
                       >
                         {onHand}
-                        <div className="text-[10px] font-semibold opacity-80">
-                          on hand
-                        </div>
+                        <div className="text-[10px] font-semibold opacity-80">on hand</div>
                       </div>
                     </div>
 
@@ -1953,16 +1912,11 @@ export default function InventoryPage() {
                       </div>
                     )}
                     <div className="mt-2 text-[11px] text-white/50">
-                      Tap to edit on-hand + PAR
-                      {locked ? " (PIN required for totals updates)" : ""}
+                      Tap to edit on-hand + PAR {locked ? "(PIN required for totals updates)" : ""}
                     </div>
                   </button>
                 );
               })}
-            </div>
-
-            <div className="mt-3 text-[11px] text-white/50">
-              Showing up to 200 rows to keep it fast on phones.
             </div>
 
             {totalsEditOpen && totalsEditRow && (
@@ -1975,11 +1929,8 @@ export default function InventoryPage() {
                 <div className="mt-1 text-sm text-white/80 break-words">
                   <div className="font-semibold">{totalsEditRow.name}</div>
                   <div className="text-xs text-white/60">
-                    {totalsEditRow.vendor ?? "—"} •{" "}
-                    {totalsEditRow.category ?? "—"}{" "}
-                    {totalsEditRow.reference_number
-                      ? `• ${totalsEditRow.reference_number}`
-                      : ""}
+                    {totalsEditRow.vendor ?? "—"} • {totalsEditRow.category ?? "—"}{" "}
+                    {totalsEditRow.reference_number ? `• ${totalsEditRow.reference_number}` : ""}
                   </div>
                 </div>
 
@@ -1988,9 +1939,7 @@ export default function InventoryPage() {
                   <div className="mt-2 flex gap-2">
                     <input
                       value={parInput}
-                      onChange={(e) =>
-                        setParInput(e.target.value.replace(/[^\d]/g, ""))
-                      }
+                      onChange={(e) => setParInput(e.target.value.replace(/[^\d]/g, ""))}
                       inputMode="numeric"
                       className="flex-1 rounded-2xl bg-white text-black px-4 py-3"
                       placeholder="e.g., 30"
@@ -1998,26 +1947,21 @@ export default function InventoryPage() {
                     <button
                       onClick={async () => {
                         const n = parseIntSafe(parInput);
-                        if (n === null || n < 0)
-                          return alert("Enter a valid PAR (0 or more).");
+                        if (n === null || n < 0) return alert("Enter a valid PAR (0 or more).");
 
-                        const res = await fetch(
-                          "/api/building-inventory/update",
-                          {
-                            method: "POST",
-                            headers: { "Content-Type": "application/json" },
-                            cache: "no-store",
-                            body: JSON.stringify({
-                              name: totalsEditRow.name,
-                              action: "SET_PAR",
-                              par_level: n,
-                            }),
-                          }
-                        );
+                        const res = await fetch("/api/building-inventory/update", {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json" },
+                          cache: "no-store",
+                          body: JSON.stringify({
+                            name: totalsEditRow.name,
+                            action: "SET_PAR",
+                            par_level: n,
+                          }),
+                        });
 
                         const json = await res.json();
-                        if (!json.ok)
-                          return alert(`PAR update failed: ${json.error}`);
+                        if (!json.ok) return alert(`PAR update failed: ${json.error}`);
 
                         pushAudit({
                           action: "TOTALS_ADJUST",
@@ -2033,8 +1977,7 @@ export default function InventoryPage() {
                     </button>
                   </div>
                   <div className="mt-2 text-[11px] text-white/55">
-                    PAR is stored in{" "}
-                    <span className="font-semibold">items.par_level</span>.
+                    PAR is stored in <span className="font-semibold">items.par_level</span>.
                   </div>
                 </div>
 
@@ -2043,9 +1986,7 @@ export default function InventoryPage() {
                   <div className="mt-2 flex gap-2">
                     <input
                       value={setOnHandInput}
-                      onChange={(e) =>
-                        setSetOnHandInput(e.target.value.replace(/[^\d]/g, ""))
-                      }
+                      onChange={(e) => setSetOnHandInput(e.target.value.replace(/[^\d]/g, ""))}
                       inputMode="numeric"
                       className="flex-1 rounded-2xl bg-white text-black px-4 py-3"
                       placeholder="e.g., 17"
@@ -2053,17 +1994,13 @@ export default function InventoryPage() {
                     <button
                       onClick={async () => {
                         const n = parseIntSafe(setOnHandInput);
-                        if (n === null || n < 0)
-                          return alert("Enter a valid number (0 or more).");
+                        if (n === null || n < 0) return alert("Enter a valid number (0 or more).");
                         await doTotalsSet(totalsEditRow, n);
                       }}
                       className="rounded-2xl bg-white px-4 py-3 text-sm font-extrabold text-black"
                     >
                       Set
                     </button>
-                  </div>
-                  <div className="mt-2 text-[11px] text-white/55">
-                    Best for cycle counts (truth).
                   </div>
                 </div>
 
@@ -2082,11 +2019,7 @@ export default function InventoryPage() {
                     <input
                       value={deltaInput}
                       onChange={(e) =>
-                        setDeltaInput(
-                          e.target.value
-                            .replace(/[^\d-]/g, "")
-                            .slice(0, 7)
-                        )
+                        setDeltaInput(e.target.value.replace(/[^\d-]/g, "").slice(0, 7))
                       }
                       inputMode="numeric"
                       className="rounded-2xl bg-white text-black px-4 py-3 text-center"
@@ -2121,14 +2054,6 @@ export default function InventoryPage() {
                       Clear
                     </button>
                   </div>
-
-                  <div className="mt-2 text-[11px] text-white/55">
-                    Best for quick receiving corrections.
-                  </div>
-                </div>
-
-                <div className="mt-3 text-[11px] text-white/50">
-                  Locked devices require PIN before saving totals actions.
                 </div>
               </Modal>
             )}
@@ -2148,9 +2073,6 @@ export default function InventoryPage() {
                 className="w-full rounded-2xl bg-white text-black px-4 py-3"
                 placeholder="e.g., Jeremy Johnson"
               />
-              <div className="mt-2 text-xs text-white/50">
-                Tip: staff name is per device for now.
-              </div>
             </div>
 
             <div className="mt-4 flex gap-2">
@@ -2179,9 +2101,7 @@ export default function InventoryPage() {
               </button>
             </div>
 
-            <div className="mt-4 text-sm font-semibold text-white/80">
-              Recent events
-            </div>
+            <div className="mt-4 text-sm font-semibold text-white/80">Recent events</div>
 
             <div className="mt-2 space-y-2">
               {audit.length === 0 ? (
@@ -2204,9 +2124,7 @@ export default function InventoryPage() {
                       Staff: <span className="font-semibold">{e.staff}</span>
                     </div>
                     {e.details && (
-                      <div className="mt-1 text-xs text-white/55 break-words">
-                        {e.details}
-                      </div>
+                      <div className="mt-1 text-xs text-white/55 break-words">{e.details}</div>
                     )}
                   </div>
                 ))
@@ -2216,9 +2134,7 @@ export default function InventoryPage() {
         ) : (
           <div className="mt-3 rounded-3xl bg-white/5 p-4 ring-1 ring-white/10">
             <div className="text-lg font-semibold">Settings</div>
-            <div className="mt-3 text-sm text-white/70">
-              Set/Change PIN (min 4 digits):
-            </div>
+            <div className="mt-3 text-sm text-white/70">Set/Change PIN (min 4 digits):</div>
             <PinSetter onSave={savePin} />
           </div>
         )}
