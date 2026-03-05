@@ -1,3 +1,4 @@
+// app/api/transaction/route.ts
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
@@ -7,8 +8,7 @@ type Body = {
   item_id: string;
   qty: number;
   mainOverride?: boolean;
-  staff?: string; // OPTIONAL
-  device_id?: string; // OPTIONAL
+  staff?: string;
 };
 
 function getServiceClient() {
@@ -18,87 +18,79 @@ function getServiceClient() {
     process.env.SUPABASE_SERVICE_KEY ||
     process.env.SUPABASE_SERVICE_ROLE;
 
-  if (!url || !key) {
-    throw new Error(
-      "Missing env: NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY"
-    );
-  }
-
+  if (!url || !key) throw new Error("Missing Supabase env vars");
   return createClient(url, key, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
 }
 
+const MAIN_SUPPLY_ID = "a09eb27b-e4a1-449a-8d2e-c45b24d6514f";
+
 export async function POST(req: Request) {
   try {
+    const supabase = getServiceClient();
     const body = (await req.json()) as Body;
 
-    const storage_area_id = (body.storage_area_id || "").trim();
-    const mode = body.mode;
-    const item_id = (body.item_id || "").trim();
+    const areaId = (body.storage_area_id || "").trim();
+    const itemId = (body.item_id || "").trim();
     const qty = Number(body.qty || 0);
-    const mainOverride = !!body.mainOverride;
+    const mode = body.mode;
 
-    // If client sends these, we store them. If not, we still work.
-    const staff = (body.staff || "Unknown").trim() || "Unknown";
-    const device_id = (body.device_id || "").trim() || null;
-
-    if (!storage_area_id) {
-      return NextResponse.json({ ok: false, error: "Missing storage_area_id" });
-    }
-    if (!item_id) {
-      return NextResponse.json({ ok: false, error: "Missing item_id" });
-    }
-    if (mode !== "USE" && mode !== "RESTOCK") {
-      return NextResponse.json({ ok: false, error: "Invalid mode" });
-    }
+    if (!areaId) return NextResponse.json({ ok: false, error: "Missing storage_area_id" });
+    if (!itemId) return NextResponse.json({ ok: false, error: "Missing item_id" });
     if (!Number.isFinite(qty) || qty <= 0) {
       return NextResponse.json({ ok: false, error: "qty must be > 0" });
     }
 
-    const supabase = getServiceClient();
+    // Decide real action
+    // - USE: subtract from selected area (or main if override)
+    // - RESTOCK:
+    //    - if you’re in MAIN area => RECEIVE (shipment)
+    //    - else MOVE from MAIN -> target area
+    let txMode: "USE" | "MOVE" | "RECEIVE" = "USE";
+    let targetArea = areaId;
 
-    // ✅ Your atomic inventory function (no change)
-    const { data, error } = await supabase.rpc("apply_tx", {
-      p_storage_area_id: storage_area_id,
-      p_item_id: item_id,
-      p_mode: mode,
+    if (mode === "USE") {
+      targetArea = body.mainOverride ? MAIN_SUPPLY_ID : areaId;
+      txMode = "USE";
+    } else {
+      // RESTOCK button
+      if (areaId === MAIN_SUPPLY_ID) {
+        txMode = "RECEIVE"; // shipment into main
+        targetArea = MAIN_SUPPLY_ID;
+      } else {
+        txMode = "MOVE"; // move from main -> cabinet
+        targetArea = areaId;
+      }
+    }
+
+    const { data, error } = await supabase.rpc("apply_inventory_tx", {
+      p_mode: txMode,
+      p_target_area: targetArea,
+      p_item: itemId,
       p_qty: qty,
-      p_staff: staff,
-      p_device_id: device_id,
-      p_main_override: mainOverride,
+      p_main_area: MAIN_SUPPLY_ID,
     });
 
-    if (error) {
-      return NextResponse.json({ ok: false, error: error.message });
-    }
+    if (error) throw error;
 
-    // apply_tx returns table(new_on_hand int)
-    const newOnHand =
-      Array.isArray(data) && data.length ? data[0]?.new_on_hand : null;
+    // rpc returns an array of rows
+    const row = Array.isArray(data) ? data[0] : data;
+    const on_hand =
+      txMode === "RECEIVE"
+        ? row?.main_on_hand
+        : row?.target_on_hand;
 
-    // ✅ SAFE audit insert (never blocks workflow)
-    // If audit table isn't created yet, or insert fails, we ignore it.
-    try {
-      await supabase.from("audit_events").insert({
-        staff,
-        device_id,
-        action: "TX",
-        storage_area_id,
-        item_id,
-        qty,
-        mode,
-        details: mainOverride ? "MAIN_OVERRIDE" : null,
-      });
-    } catch {
-      // swallow audit failure so your transaction never breaks
-    }
-
-    return NextResponse.json({ ok: true, on_hand: newOnHand });
+    return NextResponse.json({
+      ok: true,
+      mode: txMode,
+      on_hand: on_hand ?? null,
+      main_on_hand: row?.main_on_hand ?? null,
+    });
   } catch (e: any) {
-    return NextResponse.json(
-      { ok: false, error: e?.message || "Server error" },
-      { status: 500 }
-    );
+    return NextResponse.json({
+      ok: false,
+      error: e?.message ?? "Transaction failed",
+    });
   }
 }
