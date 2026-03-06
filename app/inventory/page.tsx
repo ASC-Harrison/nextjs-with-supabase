@@ -114,7 +114,7 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 );
 
-// ✅ MAIN Sterile Supply storage_area_id (your UUID)
+// ✅ MAIN Sterile Supply storage_area_id
 const MAIN_SUPPLY_ID = "a09eb27b-e4a1-449a-8d2e-c45b24d6514f";
 
 export default function InventoryPage() {
@@ -162,7 +162,7 @@ export default function InventoryPage() {
   // ✅ Full-screen scanner overlay
   const [scannerOpen, setScannerOpen] = useState(false);
 
-  // ✅ Totals tab state (building view)
+  // ✅ Totals tab state
   const [totals, setTotals] = useState<BuildingTotalRow[]>([]);
   const [totalsLoading, setTotalsLoading] = useState(false);
   const [totalsError, setTotalsError] = useState("");
@@ -178,21 +178,18 @@ export default function InventoryPage() {
   const [deltaInput, setDeltaInput] = useState<string>("");
   const [parInput, setParInput] = useState<string>("");
 
-  // pending totals action gated by PIN (if locked)
   const [pendingTotalsAction, setPendingTotalsAction] = useState<
     null | { kind: "SET"; value: number } | { kind: "ADJUST"; delta: number }
   >(null);
 
-  // ✅ Area List (per selected storage area)
+  // ✅ Area List
   const [areaListOpen, setAreaListOpen] = useState(false);
   const [areaInv, setAreaInv] = useState<AreaInvRow[]>([]);
   const [areaInvLoading, setAreaInvLoading] = useState(false);
   const [areaInvError, setAreaInvError] = useState("");
   const [areaInvSearch, setAreaInvSearch] = useState("");
 
-  // ✅ IMPORTANT: default to ALL so you don’t get fake “0 rows”
   const [areaParOnly, setAreaParOnly] = useState(false);
-
   const [areaLowOnly, setAreaLowOnly] = useState(false);
 
   // ✅ Area Row Edit modal
@@ -202,7 +199,6 @@ export default function InventoryPage() {
   const [areaEditPar, setAreaEditPar] = useState<string>("");
   const [areaEditLow, setAreaEditLow] = useState<string>("");
 
-  // pending area edit save gated by PIN (if locked)
   const [pendingAreaRowSave, setPendingAreaRowSave] = useState<null | {
     storage_area_id: string;
     item_id: string;
@@ -211,7 +207,6 @@ export default function InventoryPage() {
     low_level: number | null;
   }>(null);
 
-  // ✅ Last transaction for UNDO (device-only)
   const [lastTx, setLastTx] = useState<LastTx | null>(null);
   const [undoBusy, setUndoBusy] = useState(false);
 
@@ -276,7 +271,6 @@ export default function InventoryPage() {
   const lastScanRef = useRef<string>("");
   const scanCooldownRef = useRef<number>(0);
 
-  // ---------- LOAD SAVED STATE ----------
   useEffect(() => {
     try {
       setLocked((localStorage.getItem(LS.LOCKED) ?? "1") === "1");
@@ -343,7 +337,6 @@ export default function InventoryPage() {
     setAudit((prev) => [entry, ...prev].slice(0, 500));
   }
 
-  // ---------- LOAD LOCATIONS ----------
   async function loadLocations() {
     setAreasLoading(true);
     try {
@@ -390,7 +383,6 @@ export default function InventoryPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab]);
 
-  // ---------- LOAD TOTALS ----------
   async function loadTotals() {
     setTotalsLoading(true);
     setTotalsError("");
@@ -420,7 +412,6 @@ export default function InventoryPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab]);
 
-  // ---------- LOAD AREA INVENTORY ----------
   async function loadAreaInventory() {
     if (!areaId) return;
 
@@ -459,7 +450,6 @@ export default function InventoryPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab, areaListOpen, areaId]);
 
-  // ---------- SCANNER ----------
   useEffect(() => {
     if (!scannerOpen) stopScanner();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -591,7 +581,6 @@ export default function InventoryPage() {
     setStatus("Stopped.");
   }
 
-  // ---------- LOOKUP ----------
   function mapItemRow(r: any): Item {
     return {
       id: r.id,
@@ -842,11 +831,6 @@ export default function InventoryPage() {
     });
   }
 
-  function inverseMode(m: Mode): Mode {
-    return m === "USE" ? "RESTOCK" : "USE";
-  }
-
-  // ✅ Helper: read on_hand after RPC so status message is accurate
   async function fetchOnHand(area: string, itemId: string) {
     const { data, error } = await supabase
       .from("storage_inventory")
@@ -859,9 +843,6 @@ export default function InventoryPage() {
     return (data?.on_hand ?? 0) as number;
   }
 
-  // ✅ REPLACED: submit() now uses safe RPC math:
-  // - USE subtracts from selected area (or MAIN if override)
-  // - RESTOCK moves from MAIN -> selected area (does NOT change building totals)
   async function submit() {
     if (locked) return alert("Locked. Unlock first.");
     if (!staffName.trim()) {
@@ -914,7 +895,6 @@ export default function InventoryPage() {
       }
 
       if (mode === "RESTOCK") {
-        // RESTOCK = MOVE from MAIN supply -> selected cabinet
         const { error } = await supabase.rpc("move_stock", {
           p_item_id: item.id,
           p_from_area: MAIN_SUPPLY_ID,
@@ -926,7 +906,7 @@ export default function InventoryPage() {
         const newOnHand = await fetchOnHand(areaId, item.id);
 
         const tx: LastTx = {
-          storage_area_id: areaId, // destination
+          storage_area_id: areaId,
           mode,
           item_id: item.id,
           qty,
@@ -956,9 +936,6 @@ export default function InventoryPage() {
     }
   }
 
-  // ✅ REPLACED: undoLast() now reverses the real math:
-  // - undo USE = add_stock back to that same area
-  // - undo RESTOCK = move from cabinet back to MAIN
   async function undoLast() {
     if (!lastTx) return;
     if (undoBusy) return;
@@ -1060,7 +1037,6 @@ export default function InventoryPage() {
     });
   }
 
-  // ---------- TOTALS EDIT ----------
   function openTotalsEditor(row: BuildingTotalRow) {
     setTotalsEditRow(row);
     setSetOnHandInput(String(row.total_on_hand ?? 0));
@@ -1101,6 +1077,7 @@ export default function InventoryPage() {
       cache: "no-store",
       body: JSON.stringify({
         name: row.name,
+        reference_number: row.reference_number,
         action: "SET",
         value,
       }),
@@ -1149,6 +1126,7 @@ export default function InventoryPage() {
       cache: "no-store",
       body: JSON.stringify({
         name: row.name,
+        reference_number: row.reference_number,
         action: "ADJUST",
         delta,
       }),
@@ -1169,7 +1147,6 @@ export default function InventoryPage() {
     await loadTotals();
   }
 
-  // ---------- AREA LIST EDIT ----------
   function openAreaRowEditor(row: AreaInvRow) {
     setAreaEditRow(row);
     setAreaEditOnHand(String(row.on_hand ?? 0));
@@ -1246,7 +1223,6 @@ export default function InventoryPage() {
     await loadAreaInventory();
   }
 
-  // ---------- UI ----------
   const staffMissing = !staffName.trim();
 
   return (
@@ -1602,7 +1578,6 @@ export default function InventoryPage() {
               </div>
             ) : (
               <>
-                {/* Override */}
                 <div className="mt-3 rounded-2xl bg-black/30 p-4 ring-1 ring-white/10">
                   <div className="flex items-center justify-between gap-3">
                     <div className="min-w-0">
@@ -1645,7 +1620,6 @@ export default function InventoryPage() {
                   </div>
                 )}
 
-                {/* Mode */}
                 <div className="mt-3 rounded-2xl bg-black/30 p-4 ring-1 ring-white/10">
                   <div className="flex items-center justify-between gap-2">
                     <div className="min-w-0">
@@ -1674,7 +1648,6 @@ export default function InventoryPage() {
                   </div>
                 </div>
 
-                {/* Lookup */}
                 <div className="mt-3 grid grid-cols-3 gap-2">
                   <button
                     onClick={() => {
@@ -1835,7 +1808,6 @@ export default function InventoryPage() {
               </>
             )}
 
-            {/* PIN Modal */}
             {pinOpen && (
               <Modal
                 title={
@@ -1876,7 +1848,6 @@ export default function InventoryPage() {
               </Modal>
             )}
 
-            {/* Full-screen scanner */}
             {scannerOpen && (
               <div className="fixed inset-0 z-[60] bg-black">
                 <div
@@ -1967,7 +1938,7 @@ export default function InventoryPage() {
             )}
 
             <div className="mt-3 space-y-2">
-              {filteredTotals.slice(0, 200).map((r) => {
+              {filteredTotals.map((r) => {
                 const onHand = r.total_on_hand ?? 0;
                 const low = r.low_level ?? 0;
                 const isLow = low > 0 && onHand <= low;
@@ -2068,6 +2039,7 @@ export default function InventoryPage() {
                           cache: "no-store",
                           body: JSON.stringify({
                             name: totalsEditRow.name,
+                            reference_number: totalsEditRow.reference_number,
                             action: "SET_PAR",
                             par_level: n,
                           }),
