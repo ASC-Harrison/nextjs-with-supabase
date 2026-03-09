@@ -193,7 +193,10 @@ export async function POST(req: Request) {
         reference_number: cleanNullableString(body.reference_number_new),
       };
 
-      const { error } = await supabase.from("items").update(payload).eq("id", item_id);
+      const { error } = await supabase
+        .from("items")
+        .update(payload)
+        .eq("id", item_id);
 
       if (error) {
         return NextResponse.json(
