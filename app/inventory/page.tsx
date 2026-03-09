@@ -19,7 +19,7 @@ type Item = {
 
 type AuditEvent = {
   id: string;
-  ts: string; // ISO
+  ts: string;
   staff: string;
   action:
     | "SCAN"
@@ -79,7 +79,7 @@ type LastTx = {
   mainOverride: boolean;
   item_name?: string;
   area_name?: string;
-  ts: string; // ISO
+  ts: string;
 };
 
 const LS = {
@@ -108,13 +108,12 @@ function safeJsonParse<T>(raw: string | null, fallback: T): T {
   }
 }
 
-// ✅ Client-side Supabase (reads VIEWs)
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 );
 
-// ✅ MAIN Sterile Supply storage_area_id
+// MAIN Sterile Supply storage_area_id
 const MAIN_SUPPLY_ID = "a09eb27b-e4a1-449a-8d2e-c45b24d6514f";
 
 export default function InventoryPage() {
@@ -150,49 +149,45 @@ export default function InventoryPage() {
   const [addName, setAddName] = useState("");
   const [addPar, setAddPar] = useState<number>(0);
 
-  // ✅ Lookup controls + matches
   const [lookupMode, setLookupMode] = useState<LookupMode>("BARCODE");
   const [matches, setMatches] = useState<Item[]>([]);
   const [suggestLoading, setSuggestLoading] = useState(false);
 
-  // ✅ Audit + staff
   const [staffName, setStaffName] = useState("");
   const [audit, setAudit] = useState<AuditEvent[]>([]);
 
-  // ✅ Full-screen scanner overlay
   const [scannerOpen, setScannerOpen] = useState(false);
 
-  // ✅ Totals tab state
   const [totals, setTotals] = useState<BuildingTotalRow[]>([]);
   const [totalsLoading, setTotalsLoading] = useState(false);
   const [totalsError, setTotalsError] = useState("");
   const [totalsSearch, setTotalsSearch] = useState("");
   const [totalsLowOnly, setTotalsLowOnly] = useState(false);
 
-  // ✅ Totals edit modal
   const [totalsEditOpen, setTotalsEditOpen] = useState(false);
-  const [totalsEditRow, setTotalsEditRow] = useState<BuildingTotalRow | null>(
-    null
-  );
+  const [totalsEditRow, setTotalsEditRow] = useState<BuildingTotalRow | null>(null);
   const [setOnHandInput, setSetOnHandInput] = useState<string>("");
   const [deltaInput, setDeltaInput] = useState<string>("");
   const [parInput, setParInput] = useState<string>("");
+  const [vendorInput, setVendorInput] = useState<string>("");
+  const [categoryInput, setCategoryInput] = useState<string>("");
+  const [unitInput, setUnitInput] = useState<string>("");
+  const [notesInput, setNotesInput] = useState<string>("");
+  const [totalsLowInput, setTotalsLowInput] = useState<string>("");
+  const [refInput, setRefInput] = useState<string>("");
 
   const [pendingTotalsAction, setPendingTotalsAction] = useState<
     null | { kind: "SET"; value: number } | { kind: "ADJUST"; delta: number }
   >(null);
 
-  // ✅ Area List
   const [areaListOpen, setAreaListOpen] = useState(false);
   const [areaInv, setAreaInv] = useState<AreaInvRow[]>([]);
   const [areaInvLoading, setAreaInvLoading] = useState(false);
   const [areaInvError, setAreaInvError] = useState("");
   const [areaInvSearch, setAreaInvSearch] = useState("");
-
   const [areaParOnly, setAreaParOnly] = useState(false);
   const [areaLowOnly, setAreaLowOnly] = useState(false);
 
-  // ✅ Area Row Edit modal
   const [areaEditOpen, setAreaEditOpen] = useState(false);
   const [areaEditRow, setAreaEditRow] = useState<AreaInvRow | null>(null);
   const [areaEditOnHand, setAreaEditOnHand] = useState<string>("");
@@ -1042,6 +1037,12 @@ export default function InventoryPage() {
     setSetOnHandInput(String(row.total_on_hand ?? 0));
     setDeltaInput("");
     setParInput(String(row.par_level ?? 0));
+    setVendorInput(row.vendor ?? "");
+    setCategoryInput(row.category ?? "");
+    setUnitInput(row.unit ?? "");
+    setNotesInput(row.notes ?? "");
+    setTotalsLowInput(String(row.low_level ?? 0));
+    setRefInput(row.reference_number ?? "");
     setTotalsEditOpen(true);
   }
 
@@ -1165,8 +1166,7 @@ export default function InventoryPage() {
     const par = parseIntSafe(areaEditPar);
     const low = parseIntSafe(areaEditLow);
 
-    if (onHand === null || onHand < 0)
-      throw new Error("On-hand must be 0 or more.");
+    if (onHand === null || onHand < 0) throw new Error("On-hand must be 0 or more.");
     if (par === null || par < 0) throw new Error("Par must be 0 or more.");
     if (low === null || low < 0) throw new Error("Low must be 0 or more.");
 
@@ -1992,7 +1992,7 @@ export default function InventoryPage() {
                       </div>
                     )}
                     <div className="mt-2 text-[11px] text-white/50">
-                      Tap to edit on-hand + PAR{" "}
+                      Tap to edit on-hand + item details{" "}
                       {locked ? "(PIN required for totals updates)" : ""}
                     </div>
                   </button>
@@ -2030,8 +2030,9 @@ export default function InventoryPage() {
                     <button
                       onClick={async () => {
                         const n = parseIntSafe(parInput);
-                        if (n === null || n < 0)
+                        if (n === null || n < 0) {
                           return alert("Enter a valid PAR (0 or more).");
+                        }
 
                         const res = await fetch("/api/building-inventory/update", {
                           method: "POST",
@@ -2062,9 +2063,111 @@ export default function InventoryPage() {
                     </button>
                   </div>
                   <div className="mt-2 text-[11px] text-white/55">
-                    PAR is stored in{" "}
-                    <span className="font-semibold">items.par_level</span>.
+                    PAR is stored in <span className="font-semibold">items.par_level</span>.
                   </div>
+                </div>
+
+                <div className="mt-3 rounded-2xl bg-black/30 p-3 ring-1 ring-white/10">
+                  <div className="text-sm font-semibold">Item details</div>
+
+                  <div className="mt-3 grid grid-cols-2 gap-2">
+                    <div>
+                      <div className="mb-1 text-xs text-white/60">Reference #</div>
+                      <input
+                        value={refInput}
+                        onChange={(e) => setRefInput(e.target.value)}
+                        className="w-full rounded-2xl bg-white px-4 py-3 text-black"
+                      />
+                    </div>
+                    <div>
+                      <div className="mb-1 text-xs text-white/60">Low</div>
+                      <input
+                        value={totalsLowInput}
+                        onChange={(e) =>
+                          setTotalsLowInput(e.target.value.replace(/[^\d]/g, ""))
+                        }
+                        inputMode="numeric"
+                        className="w-full rounded-2xl bg-white px-4 py-3 text-black"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="mt-2 grid grid-cols-2 gap-2">
+                    <div>
+                      <div className="mb-1 text-xs text-white/60">Vendor</div>
+                      <input
+                        value={vendorInput}
+                        onChange={(e) => setVendorInput(e.target.value)}
+                        className="w-full rounded-2xl bg-white px-4 py-3 text-black"
+                      />
+                    </div>
+                    <div>
+                      <div className="mb-1 text-xs text-white/60">Category</div>
+                      <input
+                        value={categoryInput}
+                        onChange={(e) => setCategoryInput(e.target.value)}
+                        className="w-full rounded-2xl bg-white px-4 py-3 text-black"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="mt-2">
+                    <div className="mb-1 text-xs text-white/60">Unit</div>
+                    <input
+                      value={unitInput}
+                      onChange={(e) => setUnitInput(e.target.value)}
+                      className="w-full rounded-2xl bg-white px-4 py-3 text-black"
+                    />
+                  </div>
+
+                  <div className="mt-2">
+                    <div className="mb-1 text-xs text-white/60">Notes</div>
+                    <textarea
+                      value={notesInput}
+                      onChange={(e) => setNotesInput(e.target.value)}
+                      className="min-h-[90px] w-full rounded-2xl bg-white px-4 py-3 text-black"
+                    />
+                  </div>
+
+                  <button
+                    onClick={async () => {
+                      const low = parseIntSafe(totalsLowInput);
+                      if (low === null || low < 0) {
+                        return alert("Enter a valid low level.");
+                      }
+
+                      const res = await fetch("/api/building-inventory/update", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        cache: "no-store",
+                        body: JSON.stringify({
+                          name: totalsEditRow.name,
+                          reference_number: totalsEditRow.reference_number,
+                          action: "SAVE_ITEM_META",
+                          vendor: vendorInput,
+                          category: categoryInput,
+                          unit: unitInput,
+                          notes: notesInput,
+                          low_level: low,
+                          reference_number_new: refInput,
+                        }),
+                      });
+
+                      const json = await res.json();
+                      if (!json.ok) return alert(`Save failed: ${json.error}`);
+
+                      pushAudit({
+                        action: "TOTALS_ADJUST",
+                        details: `Meta Save Item=${totalsEditRow.name}`,
+                      });
+
+                      setTotalsEditOpen(false);
+                      await loadTotals();
+                    }}
+                    className="mt-3 w-full rounded-2xl bg-white px-4 py-3 text-sm font-extrabold text-black"
+                  >
+                    Save Item Details
+                  </button>
                 </div>
 
                 <div className="mt-3 rounded-2xl bg-black/30 p-3 ring-1 ring-white/10">
@@ -2082,8 +2185,9 @@ export default function InventoryPage() {
                     <button
                       onClick={async () => {
                         const n = parseIntSafe(setOnHandInput);
-                        if (n === null || n < 0)
+                        if (n === null || n < 0) {
                           return alert("Enter a valid number (0 or more).");
+                        }
                         await doTotalsSet(totalsEditRow, n);
                       }}
                       className="rounded-2xl bg-white px-4 py-3 text-sm font-extrabold text-black"
