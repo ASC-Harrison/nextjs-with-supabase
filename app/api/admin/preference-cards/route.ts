@@ -1,4 +1,4 @@
-import { NextResponse } from "@vercel/node";
+import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
 function getServiceClient() {
@@ -29,18 +29,17 @@ export async function POST(req: Request) {
     const default_qty = Number(body?.default_qty ?? 0);
     const notes = body?.notes ? String(body.notes).trim() : null;
 
-    if (!procedure_id) {
-      return NextResponse.json({ ok: false, error: "procedure_id is required." });
-    }
-    if (!item_id) {
-      return NextResponse.json({ ok: false, error: "item_id is required." });
-    }
-    if (!source_area_id) {
-      return NextResponse.json({ ok: false, error: "source_area_id is required." });
-    }
-    if (!Number.isFinite(default_qty) || default_qty <= 0) {
-      return NextResponse.json({ ok: false, error: "default_qty must be 1 or more." });
-    }
+    if (!procedure_id)
+      return NextResponse.json({ ok: false, error: "procedure_id required" });
+
+    if (!item_id)
+      return NextResponse.json({ ok: false, error: "item_id required" });
+
+    if (!source_area_id)
+      return NextResponse.json({ ok: false, error: "source_area_id required" });
+
+    if (!Number.isFinite(default_qty) || default_qty <= 0)
+      return NextResponse.json({ ok: false, error: "qty must be > 0" });
 
     const supabase = getServiceClient();
 
@@ -50,8 +49,8 @@ export async function POST(req: Request) {
         procedure_id,
         item_id,
         source_area_id,
-        default_qty: Math.trunc(default_qty),
-        notes: notes || null,
+        default_qty,
+        notes,
       })
       .select("*")
       .single();
