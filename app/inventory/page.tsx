@@ -45,6 +45,7 @@ type AuditEvent = {
 };
 
 type BuildingTotalRow = {
+  item_id: string;
   name: string;
   reference_number: string | null;
   vendor: string | null;
@@ -113,7 +114,6 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 );
 
-// MAIN Sterile Supply storage_area_id
 const MAIN_SUPPLY_ID = "a09eb27b-e4a1-449a-8d2e-c45b24d6514f";
 
 export default function InventoryPage() {
@@ -386,7 +386,7 @@ export default function InventoryPage() {
       const { data, error } = await supabase
         .from("building_inventory_sheet_view")
         .select(
-          "name,reference_number,vendor,category,total_on_hand,par_level,low_level,unit,notes"
+          "item_id,name,reference_number,vendor,category,total_on_hand,par_level,low_level,unit,notes"
         )
         .order("name", { ascending: true });
 
@@ -1077,8 +1077,7 @@ export default function InventoryPage() {
       headers: { "Content-Type": "application/json" },
       cache: "no-store",
       body: JSON.stringify({
-        name: row.name,
-        reference_number: row.reference_number,
+        item_id: row.item_id,
         action: "SET",
         value,
       }),
@@ -1126,8 +1125,7 @@ export default function InventoryPage() {
       headers: { "Content-Type": "application/json" },
       cache: "no-store",
       body: JSON.stringify({
-        name: row.name,
-        reference_number: row.reference_number,
+        item_id: row.item_id,
         action: "ADJUST",
         delta,
       }),
@@ -1945,7 +1943,7 @@ export default function InventoryPage() {
 
                 return (
                   <button
-                    key={`${r.name}-${r.reference_number ?? ""}`}
+                    key={`${r.item_id}-${r.reference_number ?? ""}`}
                     onClick={() => openTotalsEditor(r)}
                     className="w-full text-left rounded-2xl bg-black/30 p-3 ring-1 ring-white/10"
                   >
@@ -2039,8 +2037,7 @@ export default function InventoryPage() {
                           headers: { "Content-Type": "application/json" },
                           cache: "no-store",
                           body: JSON.stringify({
-                            name: totalsEditRow.name,
-                            reference_number: totalsEditRow.reference_number,
+                            item_id: totalsEditRow.item_id,
                             action: "SET_PAR",
                             par_level: n,
                           }),
@@ -2141,8 +2138,7 @@ export default function InventoryPage() {
                         headers: { "Content-Type": "application/json" },
                         cache: "no-store",
                         body: JSON.stringify({
-                          name: totalsEditRow.name,
-                          reference_number: totalsEditRow.reference_number,
+                          item_id: totalsEditRow.item_id,
                           action: "SAVE_ITEM_META",
                           vendor: vendorInput,
                           category: categoryInput,
