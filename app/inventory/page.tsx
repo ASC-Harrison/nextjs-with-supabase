@@ -40,7 +40,9 @@ type AuditEvent = {
     | "AREA_LIST_LOAD"
     | "AREA_LIST_TOGGLE"
     | "AREA_ROW_EDIT_OPEN"
-    | "AREA_ROW_EDIT_SAVE";
+    | "AREA_ROW_EDIT_SAVE"
+    | "ITEM_INACTIVE"
+    | "ITEM_RESTORED";
   details?: string;
 };
 
@@ -55,6 +57,7 @@ type BuildingTotalRow = {
   low_level: number | null;
   unit: string | null;
   notes: string | null;
+  is_active: boolean | null;
 };
 
 type AreaInvRow = {
@@ -163,7 +166,8 @@ export default function InventoryPage() {
   const [totalsError, setTotalsError] = useState("");
   const [totalsSearch, setTotalsSearch] = useState("");
   const [totalsLowOnly, setTotalsLowOnly] = useState(false);
-  const [totalsZeroSetupOnly, setTotalsZeroSetupOnly] = useState(false);
+  const [totalsZeroOnly, setTotalsZeroOnly] = useState(false);
+  const [totalsShowInactive, setTotalsShowInactive] = useState(false);
 
   const [totalsEditOpen, setTotalsEditOpen] = useState(false);
   const [totalsEditRow, setTotalsEditRow] = useState<BuildingTotalRow | null>(null);
@@ -178,7 +182,10 @@ export default function InventoryPage() {
   const [refInput, setRefInput] = useState<string>("");
 
   const [pendingTotalsAction, setPendingTotalsAction] = useState<
-    null | { kind: "SET"; value: number } | { kind: "ADJUST"; delta: number }
+    | null
+    | { kind: "SET"; value: number }
+    | { kind: "ADJUST"; delta: number }
+    | { kind: "SET_ACTIVE"; is_active: boolean }
   >(null);
 
   const [areaListOpen, setAreaListOpen] = useState(false);
@@ -188,7 +195,6 @@ export default function InventoryPage() {
   const [areaInvSearch, setAreaInvSearch] = useState("");
   const [areaParOnly, setAreaParOnly] = useState(false);
   const [areaLowOnly, setAreaLowOnly] = useState(false);
-  const [areaZeroSetupOnly, setAreaZeroSetupOnly] = useState(false);
 
   const [areaEditOpen, setAreaEditOpen] = useState(false);
   const [areaEditRow, setAreaEditRow] = useState<AreaInvRow | null>(null);
@@ -209,7 +215,9 @@ export default function InventoryPage() {
 
   const filteredTotals = useMemo(() => {
     const q = totalsSearch.trim().toLowerCase();
-    let list = totals;
+    let list = totals.filter((r) =>
+      totalsShowInactive ? !r.is_active : !!r.is_active
+    );
 
     if (q) {
       list = list.filter((r) => {
@@ -230,14 +238,16 @@ export default function InventoryPage() {
       });
     }
 
-    if (totalsZeroSetupOnly) {
+    if (totalsZeroOnly) {
       list = list.filter((r) => {
-        return (r.par_level ?? 0) === 0 || (r.low_level ?? 0) === 0;
+        const par = r.par_level ?? 0;
+        const low = r.low_level ?? 0;
+        return par === 0 || low === 0;
       });
     }
 
     return list;
-  }, [totals, totalsSearch, totalsLowOnly, totalsZeroSetupOnly]);
+  }, [totals, totalsSearch, totalsLowOnly, totalsZeroOnly, totalsShowInactive]);
 
   const filteredAreaInv = useMemo(() => {
     const q = areaInvSearch.trim().toLowerCase();
@@ -266,14 +276,8 @@ export default function InventoryPage() {
       });
     }
 
-    if (areaZeroSetupOnly) {
-      list = list.filter((r) => {
-        return (r.par_level ?? 0) === 0 || (r.low_level ?? 0) === 0;
-      });
-    }
-
     return list;
-  }, [areaInv, areaInvSearch, areaParOnly, areaLowOnly, areaZeroSetupOnly]);
+  }, [areaInv, areaInvSearch, areaParOnly, areaLowOnly]);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const readerRef = useRef<BrowserMultiFormatReader | null>(null);
@@ -400,7 +404,7 @@ export default function InventoryPage() {
       const { data, error } = await supabase
         .from("building_inventory_sheet_view")
         .select(
-          "item_id,name,reference_number,vendor,category,total_on_hand,par_level,low_level,unit,notes"
+          "item_id,name,reference_number,vendor,category,total_on_hand,par_level,low_level,unit,notes,is_active"
         )
         .order("name", { ascending: true });
 
@@ -776,8 +780,10 @@ export default function InventoryPage() {
 
       if (action.kind === "SET") {
         await doTotalsSet(totalsEditRow, action.value, true);
-      } else {
+      } else if (action.kind === "ADJUST") {
         await doTotalsAdjust(totalsEditRow, action.delta, true);
+      } else if (action.kind === "SET_ACTIVE") {
+        await doTotalsSetActive(totalsEditRow, action.is_active, true);
       }
       return;
     }
@@ -1160,6 +1166,55 @@ export default function InventoryPage() {
     await loadTotals();
   }
 
+  async function doTotalsSetActive(
+    row: BuildingTotalRow,
+    is_active: boolean,
+    pinAlreadyPassed = false
+  ) {
+    if (!staffName.trim()) {
+      setTab("Audit");
+      alert("Enter staff name in Audit tab first.");
+      return;
+    }
+
+    if (locked && !pinAlreadyPassed) {
+      setPendingTotalsAction({ kind: "SET_ACTIVE", is_active });
+      openPin("totalsEdit");
+      return;
+    }
+
+    const confirmText = is_active
+      ? `Restore "${row.name}" to active items?`
+      : `Move "${row.name}" to inactive items?`;
+
+    if (!confirm(confirmText)) return;
+
+    const res = await fetch("/api/building-inventory/update", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      cache: "no-store",
+      body: JSON.stringify({
+        item_id: row.item_id,
+        action: "SET_ACTIVE",
+        is_active,
+      }),
+    });
+
+    const json = await res.json();
+    if (!json.ok) {
+      alert(`Update failed: ${json.error}`);
+      return;
+    }
+
+    pushAudit({
+      action: is_active ? "ITEM_RESTORED" : "ITEM_INACTIVE",
+      details: `Item=${row.name}`,
+    });
+
+    setTotalsEditOpen(false);
+    await loadTotals();
+  }
+
   function openAreaRowEditor(row: AreaInvRow) {
     setAreaEditRow(row);
     setAreaEditOnHand(String(row.on_hand ?? 0));
@@ -1397,10 +1452,10 @@ export default function InventoryPage() {
                 </div>
 
                 <div className="mt-2 text-[11px] text-white/55">
-                  Yellow means setup still needs finished (PAR=0 or LOW=0).
+                  Tip: If you ever see “0 shown” but “total is not 0”, a filter is hiding rows.
                 </div>
 
-                <div className="mt-3 grid grid-cols-4 gap-2">
+                <div className="mt-3 grid grid-cols-3 gap-2">
                   <button
                     onClick={() => setAreaParOnly((v) => !v)}
                     className={[
@@ -1423,18 +1478,6 @@ export default function InventoryPage() {
                     ].join(" ")}
                   >
                     LOW: {areaLowOnly ? "ONLY" : "ALL"}
-                  </button>
-
-                  <button
-                    onClick={() => setAreaZeroSetupOnly((v) => !v)}
-                    className={[
-                      "rounded-2xl px-3 py-3 font-extrabold ring-1 text-xs",
-                      areaZeroSetupOnly
-                        ? "bg-yellow-400 text-black ring-yellow-300/40"
-                        : "bg-white/10 text-white ring-white/10",
-                    ].join(" ")}
-                  >
-                    ZERO: {areaZeroSetupOnly ? "ONLY" : "ALL"}
                   </button>
 
                   <button
@@ -1466,20 +1509,12 @@ export default function InventoryPage() {
                     const par = r.par_level ?? 0;
                     const low = r.low_level ?? 0;
                     const isLow = low > 0 && onHand <= low;
-                    const isZeroSetup = par === 0 || low === 0;
 
                     return (
                       <button
                         key={`${r.storage_area_id}-${r.item_id}`}
                         onClick={() => openAreaRowEditor(r)}
-                        className={[
-                          "w-full text-left rounded-2xl p-3 ring-1",
-                          isLow
-                            ? "bg-black/20 ring-red-500/30"
-                            : isZeroSetup
-                            ? "bg-yellow-500/10 ring-yellow-400/30"
-                            : "bg-black/20 ring-white/10",
-                        ].join(" ")}
+                        className="w-full text-left rounded-2xl bg-black/20 p-3 ring-1 ring-white/10"
                       >
                         <div className="flex items-start justify-between gap-2">
                           <div className="min-w-0">
@@ -1508,25 +1543,11 @@ export default function InventoryPage() {
                         </div>
 
                         <div className="mt-2 grid grid-cols-3 gap-2 text-xs">
-                          <div
-                            className={[
-                              "rounded-xl p-2 ring-1",
-                              par === 0
-                                ? "bg-yellow-500/20 ring-yellow-400/30"
-                                : "bg-white/5 ring-white/10",
-                            ].join(" ")}
-                          >
+                          <div className="rounded-xl bg-white/5 p-2 ring-1 ring-white/10">
                             <div className="text-white/60">Par</div>
                             <div className="font-semibold">{par}</div>
                           </div>
-                          <div
-                            className={[
-                              "rounded-xl p-2 ring-1",
-                              low === 0
-                                ? "bg-yellow-500/20 ring-yellow-400/30"
-                                : "bg-white/5 ring-white/10",
-                            ].join(" ")}
-                          >
+                          <div className="rounded-xl bg-white/5 p-2 ring-1 ring-white/10">
                             <div className="text-white/60">Low</div>
                             <div className="font-semibold">{low}</div>
                           </div>
@@ -1535,14 +1556,6 @@ export default function InventoryPage() {
                             <div className="font-semibold">{r.unit ?? "—"}</div>
                           </div>
                         </div>
-
-                        {isZeroSetup && !isLow && (
-                          <div className="mt-2 text-[11px] font-semibold text-yellow-300">
-                            Setup needs finished: {par === 0 ? "PAR=0" : ""}
-                            {par === 0 && low === 0 ? " • " : ""}
-                            {low === 0 ? "LOW=0" : ""}
-                          </div>
-                        )}
 
                         {r.notes && (
                           <div className="mt-2 text-[11px] text-white/60 break-words">
@@ -1946,14 +1959,12 @@ export default function InventoryPage() {
         ) : tab === "Totals" ? (
           <div className="mt-3 rounded-3xl bg-white/5 p-4 ring-1 ring-white/10">
             <div className="flex items-center justify-between gap-2">
-              <div className="text-lg font-semibold">Building Totals</div>
-              <div className="text-xs text-white/60">
-                {totalsLoading ? "Loading…" : `${filteredTotals.length} shown / ${totals.length} total`}
+              <div className="text-lg font-semibold">
+                {totalsShowInactive ? "Inactive Items" : "Building Totals"}
               </div>
-            </div>
-
-            <div className="mt-2 text-[11px] text-white/55">
-              Yellow means setup still needs finished (PAR=0 or LOW=0). Red still means low on-hand.
+              <div className="text-xs text-white/60">
+                {totalsLoading ? "Loading…" : `${filteredTotals.length} shown`}
+              </div>
             </div>
 
             <div className="mt-3">
@@ -1963,6 +1974,31 @@ export default function InventoryPage() {
                 placeholder="Search name, vendor, category…"
                 className="w-full rounded-2xl bg-white text-black px-4 py-3"
               />
+            </div>
+
+            <div className="mt-2 grid grid-cols-2 gap-2">
+              <button
+                onClick={() => setTotalsShowInactive(false)}
+                className={[
+                  "rounded-2xl px-4 py-3 font-extrabold ring-1 text-sm",
+                  !totalsShowInactive
+                    ? "bg-white text-black ring-white/20"
+                    : "bg-white/10 text-white ring-white/10",
+                ].join(" ")}
+              >
+                ACTIVE
+              </button>
+              <button
+                onClick={() => setTotalsShowInactive(true)}
+                className={[
+                  "rounded-2xl px-4 py-3 font-extrabold ring-1 text-sm",
+                  totalsShowInactive
+                    ? "bg-yellow-500 text-black ring-yellow-400/40"
+                    : "bg-white/10 text-white ring-white/10",
+                ].join(" ")}
+              >
+                INACTIVE
+              </button>
             </div>
 
             <div className="mt-2 grid grid-cols-2 gap-2">
@@ -1979,15 +2015,15 @@ export default function InventoryPage() {
               </button>
 
               <button
-                onClick={() => setTotalsZeroSetupOnly((v) => !v)}
+                onClick={() => setTotalsZeroOnly((v) => !v)}
                 className={[
                   "rounded-2xl px-4 py-3 font-extrabold ring-1 text-sm",
-                  totalsZeroSetupOnly
-                    ? "bg-yellow-400 text-black ring-yellow-300/40"
+                  totalsZeroOnly
+                    ? "bg-yellow-500 text-black ring-yellow-400/40"
                     : "bg-white/10 text-white ring-white/10",
                 ].join(" ")}
               >
-                {totalsZeroSetupOnly ? "ZERO ONLY" : "ZERO FILTER"}
+                {totalsZeroOnly ? "ZERO SETUP ONLY" : "ZERO SETUP"}
               </button>
             </div>
 
@@ -1999,10 +2035,14 @@ export default function InventoryPage() {
                 Refresh
               </button>
               <button
-                onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
+                onClick={() => {
+                  setTotalsLowOnly(false);
+                  setTotalsZeroOnly(false);
+                  setTotalsSearch("");
+                }}
                 className="rounded-2xl bg-white/10 px-4 py-3 text-sm font-semibold ring-1 ring-white/10"
               >
-                ↑
+                Clear
               </button>
             </div>
 
@@ -2015,21 +2055,20 @@ export default function InventoryPage() {
                 const onHand = r.total_on_hand ?? 0;
                 const low = r.low_level ?? 0;
                 const par = r.par_level ?? 0;
+                const zeroSetup = par === 0 || low === 0;
                 const isLow = low > 0 && onHand <= low;
-                const isZeroSetup = par === 0 || low === 0;
+
+                const cardClass = isLow
+                  ? "bg-black/30 ring-red-500/30"
+                  : zeroSetup
+                  ? "bg-yellow-500/15 ring-yellow-400/30"
+                  : "bg-black/30 ring-white/10";
 
                 return (
                   <button
                     key={`${r.item_id}-${r.reference_number ?? ""}`}
                     onClick={() => openTotalsEditor(r)}
-                    className={[
-                      "w-full text-left rounded-2xl p-3 ring-1",
-                      isLow
-                        ? "bg-black/30 ring-red-500/30"
-                        : isZeroSetup
-                        ? "bg-yellow-500/10 ring-yellow-400/30"
-                        : "bg-black/30 ring-white/10",
-                    ].join(" ")}
+                    className={`w-full text-left rounded-2xl p-3 ring-1 ${cardClass}`}
                   >
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
@@ -2082,11 +2121,9 @@ export default function InventoryPage() {
                       </div>
                     </div>
 
-                    {isZeroSetup && !isLow && (
-                      <div className="mt-2 text-[11px] font-semibold text-yellow-300">
-                        Setup needs finished: {par === 0 ? "PAR=0" : ""}
-                        {par === 0 && low === 0 ? " • " : ""}
-                        {low === 0 ? "LOW=0" : ""}
+                    {zeroSetup && (
+                      <div className="mt-2 text-[11px] font-semibold text-yellow-200">
+                        ⚠ Zero setup field detected
                       </div>
                     )}
 
@@ -2118,6 +2155,31 @@ export default function InventoryPage() {
                     {totalsEditRow.reference_number
                       ? `• ${totalsEditRow.reference_number}`
                       : ""}
+                  </div>
+                </div>
+
+                <div className="mt-3 rounded-2xl bg-black/30 p-3 ring-1 ring-white/10">
+                  <div className="text-sm font-semibold">Item status</div>
+                  <div className="mt-2 grid grid-cols-2 gap-2">
+                    <button
+                      onClick={async () => {
+                        await doTotalsSetActive(totalsEditRow, false);
+                      }}
+                      className="rounded-2xl bg-yellow-500 px-4 py-3 text-sm font-extrabold text-black"
+                    >
+                      Move To Inactive
+                    </button>
+                    <button
+                      onClick={async () => {
+                        await doTotalsSetActive(totalsEditRow, true);
+                      }}
+                      className="rounded-2xl bg-white px-4 py-3 text-sm font-extrabold text-black"
+                    >
+                      Restore Active
+                    </button>
+                  </div>
+                  <div className="mt-2 text-[11px] text-white/55">
+                    PIN required if locked. This does not delete the item.
                   </div>
                 </div>
 
