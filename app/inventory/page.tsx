@@ -163,6 +163,7 @@ export default function InventoryPage() {
   const [totalsError, setTotalsError] = useState("");
   const [totalsSearch, setTotalsSearch] = useState("");
   const [totalsLowOnly, setTotalsLowOnly] = useState(false);
+  const [totalsZeroSetupOnly, setTotalsZeroSetupOnly] = useState(false);
 
   const [totalsEditOpen, setTotalsEditOpen] = useState(false);
   const [totalsEditRow, setTotalsEditRow] = useState<BuildingTotalRow | null>(null);
@@ -187,6 +188,7 @@ export default function InventoryPage() {
   const [areaInvSearch, setAreaInvSearch] = useState("");
   const [areaParOnly, setAreaParOnly] = useState(false);
   const [areaLowOnly, setAreaLowOnly] = useState(false);
+  const [areaZeroSetupOnly, setAreaZeroSetupOnly] = useState(false);
 
   const [areaEditOpen, setAreaEditOpen] = useState(false);
   const [areaEditRow, setAreaEditRow] = useState<AreaInvRow | null>(null);
@@ -228,8 +230,14 @@ export default function InventoryPage() {
       });
     }
 
+    if (totalsZeroSetupOnly) {
+      list = list.filter((r) => {
+        return (r.par_level ?? 0) === 0 || (r.low_level ?? 0) === 0;
+      });
+    }
+
     return list;
-  }, [totals, totalsSearch, totalsLowOnly]);
+  }, [totals, totalsSearch, totalsLowOnly, totalsZeroSetupOnly]);
 
   const filteredAreaInv = useMemo(() => {
     const q = areaInvSearch.trim().toLowerCase();
@@ -258,8 +266,14 @@ export default function InventoryPage() {
       });
     }
 
+    if (areaZeroSetupOnly) {
+      list = list.filter((r) => {
+        return (r.par_level ?? 0) === 0 || (r.low_level ?? 0) === 0;
+      });
+    }
+
     return list;
-  }, [areaInv, areaInvSearch, areaParOnly, areaLowOnly]);
+  }, [areaInv, areaInvSearch, areaParOnly, areaLowOnly, areaZeroSetupOnly]);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const readerRef = useRef<BrowserMultiFormatReader | null>(null);
@@ -1383,10 +1397,10 @@ export default function InventoryPage() {
                 </div>
 
                 <div className="mt-2 text-[11px] text-white/55">
-                  Tip: If you ever see “0 shown” but “total is not 0”, a filter is hiding rows.
+                  Yellow means setup still needs finished (PAR=0 or LOW=0).
                 </div>
 
-                <div className="mt-3 grid grid-cols-3 gap-2">
+                <div className="mt-3 grid grid-cols-4 gap-2">
                   <button
                     onClick={() => setAreaParOnly((v) => !v)}
                     className={[
@@ -1409,6 +1423,18 @@ export default function InventoryPage() {
                     ].join(" ")}
                   >
                     LOW: {areaLowOnly ? "ONLY" : "ALL"}
+                  </button>
+
+                  <button
+                    onClick={() => setAreaZeroSetupOnly((v) => !v)}
+                    className={[
+                      "rounded-2xl px-3 py-3 font-extrabold ring-1 text-xs",
+                      areaZeroSetupOnly
+                        ? "bg-yellow-400 text-black ring-yellow-300/40"
+                        : "bg-white/10 text-white ring-white/10",
+                    ].join(" ")}
+                  >
+                    ZERO: {areaZeroSetupOnly ? "ONLY" : "ALL"}
                   </button>
 
                   <button
@@ -1440,12 +1466,20 @@ export default function InventoryPage() {
                     const par = r.par_level ?? 0;
                     const low = r.low_level ?? 0;
                     const isLow = low > 0 && onHand <= low;
+                    const isZeroSetup = par === 0 || low === 0;
 
                     return (
                       <button
                         key={`${r.storage_area_id}-${r.item_id}`}
                         onClick={() => openAreaRowEditor(r)}
-                        className="w-full text-left rounded-2xl bg-black/20 p-3 ring-1 ring-white/10"
+                        className={[
+                          "w-full text-left rounded-2xl p-3 ring-1",
+                          isLow
+                            ? "bg-black/20 ring-red-500/30"
+                            : isZeroSetup
+                            ? "bg-yellow-500/10 ring-yellow-400/30"
+                            : "bg-black/20 ring-white/10",
+                        ].join(" ")}
                       >
                         <div className="flex items-start justify-between gap-2">
                           <div className="min-w-0">
@@ -1474,11 +1508,25 @@ export default function InventoryPage() {
                         </div>
 
                         <div className="mt-2 grid grid-cols-3 gap-2 text-xs">
-                          <div className="rounded-xl bg-white/5 p-2 ring-1 ring-white/10">
+                          <div
+                            className={[
+                              "rounded-xl p-2 ring-1",
+                              par === 0
+                                ? "bg-yellow-500/20 ring-yellow-400/30"
+                                : "bg-white/5 ring-white/10",
+                            ].join(" ")}
+                          >
                             <div className="text-white/60">Par</div>
                             <div className="font-semibold">{par}</div>
                           </div>
-                          <div className="rounded-xl bg-white/5 p-2 ring-1 ring-white/10">
+                          <div
+                            className={[
+                              "rounded-xl p-2 ring-1",
+                              low === 0
+                                ? "bg-yellow-500/20 ring-yellow-400/30"
+                                : "bg-white/5 ring-white/10",
+                            ].join(" ")}
+                          >
                             <div className="text-white/60">Low</div>
                             <div className="font-semibold">{low}</div>
                           </div>
@@ -1487,6 +1535,14 @@ export default function InventoryPage() {
                             <div className="font-semibold">{r.unit ?? "—"}</div>
                           </div>
                         </div>
+
+                        {isZeroSetup && !isLow && (
+                          <div className="mt-2 text-[11px] font-semibold text-yellow-300">
+                            Setup needs finished: {par === 0 ? "PAR=0" : ""}
+                            {par === 0 && low === 0 ? " • " : ""}
+                            {low === 0 ? "LOW=0" : ""}
+                          </div>
+                        )}
 
                         {r.notes && (
                           <div className="mt-2 text-[11px] text-white/60 break-words">
@@ -1892,17 +1948,24 @@ export default function InventoryPage() {
             <div className="flex items-center justify-between gap-2">
               <div className="text-lg font-semibold">Building Totals</div>
               <div className="text-xs text-white/60">
-                {totalsLoading ? "Loading…" : `${totals.length} items`}
+                {totalsLoading ? "Loading…" : `${filteredTotals.length} shown / ${totals.length} total`}
               </div>
             </div>
 
-            <div className="mt-3 grid grid-cols-2 gap-2">
+            <div className="mt-2 text-[11px] text-white/55">
+              Yellow means setup still needs finished (PAR=0 or LOW=0). Red still means low on-hand.
+            </div>
+
+            <div className="mt-3">
               <input
                 value={totalsSearch}
                 onChange={(e) => setTotalsSearch(e.target.value)}
                 placeholder="Search name, vendor, category…"
                 className="w-full rounded-2xl bg-white text-black px-4 py-3"
               />
+            </div>
+
+            <div className="mt-2 grid grid-cols-2 gap-2">
               <button
                 onClick={() => setTotalsLowOnly((v) => !v)}
                 className={[
@@ -1912,7 +1975,19 @@ export default function InventoryPage() {
                     : "bg-white/10 text-white ring-white/10",
                 ].join(" ")}
               >
-                {totalsLowOnly ? "LOW ONLY" : "ALL ITEMS"}
+                {totalsLowOnly ? "LOW ONLY" : "LOW FILTER"}
+              </button>
+
+              <button
+                onClick={() => setTotalsZeroSetupOnly((v) => !v)}
+                className={[
+                  "rounded-2xl px-4 py-3 font-extrabold ring-1 text-sm",
+                  totalsZeroSetupOnly
+                    ? "bg-yellow-400 text-black ring-yellow-300/40"
+                    : "bg-white/10 text-white ring-white/10",
+                ].join(" ")}
+              >
+                {totalsZeroSetupOnly ? "ZERO ONLY" : "ZERO FILTER"}
               </button>
             </div>
 
@@ -1939,13 +2014,22 @@ export default function InventoryPage() {
               {filteredTotals.map((r) => {
                 const onHand = r.total_on_hand ?? 0;
                 const low = r.low_level ?? 0;
+                const par = r.par_level ?? 0;
                 const isLow = low > 0 && onHand <= low;
+                const isZeroSetup = par === 0 || low === 0;
 
                 return (
                   <button
                     key={`${r.item_id}-${r.reference_number ?? ""}`}
                     onClick={() => openTotalsEditor(r)}
-                    className="w-full text-left rounded-2xl bg-black/30 p-3 ring-1 ring-white/10"
+                    className={[
+                      "w-full text-left rounded-2xl p-3 ring-1",
+                      isLow
+                        ? "bg-black/30 ring-red-500/30"
+                        : isZeroSetup
+                        ? "bg-yellow-500/10 ring-yellow-400/30"
+                        : "bg-black/30 ring-white/10",
+                    ].join(" ")}
                   >
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
@@ -1970,19 +2054,41 @@ export default function InventoryPage() {
                     </div>
 
                     <div className="mt-2 grid grid-cols-3 gap-2 text-xs">
-                      <div className="rounded-xl bg-white/5 p-2 ring-1 ring-white/10">
+                      <div
+                        className={[
+                          "rounded-xl p-2 ring-1",
+                          par === 0
+                            ? "bg-yellow-500/20 ring-yellow-400/30"
+                            : "bg-white/5 ring-white/10",
+                        ].join(" ")}
+                      >
                         <div className="text-white/60">Par</div>
-                        <div className="font-semibold">{r.par_level ?? 0}</div>
+                        <div className="font-semibold">{par}</div>
                       </div>
-                      <div className="rounded-xl bg-white/5 p-2 ring-1 ring-white/10">
+                      <div
+                        className={[
+                          "rounded-xl p-2 ring-1",
+                          low === 0
+                            ? "bg-yellow-500/20 ring-yellow-400/30"
+                            : "bg-white/5 ring-white/10",
+                        ].join(" ")}
+                      >
                         <div className="text-white/60">Low</div>
-                        <div className="font-semibold">{r.low_level ?? 0}</div>
+                        <div className="font-semibold">{low}</div>
                       </div>
                       <div className="rounded-xl bg-white/5 p-2 ring-1 ring-white/10">
                         <div className="text-white/60">Unit</div>
                         <div className="font-semibold">{r.unit ?? "—"}</div>
                       </div>
                     </div>
+
+                    {isZeroSetup && !isLow && (
+                      <div className="mt-2 text-[11px] font-semibold text-yellow-300">
+                        Setup needs finished: {par === 0 ? "PAR=0" : ""}
+                        {par === 0 && low === 0 ? " • " : ""}
+                        {low === 0 ? "LOW=0" : ""}
+                      </div>
+                    )}
 
                     {r.notes && (
                       <div className="mt-2 text-[11px] text-white/60 break-words">
