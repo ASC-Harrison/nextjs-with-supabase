@@ -2,39 +2,20 @@ import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
 type Body =
+  | { item_id: string; action: "SET"; value: number }
+  | { item_id: string; action: "ADJUST"; delta: number }
+  | { item_id: string; action: "SET_PAR"; par_level: number }
   | {
-      action: "SET";
-      value: number;
-      item_id?: string;
-      reference_number?: string | null;
-      name?: string;
-    }
-  | {
-      action: "ADJUST";
-      delta: number;
-      item_id?: string;
-      reference_number?: string | null;
-      name?: string;
-    }
-  | {
-      action: "SET_PAR";
-      par_level: number;
-      item_id?: string;
-      reference_number?: string | null;
-      name?: string;
-    }
-  | {
+      item_id: string;
       action: "SAVE_ITEM_META";
-      item_id?: string;
-      reference_number?: string | null;
-      name?: string;
       vendor?: string | null;
       category?: string | null;
       unit?: string | null;
       notes?: string | null;
-      low_level?: number | null;
+      low_level: number;
       reference_number_new?: string | null;
-    };
+    }
+  | { item_id: string; action: "SET_ACTIVE"; is_active: boolean };
 
 function getServiceClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -54,143 +35,76 @@ function getServiceClient() {
   });
 }
 
-function asInt(val: unknown, fallback = 0) {
-  const n = Number(val);
-  return Number.isFinite(n) ? Math.trunc(n) : fallback;
-}
-
-function cleanNullableString(v: unknown) {
-  if (v === null || v === undefined) return null;
-  const s = String(v).trim();
-  return s === "" ? null : s;
-}
-
-async function resolveItemId(
-  supabase: ReturnType<typeof getServiceClient>,
-  body: Body
-) {
-  if ("item_id" in body && body.item_id && typeof body.item_id === "string") {
-    return body.item_id;
-  }
-
-  if (
-    "reference_number" in body &&
-    body.reference_number &&
-    typeof body.reference_number === "string"
-  ) {
-    const ref = body.reference_number.trim();
-    const { data, error } = await supabase
-      .from("items")
-      .select("id")
-      .eq("reference_number", ref)
-      .maybeSingle();
-
-    if (error) throw error;
-    if (data?.id) return data.id as string;
-  }
-
-  if ("name" in body && body.name && typeof body.name === "string") {
-    const name = body.name.trim();
-
-    const { data: exact, error: exactErr } = await supabase
-      .from("items")
-      .select("id,name")
-      .eq("name", name)
-      .limit(2);
-
-    if (exactErr) throw exactErr;
-
-    if (exact && exact.length === 1) {
-      return exact[0].id as string;
-    }
-
-    if (exact && exact.length > 1) {
-      throw new Error(
-        `Multiple items match "${name}". Use reference number or item_id.`
-      );
-    }
-
-    const { data: fuzzy, error: fuzzyErr } = await supabase
-      .from("items")
-      .select("id,name")
-      .ilike("name", name)
-      .limit(2);
-
-    if (fuzzyErr) throw fuzzyErr;
-
-    if (fuzzy && fuzzy.length === 1) {
-      return fuzzy[0].id as string;
-    }
-
-    if (fuzzy && fuzzy.length > 1) {
-      throw new Error(
-        `Multiple items match "${name}". Use reference number or item_id.`
-      );
-    }
-
-    throw new Error(`Item not found: ${name}`);
-  }
-
-  throw new Error("Missing item identifier");
-}
-
-async function ensureBuildingTotalsRow(
-  supabase: ReturnType<typeof getServiceClient>,
-  item_id: string
-) {
-  const { error } = await supabase.from("building_totals").upsert(
-    {
-      item_id,
-      building_on_hand: 0,
-      updated_at: new Date().toISOString(),
-    },
-    { onConflict: "item_id" }
-  );
-
-  if (error) throw error;
-}
-
 export async function POST(req: Request) {
   try {
     const body = (await req.json()) as Body;
-    const supabase = getServiceClient();
-    const item_id = await resolveItemId(supabase, body);
 
-    if (body.action === "SET_PAR") {
-      const par = asInt(body.par_level, -1);
-      if (par < 0) {
-        return NextResponse.json(
-          { ok: false, error: "par_level must be >= 0" },
-          { status: 400 }
-        );
-      }
+    const item_id = String((body as any)?.item_id ?? "").trim();
+    if (!item_id) {
+      return NextResponse.json({ ok: false, error: "Missing item_id" });
+    }
+
+    const supabase = getServiceClient();
+
+    const { data: item, error: itemErr } = await supabase
+      .from("items")
+      .select("id,name")
+      .eq("id", item_id)
+      .single();
+
+    if (itemErr || !item?.id) {
+      return NextResponse.json({
+        ok: false,
+        error: `Item not found for item_id: ${item_id}`,
+      });
+    }
+
+    if ((body as any).action === "SET_ACTIVE") {
+      const is_active = Boolean((body as any).is_active);
 
       const { error } = await supabase
         .from("items")
-        .update({ par_level: par })
+        .update({ is_active })
         .eq("id", item_id);
 
       if (error) {
-        return NextResponse.json(
-          { ok: false, error: error.message },
-          { status: 400 }
-        );
+        return NextResponse.json({ ok: false, error: error.message });
       }
 
-      return NextResponse.json({ ok: true, item_id, par_level: par });
+      return NextResponse.json({ ok: true });
     }
 
-    if (body.action === "SAVE_ITEM_META") {
+    if ((body as any).action === "SAVE_ITEM_META") {
+      const low = Number((body as any).low_level);
+      if (!Number.isFinite(low) || low < 0) {
+        return NextResponse.json({
+          ok: false,
+          error: "low_level must be a number >= 0",
+        });
+      }
+
       const payload = {
-        vendor: cleanNullableString(body.vendor),
-        category: cleanNullableString(body.category),
-        unit: cleanNullableString(body.unit),
-        notes: cleanNullableString(body.notes),
-        low_level:
-          body.low_level === null || body.low_level === undefined
-            ? null
-            : Math.max(0, asInt(body.low_level, 0)),
-        reference_number: cleanNullableString(body.reference_number_new),
+        vendor:
+          typeof (body as any).vendor === "string"
+            ? ((body as any).vendor as string).trim() || null
+            : null,
+        category:
+          typeof (body as any).category === "string"
+            ? ((body as any).category as string).trim() || null
+            : null,
+        unit:
+          typeof (body as any).unit === "string"
+            ? ((body as any).unit as string).trim() || null
+            : null,
+        notes:
+          typeof (body as any).notes === "string"
+            ? ((body as any).notes as string).trim() || null
+            : null,
+        low_level: Math.trunc(low),
+        reference_number:
+          typeof (body as any).reference_number_new === "string"
+            ? (((body as any).reference_number_new as string).trim() || null)
+            : null,
       };
 
       const { error } = await supabase
@@ -199,100 +113,97 @@ export async function POST(req: Request) {
         .eq("id", item_id);
 
       if (error) {
-        return NextResponse.json(
-          { ok: false, error: error.message },
-          { status: 400 }
-        );
+        return NextResponse.json({ ok: false, error: error.message });
       }
 
-      return NextResponse.json({ ok: true, item_id });
+      return NextResponse.json({ ok: true });
     }
 
-    await ensureBuildingTotalsRow(supabase, item_id);
+    if ((body as any).action === "SET_PAR") {
+      const par = Number((body as any).par_level);
+      if (!Number.isFinite(par) || par < 0) {
+        return NextResponse.json({
+          ok: false,
+          error: "par_level must be a number >= 0",
+        });
+      }
 
-    if (body.action === "SET") {
-      const value = asInt(body.value, -1);
-      if (value < 0) {
-        return NextResponse.json(
-          { ok: false, error: "value must be >= 0" },
-          { status: 400 }
-        );
+      const { error } = await supabase
+        .from("items")
+        .update({ par_level: Math.trunc(par) })
+        .eq("id", item_id);
+
+      if (error) {
+        return NextResponse.json({ ok: false, error: error.message });
+      }
+
+      return NextResponse.json({ ok: true });
+    }
+
+    const { error: upsertErr } = await supabase
+      .from("building_totals")
+      .upsert({ item_id, building_on_hand: 0 }, { onConflict: "item_id" });
+
+    if (upsertErr) {
+      return NextResponse.json({ ok: false, error: upsertErr.message });
+    }
+
+    if ((body as any).action === "SET") {
+      const value = Number((body as any).value);
+      if (!Number.isFinite(value) || value < 0) {
+        return NextResponse.json({
+          ok: false,
+          error: "SET value must be a number >= 0",
+        });
       }
 
       const { error } = await supabase
         .from("building_totals")
-        .update({
-          building_on_hand: value,
-          updated_at: new Date().toISOString(),
-        })
+        .update({ building_on_hand: Math.trunc(value) })
         .eq("item_id", item_id);
 
       if (error) {
-        return NextResponse.json(
-          { ok: false, error: error.message },
-          { status: 400 }
-        );
+        return NextResponse.json({ ok: false, error: error.message });
       }
 
-      return NextResponse.json({ ok: true, item_id, building_on_hand: value });
+      return NextResponse.json({ ok: true });
     }
 
-    if (body.action === "ADJUST") {
-      const delta = asInt(body.delta, 0);
-      if (delta === 0) {
-        return NextResponse.json(
-          { ok: false, error: "delta must be non-zero" },
-          { status: 400 }
-        );
-      }
-
-      const { data, error } = await supabase
-        .from("building_totals")
-        .select("building_on_hand")
-        .eq("item_id", item_id)
-        .maybeSingle();
-
-      if (error) {
-        return NextResponse.json(
-          { ok: false, error: error.message },
-          { status: 400 }
-        );
-      }
-
-      const current = asInt(data?.building_on_hand, 0);
-      const next = Math.max(0, current + delta);
-
-      const { error: updErr } = await supabase
-        .from("building_totals")
-        .update({
-          building_on_hand: next,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("item_id", item_id);
-
-      if (updErr) {
-        return NextResponse.json(
-          { ok: false, error: updErr.message },
-          { status: 400 }
-        );
-      }
-
+    const delta = Number((body as any).delta);
+    if (!Number.isFinite(delta) || delta === 0) {
       return NextResponse.json({
-        ok: true,
-        item_id,
-        previous: current,
-        building_on_hand: next,
+        ok: false,
+        error: "ADJUST delta must be a non-zero number",
       });
     }
 
-    return NextResponse.json(
-      { ok: false, error: "Unknown action" },
-      { status: 400 }
-    );
+    const { data: btRow, error: btErr } = await supabase
+      .from("building_totals")
+      .select("building_on_hand")
+      .eq("item_id", item_id)
+      .single();
+
+    if (btErr) {
+      return NextResponse.json({ ok: false, error: btErr.message });
+    }
+
+    const current = Number(btRow?.building_on_hand ?? 0);
+    const next = Math.max(0, current + Math.trunc(delta));
+
+    const { error: updErr } = await supabase
+      .from("building_totals")
+      .update({ building_on_hand: next })
+      .eq("item_id", item_id);
+
+    if (updErr) {
+      return NextResponse.json({ ok: false, error: updErr.message });
+    }
+
+    return NextResponse.json({ ok: true });
   } catch (e: any) {
-    return NextResponse.json(
-      { ok: false, error: e?.message ?? "Unknown error" },
-      { status: 500 }
-    );
+    return NextResponse.json({
+      ok: false,
+      error: e?.message ?? "Unknown error",
+    });
   }
 }
