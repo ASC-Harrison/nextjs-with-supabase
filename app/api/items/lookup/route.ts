@@ -6,7 +6,7 @@ type Body = {
   mode?: "BARCODE" | "REF" | "NAME";
   suggest?: boolean;
 
-  // backward compatible if your older client sends { barcode }
+  // backward compatible if older client sends { barcode }
   barcode?: string;
 };
 
@@ -40,14 +40,17 @@ export async function POST(req: Request) {
     const mode = body.mode ?? "BARCODE";
     const suggest = !!body.suggest;
 
-    if (!q) return NextResponse.json({ ok: false, error: "Missing query" });
+    if (!q) {
+      return NextResponse.json({ ok: false, error: "Missing query" });
+    }
 
     const supabase = getServiceClient();
 
-    // SAFE: only adds unit
-    const selectCols = "id,name,barcode,reference_number,unit";
+    // Safe: only adds the 2 new item fields used by your page.tsx
+    const selectCols =
+      "id,name,barcode,reference_number,is_box_item,units_per_box";
 
-    // 1) Exact match by selected mode
+    // 1) Exact barcode match first
     if (mode === "BARCODE") {
       const { data, error } = await supabase
         .from("items")
@@ -56,10 +59,16 @@ export async function POST(req: Request) {
         .limit(1)
         .maybeSingle();
 
-      if (error) return NextResponse.json({ ok: false, error: error.message });
-      if (data) return NextResponse.json({ ok: true, item: data });
+      if (error) {
+        return NextResponse.json({ ok: false, error: error.message });
+      }
+
+      if (data) {
+        return NextResponse.json({ ok: true, item: data });
+      }
     }
 
+    // 2) Exact reference match first
     if (mode === "REF") {
       const { data, error } = await supabase
         .from("items")
@@ -68,11 +77,16 @@ export async function POST(req: Request) {
         .limit(1)
         .maybeSingle();
 
-      if (error) return NextResponse.json({ ok: false, error: error.message });
-      if (data) return NextResponse.json({ ok: true, item: data });
+      if (error) {
+        return NextResponse.json({ ok: false, error: error.message });
+      }
+
+      if (data) {
+        return NextResponse.json({ ok: true, item: data });
+      }
     }
 
-    // 2) NAME search / suggestions
+    // 3) NAME mode or suggest mode => name contains search
     if (mode === "NAME" || suggest) {
       const { data, error } = await supabase
         .from("items")
@@ -81,7 +95,9 @@ export async function POST(req: Request) {
         .order("name", { ascending: true })
         .limit(8);
 
-      if (error) return NextResponse.json({ ok: false, error: error.message });
+      if (error) {
+        return NextResponse.json({ ok: false, error: error.message });
+      }
 
       const rows = data ?? [];
 
@@ -92,7 +108,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: true, item: null, matches: rows });
     }
 
-    // 3) Fallback exact on barcode/ref
+    // 4) Fallback exact barcode/ref if wrong mode was chosen
     const { data: exact2, error: e2 } = await supabase
       .from("items")
       .select(selectCols)
@@ -100,10 +116,15 @@ export async function POST(req: Request) {
       .limit(1)
       .maybeSingle();
 
-    if (e2) return NextResponse.json({ ok: false, error: e2.message });
-    if (exact2) return NextResponse.json({ ok: true, item: exact2 });
+    if (e2) {
+      return NextResponse.json({ ok: false, error: e2.message });
+    }
 
-    // 4) Final fallback: name contains
+    if (exact2) {
+      return NextResponse.json({ ok: true, item: exact2 });
+    }
+
+    // 5) Final fallback => name contains
     const { data: like, error: e3 } = await supabase
       .from("items")
       .select(selectCols)
@@ -111,7 +132,9 @@ export async function POST(req: Request) {
       .order("name", { ascending: true })
       .limit(8);
 
-    if (e3) return NextResponse.json({ ok: false, error: e3.message });
+    if (e3) {
+      return NextResponse.json({ ok: false, error: e3.message });
+    }
 
     return NextResponse.json({ ok: true, item: null, matches: like ?? [] });
   } catch (e: any) {
