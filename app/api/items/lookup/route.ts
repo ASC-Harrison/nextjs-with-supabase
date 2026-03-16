@@ -5,8 +5,6 @@ type Body = {
   query?: string;
   mode?: "BARCODE" | "REF" | "NAME";
   suggest?: boolean;
-
-  // backward compatible if older client sends { barcode }
   barcode?: string;
 };
 
@@ -46,11 +44,9 @@ export async function POST(req: Request) {
 
     const supabase = getServiceClient();
 
-    // Safe: only adds the 2 new item fields used by your page.tsx
-    const selectCols =
-      "id,name,barcode,reference_number,is_box_item,units_per_box";
+    // IMPORTANT: unit is included so Transaction can detect Bx / Box
+    const selectCols = "id,name,barcode,reference_number,unit";
 
-    // 1) Exact barcode match first
     if (mode === "BARCODE") {
       const { data, error } = await supabase
         .from("items")
@@ -68,7 +64,6 @@ export async function POST(req: Request) {
       }
     }
 
-    // 2) Exact reference match first
     if (mode === "REF") {
       const { data, error } = await supabase
         .from("items")
@@ -86,7 +81,6 @@ export async function POST(req: Request) {
       }
     }
 
-    // 3) NAME mode or suggest mode => name contains search
     if (mode === "NAME" || suggest) {
       const { data, error } = await supabase
         .from("items")
@@ -108,7 +102,6 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: true, item: null, matches: rows });
     }
 
-    // 4) Fallback exact barcode/ref if wrong mode was chosen
     const { data: exact2, error: e2 } = await supabase
       .from("items")
       .select(selectCols)
@@ -124,7 +117,6 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: true, item: exact2 });
     }
 
-    // 5) Final fallback => name contains
     const { data: like, error: e3 } = await supabase
       .from("items")
       .select(selectCols)
