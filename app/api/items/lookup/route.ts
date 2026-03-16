@@ -44,7 +44,7 @@ export async function POST(req: Request) {
 
     const supabase = getServiceClient();
 
-    // IMPORTANT: unit is included so Transaction can detect Bx / Box
+    // IMPORTANT: includes unit so page.tsx can detect Bx / Box items
     const selectCols = "id,name,barcode,reference_number,unit";
 
     if (mode === "BARCODE") {
