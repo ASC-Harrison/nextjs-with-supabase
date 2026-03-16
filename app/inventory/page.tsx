@@ -15,8 +15,7 @@ type Item = {
   name: string;
   barcode: string;
   reference_number?: string | null;
-  is_box_item?: boolean | null;
-  units_per_box?: number | null;
+  unit?: string | null;
 };
 
 type AuditEvent = {
@@ -112,6 +111,11 @@ function safeJsonParse<T>(raw: string | null, fallback: T): T {
   } catch {
     return fallback;
   }
+}
+
+function isBoxUnit(unit?: string | null) {
+  const u = (unit ?? "").trim().toLowerCase();
+  return u === "bx" || u === "box";
 }
 
 const supabase = createClient(
@@ -602,8 +606,7 @@ export default function InventoryPage() {
       name: r.name,
       barcode: r.barcode ?? "",
       reference_number: r.reference_number ?? null,
-      is_box_item: r.is_box_item ?? false,
-      units_per_box: r.units_per_box ?? null,
+      unit: r.unit ?? null,
     };
   }
 
@@ -871,12 +874,8 @@ export default function InventoryPage() {
     if (!item?.id) return alert("Find or scan an item first.");
     if (!areaId) return alert("Select a location.");
 
-    const effectiveQty =
-      mode === "RESTOCK" &&
-      item?.is_box_item &&
-      (item.units_per_box ?? 0) > 0
-        ? Number(item.units_per_box)
-        : qty;
+    const boxItem = isBoxUnit(item?.unit);
+    const effectiveQty = qty;
 
     try {
       if (mode === "USE") {
@@ -906,8 +905,8 @@ export default function InventoryPage() {
         setMainOverride(false);
         setQty(1);
         setStatus(
-          item?.is_box_item
-            ? `✅ Updated on-hand to ${newOnHand} (BOX ITEM reminder only)`
+          boxItem
+            ? `✅ Updated on-hand to ${newOnHand} (BOX ITEM reminder: scan when opening a new box)`
             : `✅ Updated on-hand to ${newOnHand}`
         );
 
@@ -918,7 +917,9 @@ export default function InventoryPage() {
           action: "SUBMIT_TX",
           details: `Mode=USE Qty=${effectiveQty} Item=${item.name} Area=${
             useArea === MAIN_SUPPLY_ID ? "MAIN SUPPLY" : selectedAreaName
-          } Override=${mainOverride ? "MAIN" : "NO"}`,
+          } Override=${mainOverride ? "MAIN" : "NO"} BoxItem=${
+            boxItem ? "YES" : "NO"
+          }`,
         });
 
         return;
@@ -950,8 +951,8 @@ export default function InventoryPage() {
         setMainOverride(false);
         setQty(1);
         setStatus(
-          item?.is_box_item && (item.units_per_box ?? 0) > 0
-            ? `✅ Restocked by box. Added ${effectiveQty}. On-hand now ${newOnHand}`
+          boxItem
+            ? `✅ Restocked. On-hand now ${newOnHand} (BOX ITEM)`
             : `✅ Restocked. On-hand now ${newOnHand}`
         );
 
@@ -960,7 +961,9 @@ export default function InventoryPage() {
 
         pushAudit({
           action: "SUBMIT_TX",
-          details: `Mode=RESTOCK Qty=${effectiveQty} Item=${item.name} From=MAIN SUPPLY To=${selectedAreaName}`,
+          details: `Mode=RESTOCK Qty=${effectiveQty} Item=${item.name} From=MAIN SUPPLY To=${selectedAreaName} BoxItem=${
+            boxItem ? "YES" : "NO"
+          }`,
         });
 
         return;
@@ -1847,6 +1850,7 @@ export default function InventoryPage() {
                           {m.reference_number ? `Ref: ${m.reference_number}` : "Ref: —"}
                           {" • "}
                           {m.barcode ? `Barcode: ${m.barcode}` : "Barcode: —"}
+                          {m.unit ? ` • Unit: ${m.unit}` : ""}
                         </div>
                       </button>
                     ))}
@@ -1864,9 +1868,10 @@ export default function InventoryPage() {
                       {item.reference_number ? `Ref: ${item.reference_number}` : ""}
                       {item.reference_number && item.barcode ? " • " : ""}
                       {item.barcode ? `Barcode: ${item.barcode}` : ""}
+                      {item.unit ? ` • Unit: ${item.unit}` : ""}
                     </div>
 
-                    {item.is_box_item && (
+                    {isBoxUnit(item.unit) && (
                       <div className="mt-3 rounded-2xl bg-yellow-500/20 p-3 ring-1 ring-yellow-400/30">
                         <div className="text-sm font-extrabold text-yellow-200">
                           📦 BOX ITEM
@@ -1875,9 +1880,7 @@ export default function InventoryPage() {
                           Scan only when opening a new box.
                         </div>
                         <div className="mt-1 text-xs text-yellow-100/75">
-                          {item.units_per_box && item.units_per_box > 0
-                            ? `Units per box: ${item.units_per_box}`
-                            : "Units per box not set yet."}
+                          This item is marked as a box because Unit = {item.unit}
                         </div>
                       </div>
                     )}
@@ -1892,7 +1895,7 @@ export default function InventoryPage() {
                   <QtyBtn onClick={() => setQty((q) => q + 1)}>+</QtyBtn>
                 </div>
 
-                {item?.is_box_item && (
+                {isBoxUnit(item?.unit) && (
                   <div className="mt-2 rounded-2xl bg-yellow-500/15 p-3 ring-1 ring-yellow-400/25">
                     <div className="text-xs font-extrabold text-yellow-200">
                       BOX ITEM REMINDER
@@ -1900,13 +1903,9 @@ export default function InventoryPage() {
                     <div className="mt-1 text-xs text-yellow-100/85">
                       Staff should usually scan this only when opening a new box.
                     </div>
-                    {mode === "RESTOCK" && (item.units_per_box ?? 0) > 0 && (
-                      <div className="mt-1 text-xs text-yellow-100/75">
-                        RESTOCK will automatically use{" "}
-                        <span className="font-semibold">{item.units_per_box}</span> for
-                        this box.
-                      </div>
-                    )}
+                    <div className="mt-1 text-xs text-yellow-100/75">
+                      This turns on automatically when Unit is set to Bx or Box.
+                    </div>
                   </div>
                 )}
 
