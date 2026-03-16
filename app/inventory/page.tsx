@@ -10,7 +10,6 @@ type Mode = "USE" | "RESTOCK";
 type LookupMode = "BARCODE" | "REF" | "NAME";
 
 type Area = { id: string; name: string };
-
 type Item = {
   id: string;
   name: string;
@@ -61,8 +60,6 @@ type BuildingTotalRow = {
   unit: string | null;
   notes: string | null;
   is_active: boolean | null;
-  is_box_item: boolean | null;
-  units_per_box: number | null;
 };
 
 type AreaInvRow = {
@@ -185,8 +182,6 @@ export default function InventoryPage() {
   const [notesInput, setNotesInput] = useState<string>("");
   const [totalsLowInput, setTotalsLowInput] = useState<string>("");
   const [refInput, setRefInput] = useState<string>("");
-  const [boxItemInput, setBoxItemInput] = useState(false);
-  const [unitsPerBoxInput, setUnitsPerBoxInput] = useState<string>("");
 
   const [pendingTotalsAction, setPendingTotalsAction] = useState<
     | null
@@ -411,7 +406,7 @@ export default function InventoryPage() {
       const { data, error } = await supabase
         .from("building_inventory_sheet_view")
         .select(
-          "item_id,name,reference_number,vendor,category,total_on_hand,par_level,low_level,unit,notes,is_active,is_box_item,units_per_box"
+          "item_id,name,reference_number,vendor,category,total_on_hand,par_level,low_level,unit,notes,is_active"
         )
         .order("name", { ascending: true });
 
@@ -911,8 +906,8 @@ export default function InventoryPage() {
         setMainOverride(false);
         setQty(1);
         setStatus(
-          item?.is_box_item && mode === "USE"
-            ? `✅ Updated on-hand to ${newOnHand} (BOX ITEM reminder: usually scan only when opening a new box)`
+          item?.is_box_item
+            ? `✅ Updated on-hand to ${newOnHand} (BOX ITEM reminder only)`
             : `✅ Updated on-hand to ${newOnHand}`
         );
 
@@ -923,9 +918,7 @@ export default function InventoryPage() {
           action: "SUBMIT_TX",
           details: `Mode=USE Qty=${effectiveQty} Item=${item.name} Area=${
             useArea === MAIN_SUPPLY_ID ? "MAIN SUPPLY" : selectedAreaName
-          } Override=${mainOverride ? "MAIN" : "NO"} BoxItem=${
-            item?.is_box_item ? "YES" : "NO"
-          }`,
+          } Override=${mainOverride ? "MAIN" : "NO"}`,
         });
 
         return;
@@ -967,9 +960,7 @@ export default function InventoryPage() {
 
         pushAudit({
           action: "SUBMIT_TX",
-          details: `Mode=RESTOCK Qty=${effectiveQty} Item=${item.name} From=MAIN SUPPLY To=${selectedAreaName} BoxItem=${
-            item?.is_box_item ? "YES" : "NO"
-          }`,
+          details: `Mode=RESTOCK Qty=${effectiveQty} Item=${item.name} From=MAIN SUPPLY To=${selectedAreaName}`,
         });
 
         return;
@@ -1091,12 +1082,6 @@ export default function InventoryPage() {
     setNotesInput(row.notes ?? "");
     setTotalsLowInput(String(row.low_level ?? 0));
     setRefInput(row.reference_number ?? "");
-    setBoxItemInput(!!row.is_box_item);
-    setUnitsPerBoxInput(
-      row.units_per_box === null || row.units_per_box === undefined
-        ? ""
-        : String(row.units_per_box)
-    );
     setTotalsEditOpen(true);
   }
 
@@ -2145,13 +2130,6 @@ export default function InventoryPage() {
                           {r.vendor ?? "—"} • {r.category ?? "—"}{" "}
                           {r.reference_number ? `• ${r.reference_number}` : ""}
                         </div>
-
-                        {!!r.is_box_item && (
-                          <div className="mt-2 inline-flex rounded-xl bg-yellow-500/20 px-2 py-1 text-[10px] font-extrabold text-yellow-200 ring-1 ring-yellow-400/30">
-                            📦 BOX ITEM
-                            {r.units_per_box ? ` • ${r.units_per_box}/box` : ""}
-                          </div>
-                        )}
                       </div>
 
                       <div
@@ -2369,42 +2347,6 @@ export default function InventoryPage() {
                     />
                   </div>
 
-                  <div className="mt-3 rounded-2xl bg-white/5 p-3 ring-1 ring-white/10">
-                    <div className="text-sm font-semibold">Box item setup</div>
-
-                    <label className="mt-3 flex items-center gap-3">
-                      <input
-                        type="checkbox"
-                        checked={boxItemInput}
-                        onChange={(e) => setBoxItemInput(e.target.checked)}
-                        className="h-5 w-5"
-                      />
-                      <div>
-                        <div className="text-sm font-semibold">BOX ITEM</div>
-                        <div className="text-xs text-white/60">
-                          Scan only when opening a new box
-                        </div>
-                      </div>
-                    </label>
-
-                    <div className="mt-3">
-                      <div className="mb-1 text-xs text-white/60">Units per box</div>
-                      <input
-                        value={unitsPerBoxInput}
-                        onChange={(e) =>
-                          setUnitsPerBoxInput(e.target.value.replace(/[^\d]/g, ""))
-                        }
-                        inputMode="numeric"
-                        className="w-full rounded-2xl bg-white px-4 py-3 text-black"
-                        placeholder="e.g. 5, 10, 25"
-                      />
-                    </div>
-
-                    <div className="mt-2 text-[11px] text-white/55">
-                      For BOX ITEMs, RESTOCK can use this amount automatically.
-                    </div>
-                  </div>
-
                   <button
                     onClick={async () => {
                       const low = parseIntSafe(totalsLowInput);
@@ -2425,11 +2367,6 @@ export default function InventoryPage() {
                           notes: notesInput,
                           low_level: low,
                           reference_number_new: refInput,
-                          is_box_item: boxItemInput,
-                          units_per_box:
-                            unitsPerBoxInput.trim() === ""
-                              ? null
-                              : Number(unitsPerBoxInput),
                         }),
                       });
 
@@ -2438,9 +2375,7 @@ export default function InventoryPage() {
 
                       pushAudit({
                         action: "TOTALS_ADJUST",
-                        details: `Meta Save Item=${totalsEditRow.name} BoxItem=${
-                          boxItemInput ? "YES" : "NO"
-                        } UnitsPerBox=${unitsPerBoxInput || "NULL"}`,
+                        details: `Meta Save Item=${totalsEditRow.name}`,
                       });
 
                       setTotalsEditOpen(false);
