@@ -54,8 +54,15 @@ type PrefCardItem = {
   status: "OPEN" | "HOLD" | "PRN";
   notes: string | null;
   sort_order: number;
-  items?: ItemSearchRow | null;
+  items?: ItemSearchRow | ItemSearchRow[] | null;
 };
+
+function oneItem(
+  x?: ItemSearchRow | ItemSearchRow[] | null
+): ItemSearchRow | null {
+  if (!x) return null;
+  return Array.isArray(x) ? x[0] ?? null : x;
+}
 
 function cn(...classes: Array<string | false | null | undefined>) {
   return classes.filter(Boolean).join(" ");
@@ -109,8 +116,8 @@ function IconButton({
       className={cn(
         "rounded-2xl px-4 py-2.5 text-sm font-extrabold transition",
         "ring-1 ring-white/10 bg-white/5 hover:bg-white/10",
-        active && "bg-white text-black ring-white/40 hover:bg-white"
-      )}
+        active && "bg-white text-black ring-white/40 hover:bg-white")
+      }
     >
       {children}
     </button>
@@ -175,7 +182,6 @@ export default function AdminPage() {
   const [pinEntry, setPinEntry] = useState("");
   const [toast, setToast] = useState<string | null>(null);
 
-  // inventory tab state
   const [rows, setRows] = useState<Row[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -188,7 +194,6 @@ export default function AdminPage() {
   const sentinelRef = useRef<HTMLDivElement | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
-  // pref card tab state
   const [prefCards, setPrefCards] = useState<PrefCard[]>([]);
   const [prefCardsLoading, setPrefCardsLoading] = useState(false);
   const [selectedCardId, setSelectedCardId] = useState<string>("");
@@ -459,7 +464,18 @@ export default function AdminPage() {
       return;
     }
 
-    setPrefItems((data || []) as PrefCardItem[]);
+    const normalized: PrefCardItem[] = (data || []).map((row: any) => ({
+      id: row.id,
+      pref_card_id: row.pref_card_id,
+      item_id: row.item_id,
+      qty: row.qty,
+      status: row.status,
+      notes: row.notes,
+      sort_order: row.sort_order,
+      items: oneItem(row.items),
+    }));
+
+    setPrefItems(normalized);
     setPrefItemsLoading(false);
   }
 
@@ -688,7 +704,18 @@ export default function AdminPage() {
       return;
     }
 
-    setPrefItems((prev) => [...prev, data as PrefCardItem]);
+    const normalized: PrefCardItem = {
+      id: data.id,
+      pref_card_id: data.pref_card_id,
+      item_id: data.item_id,
+      qty: data.qty,
+      status: data.status,
+      notes: data.notes,
+      sort_order: data.sort_order,
+      items: oneItem((data as any).items),
+    };
+
+    setPrefItems((prev) => [...prev, normalized]);
     setItemSearch("");
     setItemResults([]);
     setToast("Item added ✅");
@@ -753,7 +780,7 @@ export default function AdminPage() {
       return;
     }
 
-    const ok = confirm(`Remove "${row.items?.name || "item"}" from this pref card?`);
+    const ok = confirm(`Remove "${oneItem(row.items)?.name || "item"}" from this pref card?`);
     if (!ok) return;
 
     const { error } = await supabase
@@ -1238,14 +1265,14 @@ export default function AdminPage() {
                               <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                                 <div className="min-w-0">
                                   <div className="text-sm font-extrabold">
-                                    {row.items?.name || "Unknown item"}
+                                    {oneItem(row.items)?.name || "Unknown item"}
                                   </div>
                                   <div className="mt-1 text-xs text-white/55 break-words">
-                                    {row.items?.vendor || "—"} • {row.items?.category || "—"}
-                                    {row.items?.reference_number
-                                      ? ` • ${row.items.reference_number}`
+                                    {oneItem(row.items)?.vendor || "—"} • {oneItem(row.items)?.category || "—"}
+                                    {oneItem(row.items)?.reference_number
+                                      ? ` • ${oneItem(row.items)?.reference_number}`
                                       : ""}
-                                    {row.items?.barcode ? ` • ${row.items.barcode}` : ""}
+                                    {oneItem(row.items)?.barcode ? ` • ${oneItem(row.items)?.barcode}` : ""}
                                   </div>
                                 </div>
 
@@ -1356,7 +1383,7 @@ export default function AdminPage() {
                               openItems.map((x) => (
                                 <div key={x.id} className="text-sm">
                                   <div className="font-semibold">
-                                    {x.items?.name || "Unknown"} × {x.qty}
+                                    {oneItem(x.items)?.name || "Unknown"} × {x.qty}
                                   </div>
                                   {x.notes && <div className="text-xs opacity-75">{x.notes}</div>}
                                 </div>
@@ -1374,7 +1401,7 @@ export default function AdminPage() {
                               holdItems.map((x) => (
                                 <div key={x.id} className="text-sm">
                                   <div className="font-semibold">
-                                    {x.items?.name || "Unknown"} × {x.qty}
+                                    {oneItem(x.items)?.name || "Unknown"} × {x.qty}
                                   </div>
                                   {x.notes && <div className="text-xs opacity-75">{x.notes}</div>}
                                 </div>
@@ -1392,7 +1419,7 @@ export default function AdminPage() {
                               prnItems.map((x) => (
                                 <div key={x.id} className="text-sm">
                                   <div className="font-semibold">
-                                    {x.items?.name || "Unknown"} × {x.qty}
+                                    {oneItem(x.items)?.name || "Unknown"} × {x.qty}
                                   </div>
                                   {x.notes && <div className="text-xs opacity-75">{x.notes}</div>}
                                 </div>
