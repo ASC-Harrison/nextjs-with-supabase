@@ -15,7 +15,6 @@ type Item = {
   name: string;
   barcode: string;
   reference_number?: string | null;
-  unit?: string | null;
 };
 
 type AuditEvent = {
@@ -87,6 +86,23 @@ type LastTx = {
   ts: string;
 };
 
+type OrderStatusRow = {
+  id: string;
+  qty_ordered: number;
+  qty_received: number;
+  status: "ORDERED" | "BACKORDER" | "PARTIAL" | "RECEIVED" | "CANCELLED";
+  notes: string | null;
+  purchase_orders?: {
+    id?: string | null;
+    po_number?: string | null;
+    vendor?: string | null;
+    status?: string | null;
+    expected_date?: string | null;
+    order_date?: string | null;
+    notes?: string | null;
+  } | null;
+};
+
 const LS = {
   PIN: "asc_pin_v1",
   LOCKED: "asc_locked_v1",
@@ -111,11 +127,6 @@ function safeJsonParse<T>(raw: string | null, fallback: T): T {
   } catch {
     return fallback;
   }
-}
-
-function isBoxUnit(unit?: string | null) {
-  const u = (unit ?? "").trim().toLowerCase();
-  return u === "bx" || u === "box";
 }
 
 const supabase = createClient(
@@ -218,6 +229,11 @@ export default function InventoryPage() {
 
   const [lastTx, setLastTx] = useState<LastTx | null>(null);
   const [undoBusy, setUndoBusy] = useState(false);
+
+  // read-only order status
+  const [orderStatusOpen, setOrderStatusOpen] = useState(false);
+  const [orderStatusLoading, setOrderStatusLoading] = useState(false);
+  const [orderStatusRows, setOrderStatusRows] = useState<OrderStatusRow[]>([]);
 
   const filteredTotals = useMemo(() => {
     const q = totalsSearch.trim().toLowerCase();
@@ -606,7 +622,6 @@ export default function InventoryPage() {
       name: r.name,
       barcode: r.barcode ?? "",
       reference_number: r.reference_number ?? null,
-      unit: r.unit ?? null,
     };
   }
 
@@ -874,9 +889,6 @@ export default function InventoryPage() {
     if (!item?.id) return alert("Find or scan an item first.");
     if (!areaId) return alert("Select a location.");
 
-    const boxItem = isBoxUnit(item?.unit);
-    const effectiveQty = qty;
-
     try {
       if (mode === "USE") {
         const useArea = mainOverride ? MAIN_SUPPLY_ID : areaId;
@@ -884,7 +896,7 @@ export default function InventoryPage() {
         const { error } = await supabase.rpc("use_stock", {
           p_item_id: item.id,
           p_area_id: useArea,
-          p_qty: effectiveQty,
+          p_qty: qty,
         });
         if (error) throw error;
 
@@ -894,7 +906,7 @@ export default function InventoryPage() {
           storage_area_id: useArea,
           mode,
           item_id: item.id,
-          qty: effectiveQty,
+          qty,
           mainOverride,
           item_name: item.name,
           area_name: useArea === MAIN_SUPPLY_ID ? "MAIN SUPPLY" : selectedAreaName,
@@ -904,22 +916,16 @@ export default function InventoryPage() {
 
         setMainOverride(false);
         setQty(1);
-        setStatus(
-          boxItem
-            ? `✅ Updated on-hand to ${newOnHand} (BOX ITEM reminder: scan when opening a new box)`
-            : `✅ Updated on-hand to ${newOnHand}`
-        );
+        setStatus(`✅ Updated on-hand to ${newOnHand}`);
 
         if (tab === "Totals") await loadTotals();
         if (tab === "Transaction" && areaListOpen) await loadAreaInventory();
 
         pushAudit({
           action: "SUBMIT_TX",
-          details: `Mode=USE Qty=${effectiveQty} Item=${item.name} Area=${
+          details: `Mode=USE Qty=${qty} Item=${item.name} Area=${
             useArea === MAIN_SUPPLY_ID ? "MAIN SUPPLY" : selectedAreaName
-          } Override=${mainOverride ? "MAIN" : "NO"} BoxItem=${
-            boxItem ? "YES" : "NO"
-          }`,
+          } Override=${mainOverride ? "MAIN" : "NO"}`,
         });
 
         return;
@@ -930,7 +936,7 @@ export default function InventoryPage() {
           p_item_id: item.id,
           p_from_area: MAIN_SUPPLY_ID,
           p_to_area: areaId,
-          p_qty: effectiveQty,
+          p_qty: qty,
         });
         if (error) throw error;
 
@@ -940,7 +946,7 @@ export default function InventoryPage() {
           storage_area_id: areaId,
           mode,
           item_id: item.id,
-          qty: effectiveQty,
+          qty,
           mainOverride: false,
           item_name: item.name,
           area_name: selectedAreaName,
@@ -950,20 +956,14 @@ export default function InventoryPage() {
 
         setMainOverride(false);
         setQty(1);
-        setStatus(
-          boxItem
-            ? `✅ Restocked. On-hand now ${newOnHand} (BOX ITEM)`
-            : `✅ Restocked. On-hand now ${newOnHand}`
-        );
+        setStatus(`✅ Restocked. On-hand now ${newOnHand}`);
 
         if (tab === "Totals") await loadTotals();
         if (tab === "Transaction" && areaListOpen) await loadAreaInventory();
 
         pushAudit({
           action: "SUBMIT_TX",
-          details: `Mode=RESTOCK Qty=${effectiveQty} Item=${item.name} From=MAIN SUPPLY To=${selectedAreaName} BoxItem=${
-            boxItem ? "YES" : "NO"
-          }`,
+          details: `Mode=RESTOCK Qty=${qty} Item=${item.name} From=MAIN SUPPLY To=${selectedAreaName}`,
         });
 
         return;
@@ -1310,6 +1310,32 @@ export default function InventoryPage() {
 
     setAreaEditOpen(false);
     await loadAreaInventory();
+  }
+
+  async function openOrderStatus() {
+    if (!item?.id) return;
+    setOrderStatusOpen(true);
+    setOrderStatusLoading(true);
+    setOrderStatusRows([]);
+
+    try {
+      const { data, error } = await supabase
+        .from("purchase_order_items")
+        .select(
+          "id,qty_ordered,qty_received,status,notes,purchase_orders(id,po_number,vendor,status,expected_date,order_date,notes)"
+        )
+        .eq("item_id", item.id)
+        .order("created_at", { ascending: false });
+
+      if (error) throw error;
+
+      setOrderStatusRows((data as OrderStatusRow[]) ?? []);
+    } catch (e: any) {
+      alert(`Order status failed: ${e?.message ?? "unknown error"}`);
+      setOrderStatusOpen(false);
+    } finally {
+      setOrderStatusLoading(false);
+    }
   }
 
   const staffMissing = !staffName.trim();
@@ -1850,7 +1876,6 @@ export default function InventoryPage() {
                           {m.reference_number ? `Ref: ${m.reference_number}` : "Ref: —"}
                           {" • "}
                           {m.barcode ? `Barcode: ${m.barcode}` : "Barcode: —"}
-                          {m.unit ? ` • Unit: ${m.unit}` : ""}
                         </div>
                       </button>
                     ))}
@@ -1868,22 +1893,16 @@ export default function InventoryPage() {
                       {item.reference_number ? `Ref: ${item.reference_number}` : ""}
                       {item.reference_number && item.barcode ? " • " : ""}
                       {item.barcode ? `Barcode: ${item.barcode}` : ""}
-                      {item.unit ? ` • Unit: ${item.unit}` : ""}
                     </div>
 
-                    {isBoxUnit(item.unit) && (
-                      <div className="mt-3 rounded-2xl bg-yellow-500/20 p-3 ring-1 ring-yellow-400/30">
-                        <div className="text-sm font-extrabold text-yellow-200">
-                          📦 BOX ITEM
-                        </div>
-                        <div className="mt-1 text-xs text-yellow-100/90">
-                          Scan only when opening a new box.
-                        </div>
-                        <div className="mt-1 text-xs text-yellow-100/75">
-                          This item is marked as a box because Unit = {item.unit}
-                        </div>
-                      </div>
-                    )}
+                    <div className="mt-3">
+                      <button
+                        onClick={openOrderStatus}
+                        className="w-full rounded-2xl bg-white/10 px-4 py-3 text-sm font-extrabold ring-1 ring-white/10"
+                      >
+                        View Order Status
+                      </button>
+                    </div>
                   </div>
                 )}
 
@@ -1894,20 +1913,6 @@ export default function InventoryPage() {
                   </div>
                   <QtyBtn onClick={() => setQty((q) => q + 1)}>+</QtyBtn>
                 </div>
-
-                {isBoxUnit(item?.unit) && (
-                  <div className="mt-2 rounded-2xl bg-yellow-500/15 p-3 ring-1 ring-yellow-400/25">
-                    <div className="text-xs font-extrabold text-yellow-200">
-                      BOX ITEM REMINDER
-                    </div>
-                    <div className="mt-1 text-xs text-yellow-100/85">
-                      Staff should usually scan this only when opening a new box.
-                    </div>
-                    <div className="mt-1 text-xs text-yellow-100/75">
-                      This turns on automatically when Unit is set to Bx or Box.
-                    </div>
-                  </div>
-                )}
 
                 <button
                   className="mt-3 w-full rounded-2xl bg-black/80 px-4 py-4 text-white font-semibold disabled:opacity-60"
@@ -2006,6 +2011,78 @@ export default function InventoryPage() {
                   Hold the barcode steady inside the box. Best distance: 6–10 inches.
                 </div>
               </div>
+            )}
+
+            {orderStatusOpen && (
+              <Modal
+                title="Order Status"
+                okText="Close"
+                onCancel={() => setOrderStatusOpen(false)}
+                onOk={() => setOrderStatusOpen(false)}
+              >
+                {orderStatusLoading ? (
+                  <div className="text-sm text-white/70">Loading…</div>
+                ) : orderStatusRows.length === 0 ? (
+                  <div className="text-sm text-white/70">
+                    No open order history found for this item.
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {orderStatusRows.map((row) => {
+                      const pending = Math.max(
+                        (row.qty_ordered ?? 0) - (row.qty_received ?? 0),
+                        0
+                      );
+
+                      return (
+                        <div
+                          key={row.id}
+                          className="rounded-2xl bg-black/30 p-3 ring-1 ring-white/10"
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="min-w-0">
+                              <div className="text-sm font-extrabold break-words">
+                                {row.purchase_orders?.vendor || "Unknown vendor"}
+                              </div>
+                              <div className="mt-1 text-xs text-white/60 break-words">
+                                PO: {row.purchase_orders?.po_number || "—"}
+                              </div>
+                            </div>
+                            <div className="rounded-2xl bg-white/10 px-3 py-2 text-xs font-extrabold ring-1 ring-white/10">
+                              {row.status}
+                            </div>
+                          </div>
+
+                          <div className="mt-3 grid grid-cols-3 gap-2 text-xs">
+                            <div className="rounded-xl bg-white/5 p-2 ring-1 ring-white/10">
+                              <div className="text-white/60">Ordered</div>
+                              <div className="font-semibold">{row.qty_ordered ?? 0}</div>
+                            </div>
+                            <div className="rounded-xl bg-white/5 p-2 ring-1 ring-white/10">
+                              <div className="text-white/60">Received</div>
+                              <div className="font-semibold">{row.qty_received ?? 0}</div>
+                            </div>
+                            <div className="rounded-xl bg-white/5 p-2 ring-1 ring-white/10">
+                              <div className="text-white/60">Pending</div>
+                              <div className="font-semibold">{pending}</div>
+                            </div>
+                          </div>
+
+                          <div className="mt-2 text-xs text-white/60">
+                            Expected: {row.purchase_orders?.expected_date || "—"}
+                          </div>
+
+                          {(row.notes || row.purchase_orders?.notes) && (
+                            <div className="mt-2 text-[11px] text-white/55 break-words">
+                              Notes: {row.notes || row.purchase_orders?.notes}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </Modal>
             )}
           </div>
         ) : tab === "Totals" ? (
