@@ -194,8 +194,8 @@ function useDebounced<T>(value: T, ms: number) {
 export default function AdminPage() {
   const [tab, setTab] = useState<AdminTab>("inventory");
 
-  const [locked, setLocked] = useState(true);
-  const [pinEntry, setPinEntry] = useState("");
+  // UNLOCKED FOR NOW
+  const [locked, setLocked] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
 
   // Inventory
@@ -242,12 +242,10 @@ export default function AdminPage() {
   const [sessionNotesInput, setSessionNotesInput] = useState("");
 
   useEffect(() => {
+    setLocked(false);
     try {
-      const unlocked = localStorage.getItem(LS_UNLOCK) === "true";
-      setLocked(!unlocked);
-    } catch {
-      setLocked(true);
-    }
+      localStorage.setItem(LS_UNLOCK, "true");
+    } catch {}
   }, []);
 
   useEffect(() => {
@@ -255,28 +253,6 @@ export default function AdminPage() {
     const t = setTimeout(() => setToast(null), 2200);
     return () => clearTimeout(t);
   }, [toast]);
-
-  function openPinAndUnlock() {
-    const stored = localStorage.getItem(LS_PIN) || "";
-    if (!stored) {
-      setToast("No admin PIN set yet.");
-      return;
-    }
-    if (pinEntry.trim() === stored.trim()) {
-      localStorage.setItem(LS_UNLOCK, "true");
-      setLocked(false);
-      setPinEntry("");
-      setToast("Unlocked ✅");
-    } else {
-      setToast("Wrong PIN");
-    }
-  }
-
-  function lockNow() {
-    localStorage.setItem(LS_UNLOCK, "false");
-    setLocked(true);
-    setToast("Locked 🔒");
-  }
 
   // ---------------- Inventory ----------------
 
@@ -371,11 +347,6 @@ export default function AdminPage() {
   }, [cursor, hasMore, loadingMore, dq, onlyLow, tab]);
 
   async function saveCell(r: Row, field: "on_hand" | "par_level", value: string) {
-    if (locked) {
-      setToast("PIN required");
-      return;
-    }
-
     const num = value === "" ? null : Number(value);
     if (num !== null && (!Number.isFinite(num) || num < 0)) {
       setToast("Enter a valid number");
@@ -477,7 +448,6 @@ export default function AdminPage() {
   }
 
   async function createPrefCard() {
-    if (locked) return setToast("PIN required");
     if (!surgeonInput.trim()) return setToast("Enter surgeon");
     if (!procedureInput.trim()) return setToast("Enter procedure");
 
@@ -506,7 +476,6 @@ export default function AdminPage() {
   }
 
   async function savePrefCardHeader() {
-    if (locked) return setToast("PIN required");
     if (!selectedCardId) return;
 
     const { error } = await supabase
@@ -527,7 +496,6 @@ export default function AdminPage() {
 
   async function togglePrefCardActive() {
     const selected = prefCards.find((c) => c.id === selectedCardId);
-    if (locked) return setToast("PIN required");
     if (!selected) return;
 
     const { error } = await supabase
@@ -543,7 +511,6 @@ export default function AdminPage() {
 
   async function deletePrefCard() {
     const selected = prefCards.find((c) => c.id === selectedCardId);
-    if (locked) return setToast("PIN required");
     if (!selected) return;
 
     const ok = confirm(
@@ -571,7 +538,6 @@ export default function AdminPage() {
   }
 
   async function addItemToPrefCard(itemRow: ItemSearchRow) {
-    if (locked) return setToast("PIN required");
     if (!selectedCardId) return setToast("Select a pref card first");
 
     const nextSort =
@@ -618,8 +584,6 @@ export default function AdminPage() {
     field: "qty" | "status" | "notes" | "sort_order",
     value: string
   ) {
-    if (locked) return setToast("PIN required");
-
     let patch: any = {};
 
     if (field === "qty" || field === "sort_order") {
@@ -657,8 +621,6 @@ export default function AdminPage() {
   }
 
   async function removePrefItem(row: PrefCardItem) {
-    if (locked) return setToast("PIN required");
-
     const ok = confirm(`Remove "${oneItem(row.items)?.name || "item"}" from this pref card?`);
     if (!ok) return;
 
@@ -743,7 +705,6 @@ export default function AdminPage() {
   }
 
   async function createPullSessionFromPrefCard() {
-    if (locked) return setToast("PIN required");
     if (!selectedCardId) return setToast("Select a pref card first");
     if (prefItems.length === 0) return setToast("This pref card has no items");
 
@@ -801,8 +762,6 @@ export default function AdminPage() {
     field: "planned_qty" | "pulled_qty" | "used_qty" | "notes",
     value: string
   ) {
-    if (locked) return setToast("PIN required");
-
     let patch: any = {};
 
     if (field === "notes") {
@@ -835,16 +794,16 @@ export default function AdminPage() {
   }
 
   async function deleteSession() {
-    if (locked) return setToast("PIN required");
-    if (!selectedSession) return;
+    const selected = sessions.find((s) => s.id === selectedSessionId);
+    if (!selected) return;
 
-    const ok = confirm(`Delete pull session "${selectedSession.session_name}"?`);
+    const ok = confirm(`Delete pull session "${selected.session_name}"?`);
     if (!ok) return;
 
     const { error } = await supabase
       .from("case_pull_sessions")
       .delete()
-      .eq("id", selectedSession.id);
+      .eq("id", selected.id);
 
     if (error) return setToast(`Delete failed: ${error.message}`);
 
@@ -1005,7 +964,7 @@ export default function AdminPage() {
                 BAXTER ASC • ADMIN CONSOLE
               </div>
               <h1 className="mt-1 text-3xl font-extrabold leading-tight">
-                Admin Center <span className="text-white/55">(Inventory + Pref Cards)</span>
+                Admin Center <span className="text-white/55">(Unlocked)</span>
               </h1>
               <p className="mt-1 text-sm text-white/60">
                 Inventory editing, pref card building, and automatic case pull sessions.
@@ -1026,13 +985,13 @@ export default function AdminPage() {
                 >
                   App
                 </Link>
-                <IconButton onClick={lockNow} active={locked}>
-                  {locked ? "🔒 Locked" : "Lock"}
-                </IconButton>
+                <div className="rounded-2xl bg-white/5 px-4 py-2.5 text-sm font-extrabold text-white/70 ring-1 ring-white/10">
+                  Admin unlocked
+                </div>
               </div>
 
               <div className="grid grid-cols-4 gap-2 w-full md:w-auto">
-                <StatChip label="STATE" value={locked ? "LOCKED" : "OPEN"} tone={locked ? "bad" : "good"} />
+                <StatChip label="STATE" value="OPEN" tone="good" />
                 {tab === "inventory" ? (
                   <>
                     <StatChip label="ROWS" value={inventoryStats.total} />
@@ -1061,20 +1020,9 @@ export default function AdminPage() {
             </div>
 
             <div className="flex w-full gap-2 md:w-auto md:justify-end">
-              <input
-                inputMode="numeric"
-                value={pinEntry}
-                onChange={(e) => setPinEntry(e.target.value.replace(/\D/g, "").slice(0, 8))}
-                placeholder="Enter admin PIN"
-                className="w-full rounded-2xl bg-white/5 px-4 py-3 text-sm text-white placeholder:text-white/40 ring-1 ring-white/10 outline-none focus:ring-white/30 md:w-48"
-              />
-              <button
-                type="button"
-                onClick={openPinAndUnlock}
-                className="whitespace-nowrap rounded-2xl bg-white px-4 py-3 text-sm font-extrabold text-black hover:bg-white/90"
-              >
-                Unlock
-              </button>
+              <div className="rounded-2xl bg-white/5 px-4 py-3 text-sm font-extrabold text-white/70 ring-1 ring-white/10">
+                Admin editing unlocked
+              </div>
             </div>
           </div>
         </div>
@@ -1170,29 +1118,19 @@ export default function AdminPage() {
 
                             <div className="col-span-1 flex justify-center">
                               <input
-                                disabled={locked}
                                 defaultValue={String(r.on_hand ?? 0)}
                                 onFocus={(e) => e.currentTarget.select()}
                                 onBlur={(e) => saveCell(r, "on_hand", e.target.value)}
-                                className={cn(
-                                  "w-20 rounded-2xl bg-white/5 px-3 py-2 text-center text-sm font-extrabold tabular-nums",
-                                  "ring-1 ring-white/10 outline-none focus:ring-white/30",
-                                  locked && "opacity-60"
-                                )}
+                                className="w-20 rounded-2xl bg-white/5 px-3 py-2 text-center text-sm font-extrabold tabular-nums ring-1 ring-white/10 outline-none focus:ring-white/30"
                               />
                             </div>
 
                             <div className="col-span-1 flex justify-center">
                               <input
-                                disabled={locked}
                                 defaultValue={String(r.par_level ?? 0)}
                                 onFocus={(e) => e.currentTarget.select()}
                                 onBlur={(e) => saveCell(r, "par_level", e.target.value)}
-                                className={cn(
-                                  "w-20 rounded-2xl bg-white/5 px-3 py-2 text-center text-sm font-extrabold tabular-nums",
-                                  "ring-1 ring-white/10 outline-none focus:ring-white/30",
-                                  locked && "opacity-60"
-                                )}
+                                className="w-20 rounded-2xl bg-white/5 px-3 py-2 text-center text-sm font-extrabold tabular-nums ring-1 ring-white/10 outline-none focus:ring-white/30"
                               />
                             </div>
 
