@@ -4,9 +4,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabaseClient";
 
-const LS_PIN = "ASC_ADMIN_PIN";
-const LS_UNLOCK = "ASC_ADMIN_UNLOCKED";
-
 type AdminTab = "inventory" | "prefcards";
 
 type Row = {
@@ -24,6 +21,11 @@ type Row = {
     vendor?: string | null;
     category?: string | null;
   } | null;
+};
+
+type Area = {
+  id: string;
+  name: string;
 };
 
 type PrefCard = {
@@ -64,6 +66,9 @@ type PullSession = {
   scheduled_for: string | null;
   notes: string | null;
   created_at: string;
+  is_posted: boolean;
+  posted_at: string | null;
+  posted_by: string | null;
 };
 
 type PullSessionItem = {
@@ -71,6 +76,7 @@ type PullSessionItem = {
   session_id: string;
   pref_card_item_id: string | null;
   item_id: string;
+  storage_area_id: string | null;
   line_type: "OPEN" | "HOLD" | "PRN";
   planned_qty: number;
   pulled_qty: number;
@@ -78,6 +84,7 @@ type PullSessionItem = {
   notes: string | null;
   sort_order: number;
   items?: ItemSearchRow | ItemSearchRow[] | null;
+  storage_areas?: { id?: string | null; name?: string | null } | null;
 };
 
 type ApiResp = {
@@ -194,7 +201,7 @@ function useDebounced<T>(value: T, ms: number) {
 export default function AdminPage() {
   const [tab, setTab] = useState<AdminTab>("inventory");
 
-  // UNLOCKED FOR NOW
+  // unlocked for now
   const [locked, setLocked] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
 
@@ -210,6 +217,9 @@ export default function AdminPage() {
   const dq = useDebounced(q, 300);
   const sentinelRef = useRef<HTMLDivElement | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+
+  // Areas
+  const [areas, setAreas] = useState<Area[]>([]);
 
   // Pref cards
   const [prefCards, setPrefCards] = useState<PrefCard[]>([]);
@@ -240,12 +250,17 @@ export default function AdminPage() {
   const [sessionNameInput, setSessionNameInput] = useState("");
   const [sessionDateInput, setSessionDateInput] = useState("");
   const [sessionNotesInput, setSessionNotesInput] = useState("");
+  const [staffNameInput, setStaffNameInput] = useState("");
 
   useEffect(() => {
     setLocked(false);
     try {
-      localStorage.setItem(LS_UNLOCK, "true");
+      localStorage.setItem("ASC_ADMIN_UNLOCKED", "true");
+      const savedStaff = localStorage.getItem("ASC_CASE_POSTED_BY") || "";
+      setStaffNameInput(savedStaff);
     } catch {}
+    loadAreas();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -253,6 +268,20 @@ export default function AdminPage() {
     const t = setTimeout(() => setToast(null), 2200);
     return () => clearTimeout(t);
   }, [toast]);
+
+  async function loadAreas() {
+    const { data, error } = await supabase
+      .from("storage_areas")
+      .select("id,name")
+      .order("name", { ascending: true });
+
+    if (error) {
+      setToast(`Areas load failed: ${error.message}`);
+      return;
+    }
+
+    setAreas((data || []) as Area[]);
+  }
 
   // ---------------- Inventory ----------------
 
@@ -652,7 +681,13 @@ export default function AdminPage() {
       return setToast(`Sessions load failed: ${error.message}`);
     }
 
-    const rows = (data || []) as PullSession[];
+    const rows = ((data || []) as PullSession[]).map((x: any) => ({
+      ...x,
+      is_posted: !!x.is_posted,
+      posted_at: x.posted_at ?? null,
+      posted_by: x.posted_by ?? null,
+    }));
+
     setSessions(rows);
 
     if (!selectedSessionId && rows.length > 0) {
@@ -675,7 +710,7 @@ export default function AdminPage() {
     const { data, error } = await supabase
       .from("case_pull_session_items")
       .select(
-        "id,session_id,pref_card_item_id,item_id,line_type,planned_qty,pulled_qty,used_qty,notes,sort_order,items(id,name,barcode,vendor,category,reference_number,unit)"
+        "id,session_id,pref_card_item_id,item_id,storage_area_id,line_type,planned_qty,pulled_qty,used_qty,notes,sort_order,items(id,name,barcode,vendor,category,reference_number,unit),storage_areas(id,name)"
       )
       .eq("session_id", sessionId)
       .order("sort_order", { ascending: true })
@@ -691,6 +726,7 @@ export default function AdminPage() {
       session_id: row.session_id,
       pref_card_item_id: row.pref_card_item_id,
       item_id: row.item_id,
+      storage_area_id: row.storage_area_id ?? null,
       line_type: row.line_type,
       planned_qty: row.planned_qty,
       pulled_qty: row.pulled_qty,
@@ -698,6 +734,7 @@ export default function AdminPage() {
       notes: row.notes,
       sort_order: row.sort_order,
       items: oneItem(row.items),
+      storage_areas: row.storage_areas ?? null,
     }));
 
     setSessionItems(normalized);
@@ -719,6 +756,9 @@ export default function AdminPage() {
         session_name: sessionName,
         scheduled_for: sessionDateInput || null,
         notes: sessionNotesInput.trim() || null,
+        is_posted: false,
+        posted_at: null,
+        posted_by: null,
       })
       .select("*")
       .single();
@@ -731,6 +771,7 @@ export default function AdminPage() {
       session_id: sessionId,
       pref_card_item_id: x.id,
       item_id: x.item_id,
+      storage_area_id: null,
       line_type: x.status,
       planned_qty: x.qty,
       pulled_qty: 0,
@@ -759,13 +800,15 @@ export default function AdminPage() {
 
   async function saveSessionItem(
     row: PullSessionItem,
-    field: "planned_qty" | "pulled_qty" | "used_qty" | "notes",
+    field: "planned_qty" | "pulled_qty" | "used_qty" | "notes" | "storage_area_id",
     value: string
   ) {
     let patch: any = {};
 
     if (field === "notes") {
       patch = { notes: value || null };
+    } else if (field === "storage_area_id") {
+      patch = { storage_area_id: value || null };
     } else {
       const num = Number(value);
       if (!Number.isFinite(num) || num < 0) return setToast("Enter a valid number");
@@ -786,7 +829,20 @@ export default function AdminPage() {
     }
 
     setSessionItems((prev) =>
-      prev.map((x) => (x.id === row.id ? { ...x, ...patch } : x))
+      prev.map((x) =>
+        x.id === row.id
+          ? {
+              ...x,
+              ...patch,
+              storage_areas:
+                field === "storage_area_id"
+                  ? areas.find((a) => a.id === value)
+                    ? { id: value, name: areas.find((a) => a.id === value)?.name || null }
+                    : null
+                  : x.storage_areas,
+            }
+          : x
+      )
     );
 
     setSavingSessionKey(null);
@@ -811,6 +867,69 @@ export default function AdminPage() {
     setSessionItems([]);
     setToast("Pull session deleted");
     await loadSessions(selectedCardId);
+  }
+
+  async function finalizeUsedItemsToInventory() {
+    const selected = sessions.find((s) => s.id === selectedSessionId);
+    if (!selected) return setToast("Select a session first");
+    if (selected.is_posted) return setToast("This session is already posted");
+    if (!staffNameInput.trim()) return setToast("Enter who is posting this case");
+
+    const usedLines = sessionItems.filter((x) => (x.used_qty || 0) > 0);
+
+    if (usedLines.length === 0) {
+      return setToast("No used quantities entered");
+    }
+
+    const missingAreas = usedLines.filter((x) => !x.storage_area_id);
+    if (missingAreas.length > 0) {
+      return setToast("Choose a storage area for every used item before posting");
+    }
+
+    const ok = confirm(
+      `Post used items to inventory?\n\nSession: ${selected.session_name}\nUsed lines: ${usedLines.length}\n\nThis will subtract ONLY used_qty and mark the session as posted.`
+    );
+    if (!ok) return;
+
+    try {
+      for (const line of usedLines) {
+        const { error } = await supabase.rpc("use_stock", {
+          p_item_id: line.item_id,
+          p_area_id: line.storage_area_id,
+          p_qty: line.used_qty,
+        });
+
+        if (error) {
+          throw new Error(
+            `${oneItem(line.items)?.name || "Item"}: ${error.message}`
+          );
+        }
+      }
+
+      const staff = staffNameInput.trim();
+      try {
+        localStorage.setItem("ASC_CASE_POSTED_BY", staff);
+      } catch {}
+
+      const { error: sessionError } = await supabase
+        .from("case_pull_sessions")
+        .update({
+          is_posted: true,
+          posted_at: new Date().toISOString(),
+          posted_by: staff,
+        })
+        .eq("id", selected.id);
+
+      if (sessionError) {
+        throw new Error(sessionError.message);
+      }
+
+      setToast("Used items posted to inventory ✅");
+      await loadSessions(selectedCardId);
+      await loadSessionItems(selected.id);
+    } catch (e: any) {
+      setToast(`Post failed: ${e?.message || "unknown error"}`);
+    }
   }
 
   function printSession() {
@@ -1534,6 +1653,12 @@ export default function AdminPage() {
                           <div className="mt-3 flex flex-wrap items-center gap-2">
                             <Pill tone="good">{selectedSession.session_name}</Pill>
                             <Pill tone="neutral">{selectedSession.scheduled_for || "No date"}</Pill>
+                            <Pill tone={selectedSession.is_posted ? "good" : "warn"}>
+                              {selectedSession.is_posted ? "POSTED" : "NOT POSTED"}
+                            </Pill>
+                            {selectedSession.posted_by && (
+                              <Pill tone="neutral">By {selectedSession.posted_by}</Pill>
+                            )}
                             <button
                               onClick={deleteSession}
                               className="rounded-2xl bg-rose-500/15 px-3 py-2 text-xs font-extrabold text-rose-100 ring-1 ring-rose-300/20"
@@ -1546,6 +1671,29 @@ export default function AdminPage() {
                             >
                               Print / Save PDF
                             </button>
+                          </div>
+
+                          <div className="mt-3 rounded-2xl bg-white/5 p-3 ring-1 ring-white/10">
+                            <div className="mb-2 text-xs text-white/55">Post used items as</div>
+                            <div className="flex flex-col gap-2 md:flex-row">
+                              <input
+                                value={staffNameInput}
+                                onChange={(e) => setStaffNameInput(e.target.value)}
+                                placeholder="Your name"
+                                className="flex-1 rounded-2xl bg-black/30 px-4 py-3 text-sm ring-1 ring-white/10 outline-none focus:ring-white/30"
+                              />
+                              <button
+                                onClick={finalizeUsedItemsToInventory}
+                                disabled={selectedSession.is_posted}
+                                className="rounded-2xl bg-white px-4 py-3 text-sm font-extrabold text-black disabled:opacity-50"
+                              >
+                                {selectedSession.is_posted ? "Already Posted" : "Finalize Used Items"}
+                              </button>
+                            </div>
+
+                            <div className="mt-2 text-xs text-white/50">
+                              This subtracts only <span className="font-semibold">used_qty</span> from inventory and prevents double-posting.
+                            </div>
                           </div>
 
                           {sessionItemsLoading ? (
@@ -1578,7 +1726,26 @@ export default function AdminPage() {
                                               : ""}
                                           </div>
 
-                                          <div className="mt-3 grid gap-2 md:grid-cols-4">
+                                          <div className="mt-3 grid gap-2 md:grid-cols-5">
+                                            <div>
+                                              <div className="mb-1 text-xs text-white/55">Location</div>
+                                              <select
+                                                value={row.storage_area_id || ""}
+                                                onChange={(e) =>
+                                                  saveSessionItem(row, "storage_area_id", e.target.value)
+                                                }
+                                                disabled={selectedSession.is_posted}
+                                                className="w-full rounded-2xl bg-white/5 px-3 py-3 text-sm font-extrabold ring-1 ring-white/10 outline-none focus:ring-white/30 disabled:opacity-60"
+                                              >
+                                                <option value="">Select area</option>
+                                                {areas.map((a) => (
+                                                  <option key={a.id} value={a.id}>
+                                                    {a.name}
+                                                  </option>
+                                                ))}
+                                              </select>
+                                            </div>
+
                                             <div>
                                               <div className="mb-1 text-xs text-white/55">Planned</div>
                                               <input
@@ -1587,7 +1754,8 @@ export default function AdminPage() {
                                                 onBlur={(e) =>
                                                   saveSessionItem(row, "planned_qty", e.target.value)
                                                 }
-                                                className="w-full rounded-2xl bg-white/5 px-3 py-3 text-sm font-extrabold ring-1 ring-white/10 outline-none focus:ring-white/30"
+                                                disabled={selectedSession.is_posted}
+                                                className="w-full rounded-2xl bg-white/5 px-3 py-3 text-sm font-extrabold ring-1 ring-white/10 outline-none focus:ring-white/30 disabled:opacity-60"
                                               />
                                             </div>
 
@@ -1599,7 +1767,8 @@ export default function AdminPage() {
                                                 onBlur={(e) =>
                                                   saveSessionItem(row, "pulled_qty", e.target.value)
                                                 }
-                                                className="w-full rounded-2xl bg-white/5 px-3 py-3 text-sm font-extrabold ring-1 ring-white/10 outline-none focus:ring-white/30"
+                                                disabled={selectedSession.is_posted}
+                                                className="w-full rounded-2xl bg-white/5 px-3 py-3 text-sm font-extrabold ring-1 ring-white/10 outline-none focus:ring-white/30 disabled:opacity-60"
                                               />
                                             </div>
 
@@ -1611,7 +1780,8 @@ export default function AdminPage() {
                                                 onBlur={(e) =>
                                                   saveSessionItem(row, "used_qty", e.target.value)
                                                 }
-                                                className="w-full rounded-2xl bg-white/5 px-3 py-3 text-sm font-extrabold ring-1 ring-white/10 outline-none focus:ring-white/30"
+                                                disabled={selectedSession.is_posted}
+                                                className="w-full rounded-2xl bg-white/5 px-3 py-3 text-sm font-extrabold ring-1 ring-white/10 outline-none focus:ring-white/30 disabled:opacity-60"
                                               />
                                             </div>
 
@@ -1631,7 +1801,8 @@ export default function AdminPage() {
                                               onBlur={(e) =>
                                                 saveSessionItem(row, "notes", e.target.value)
                                               }
-                                              className="w-full rounded-2xl bg-white/5 px-3 py-3 text-sm ring-1 ring-white/10 outline-none focus:ring-white/30"
+                                              disabled={selectedSession.is_posted}
+                                              className="w-full rounded-2xl bg-white/5 px-3 py-3 text-sm ring-1 ring-white/10 outline-none focus:ring-white/30 disabled:opacity-60"
                                               placeholder="Case line notes"
                                             />
                                           </div>
