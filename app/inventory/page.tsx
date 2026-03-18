@@ -230,7 +230,6 @@ export default function InventoryPage() {
   const [lastTx, setLastTx] = useState<LastTx | null>(null);
   const [undoBusy, setUndoBusy] = useState(false);
 
-  // read-only order status
   const [orderStatusOpen, setOrderStatusOpen] = useState(false);
   const [orderStatusLoading, setOrderStatusLoading] = useState(false);
   const [orderStatusRows, setOrderStatusRows] = useState<OrderStatusRow[]>([]);
@@ -630,6 +629,7 @@ export default function InventoryPage() {
     if (!q) return;
 
     setItem(null);
+    setOrderStatusRows([]);
     setMatches([]);
     setStatus("Looking up…");
 
@@ -858,7 +858,6 @@ export default function InventoryPage() {
 
     setItem(mapItemRow(json.item));
     setMatches([]);
-
     setAddOpen(false);
     setStatus(`Added: ${json.item.name}`);
 
@@ -1314,6 +1313,7 @@ export default function InventoryPage() {
 
   async function openOrderStatus() {
     if (!item?.id) return;
+
     setOrderStatusOpen(true);
     setOrderStatusLoading(true);
     setOrderStatusRows([]);
@@ -1328,7 +1328,6 @@ export default function InventoryPage() {
         .order("created_at", { ascending: false });
 
       if (error) throw error;
-
       setOrderStatusRows((data as OrderStatusRow[]) ?? []);
     } catch (e: any) {
       alert(`Order status failed: ${e?.message ?? "unknown error"}`);
@@ -1684,8 +1683,7 @@ export default function InventoryPage() {
                     </div>
 
                     <div className="mt-2 text-xs text-white/50">
-                      Saves to{" "}
-                      <span className="font-semibold">storage_inventory</span> for this
+                      Saves to <span className="font-semibold">storage_inventory</span> for this
                       area + item.
                     </div>
                   </Modal>
@@ -1866,6 +1864,7 @@ export default function InventoryPage() {
                         key={m.id}
                         onClick={() => {
                           setItem(m);
+                          setOrderStatusRows([]);
                           setMatches([]);
                           setStatus(`Selected: ${m.name}`);
                         }}
@@ -1895,14 +1894,12 @@ export default function InventoryPage() {
                       {item.barcode ? `Barcode: ${item.barcode}` : ""}
                     </div>
 
-                    <div className="mt-3">
-                      <button
-                        onClick={openOrderStatus}
-                        className="w-full rounded-2xl bg-white/10 px-4 py-3 text-sm font-extrabold ring-1 ring-white/10"
-                      >
-                        View Order Status
-                      </button>
-                    </div>
+                    <button
+                      onClick={openOrderStatus}
+                      className="mt-3 w-full rounded-2xl bg-white/10 px-4 py-3 text-sm font-extrabold text-white ring-1 ring-white/10"
+                    >
+                      View Order Status
+                    </button>
                   </div>
                 )}
 
@@ -2024,7 +2021,7 @@ export default function InventoryPage() {
                   <div className="text-sm text-white/70">Loading…</div>
                 ) : orderStatusRows.length === 0 ? (
                   <div className="text-sm text-white/70">
-                    No open order history found for this item.
+                    No order history found for this item.
                   </div>
                 ) : (
                   <div className="space-y-3">
