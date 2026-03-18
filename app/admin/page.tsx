@@ -119,7 +119,6 @@ function Pill({
     <span
       className={cn(
         "inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold ring-1",
-        "shadow-[inset_0_0_0_1px_rgba(255,255,255,0.03)]",
         toneCls
       )}
     >
@@ -174,13 +173,7 @@ function StatChip({
       : "bg-white/5 ring-white/10";
 
   return (
-    <div
-      className={cn(
-        "rounded-2xl px-3 py-2 ring-1",
-        "shadow-[0_12px_40px_rgba(0,0,0,0.25)]",
-        toneCls
-      )}
-    >
+    <div className={cn("rounded-2xl px-3 py-2 ring-1", toneCls)}>
       <div className="text-[10px] tracking-[0.22em] text-white/45">{label}</div>
       <div className="mt-0.5 text-sm font-extrabold text-white/90 tabular-nums">
         {value}
@@ -205,7 +198,7 @@ export default function AdminPage() {
   const [pinEntry, setPinEntry] = useState("");
   const [toast, setToast] = useState<string | null>(null);
 
-  // Inventory tab
+  // Inventory
   const [rows, setRows] = useState<Row[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -221,8 +214,7 @@ export default function AdminPage() {
   // Pref cards
   const [prefCards, setPrefCards] = useState<PrefCard[]>([]);
   const [prefCardsLoading, setPrefCardsLoading] = useState(false);
-  const [selectedCardId, setSelectedCardId] = useState<string>("");
-
+  const [selectedCardId, setSelectedCardId] = useState("");
   const [prefItems, setPrefItems] = useState<PrefCardItem[]>([]);
   const [prefItemsLoading, setPrefItemsLoading] = useState(false);
   const [savingPrefKey, setSavingPrefKey] = useState<string | null>(null);
@@ -240,7 +232,7 @@ export default function AdminPage() {
   // Pull sessions
   const [sessions, setSessions] = useState<PullSession[]>([]);
   const [sessionsLoading, setSessionsLoading] = useState(false);
-  const [selectedSessionId, setSelectedSessionId] = useState<string>("");
+  const [selectedSessionId, setSelectedSessionId] = useState("");
   const [sessionItems, setSessionItems] = useState<PullSessionItem[]>([]);
   const [sessionItemsLoading, setSessionItemsLoading] = useState(false);
   const [savingSessionKey, setSavingSessionKey] = useState<string | null>(null);
@@ -248,63 +240,6 @@ export default function AdminPage() {
   const [sessionNameInput, setSessionNameInput] = useState("");
   const [sessionDateInput, setSessionDateInput] = useState("");
   const [sessionNotesInput, setSessionNotesInput] = useState("");
-
-  const inventoryStats = useMemo(() => {
-    const total = rows.length;
-    const low = rows.filter((r) => r.low).length;
-    const notified = rows.filter((r) => r.low_notified).length;
-    return { total, low, notified };
-  }, [rows]);
-
-  const selectedPrefCard = useMemo(
-    () => prefCards.find((c) => c.id === selectedCardId) || null,
-    [prefCards, selectedCardId]
-  );
-
-  const selectedSession = useMemo(
-    () => sessions.find((s) => s.id === selectedSessionId) || null,
-    [sessions, selectedSessionId]
-  );
-
-  const prefStats = useMemo(() => {
-    const totalCards = prefCards.length;
-    const activeCards = prefCards.filter((c) => c.is_active).length;
-    const itemCount = prefItems.length;
-    return { totalCards, activeCards, itemCount };
-  }, [prefCards, prefItems]);
-
-  const openPrefItems = useMemo(
-    () => prefItems.filter((x) => x.status === "OPEN"),
-    [prefItems]
-  );
-  const holdPrefItems = useMemo(
-    () => prefItems.filter((x) => x.status === "HOLD"),
-    [prefItems]
-  );
-  const prnPrefItems = useMemo(
-    () => prefItems.filter((x) => x.status === "PRN"),
-    [prefItems]
-  );
-
-  const sessionOpenItems = useMemo(
-    () => sessionItems.filter((x) => x.line_type === "OPEN"),
-    [sessionItems]
-  );
-  const sessionHoldItems = useMemo(
-    () => sessionItems.filter((x) => x.line_type === "HOLD"),
-    [sessionItems]
-  );
-  const sessionPrnItems = useMemo(
-    () => sessionItems.filter((x) => x.line_type === "PRN"),
-    [sessionItems]
-  );
-
-  const sessionSummary = useMemo(() => {
-    const planned = sessionItems.reduce((n, x) => n + (x.planned_qty || 0), 0);
-    const pulled = sessionItems.reduce((n, x) => n + (x.pulled_qty || 0), 0);
-    const used = sessionItems.reduce((n, x) => n + (x.used_qty || 0), 0);
-    return { planned, pulled, used };
-  }, [sessionItems]);
 
   useEffect(() => {
     try {
@@ -317,7 +252,7 @@ export default function AdminPage() {
 
   useEffect(() => {
     if (!toast) return;
-    const t = setTimeout(() => setToast(null), 2400);
+    const t = setTimeout(() => setToast(null), 2200);
     return () => clearTimeout(t);
   }, [toast]);
 
@@ -342,6 +277,8 @@ export default function AdminPage() {
     setLocked(true);
     setToast("Locked 🔒");
   }
+
+  // ---------------- Inventory ----------------
 
   async function loadFirstPage() {
     setLoading(true);
@@ -423,8 +360,7 @@ export default function AdminPage() {
 
     const io = new IntersectionObserver(
       (entries) => {
-        const first = entries[0];
-        if (first.isIntersecting) loadMore();
+        if (entries[0].isIntersecting) loadMore();
       },
       { root: null, rootMargin: "900px", threshold: 0 }
     );
@@ -446,15 +382,12 @@ export default function AdminPage() {
       return;
     }
 
-    const rowKey = `${r.storage_area_id}:${r.item_id}`;
-    const key = `${rowKey}:${field}`;
-    setSavingKey(key);
-
-    const patch: Partial<Row> = { [field]: num } as any;
+    const rowKey = `${r.storage_area_id}:${r.item_id}:${field}`;
+    setSavingKey(rowKey);
 
     const { error } = await supabase
       .from("storage_inventory")
-      .update(patch)
+      .update({ [field]: num })
       .eq("storage_area_id", r.storage_area_id)
       .eq("item_id", r.item_id);
 
@@ -467,7 +400,7 @@ export default function AdminPage() {
     setRows((prev) =>
       prev.map((x) =>
         x.storage_area_id === r.storage_area_id && x.item_id === r.item_id
-          ? { ...x, ...patch }
+          ? { ...x, [field]: num }
           : x
       )
     );
@@ -475,6 +408,8 @@ export default function AdminPage() {
     setSavingKey(null);
     setToast("Saved ✅");
   }
+
+  // ---------------- Pref Cards ----------------
 
   async function loadPrefCards() {
     setPrefCardsLoading(true);
@@ -541,6 +476,201 @@ export default function AdminPage() {
     setPrefItemsLoading(false);
   }
 
+  async function createPrefCard() {
+    if (locked) return setToast("PIN required");
+    if (!surgeonInput.trim()) return setToast("Enter surgeon");
+    if (!procedureInput.trim()) return setToast("Enter procedure");
+
+    const { data, error } = await supabase
+      .from("pref_cards")
+      .insert({
+        surgeon: surgeonInput.trim(),
+        procedure_name: procedureInput.trim(),
+        specialty: specialtyInput.trim() || null,
+        notes: prefNotesInput.trim() || null,
+        is_active: true,
+      })
+      .select("*")
+      .single();
+
+    if (error) return setToast(`Create failed: ${error.message}`);
+
+    setToast("Pref card created ✅");
+    await loadPrefCards();
+    if (data?.id) setSelectedCardId(data.id);
+
+    setSurgeonInput("");
+    setProcedureInput("");
+    setSpecialtyInput("");
+    setPrefNotesInput("");
+  }
+
+  async function savePrefCardHeader() {
+    if (locked) return setToast("PIN required");
+    if (!selectedCardId) return;
+
+    const { error } = await supabase
+      .from("pref_cards")
+      .update({
+        surgeon: surgeonInput.trim(),
+        procedure_name: procedureInput.trim(),
+        specialty: specialtyInput.trim() || null,
+        notes: prefNotesInput.trim() || null,
+      })
+      .eq("id", selectedCardId);
+
+    if (error) return setToast(`Save failed: ${error.message}`);
+
+    setToast("Pref card saved ✅");
+    await loadPrefCards();
+  }
+
+  async function togglePrefCardActive() {
+    const selected = prefCards.find((c) => c.id === selectedCardId);
+    if (locked) return setToast("PIN required");
+    if (!selected) return;
+
+    const { error } = await supabase
+      .from("pref_cards")
+      .update({ is_active: !selected.is_active })
+      .eq("id", selected.id);
+
+    if (error) return setToast(`Update failed: ${error.message}`);
+
+    setToast(selected.is_active ? "Moved inactive" : "Restored active");
+    await loadPrefCards();
+  }
+
+  async function deletePrefCard() {
+    const selected = prefCards.find((c) => c.id === selectedCardId);
+    if (locked) return setToast("PIN required");
+    if (!selected) return;
+
+    const ok = confirm(
+      `Delete pref card?\n\n${selected.surgeon} — ${selected.procedure_name}\n\nThis deletes all pref card items and case pull sessions.`
+    );
+    if (!ok) return;
+
+    const { error } = await supabase.from("pref_cards").delete().eq("id", selected.id);
+    if (error) return setToast(`Delete failed: ${error.message}`);
+
+    setSelectedCardId("");
+    setSelectedSessionId("");
+    setPrefItems([]);
+    setSessionItems([]);
+    setToast("Pref card deleted");
+    await loadPrefCards();
+  }
+
+  function startEditingCard(card: PrefCard) {
+    setSelectedCardId(card.id);
+    setSurgeonInput(card.surgeon || "");
+    setProcedureInput(card.procedure_name || "");
+    setSpecialtyInput(card.specialty || "");
+    setPrefNotesInput(card.notes || "");
+  }
+
+  async function addItemToPrefCard(itemRow: ItemSearchRow) {
+    if (locked) return setToast("PIN required");
+    if (!selectedCardId) return setToast("Select a pref card first");
+
+    const nextSort =
+      prefItems.length > 0
+        ? Math.max(...prefItems.map((x) => x.sort_order ?? 0)) + 1
+        : 1;
+
+    const { data, error } = await supabase
+      .from("pref_card_items")
+      .insert({
+        pref_card_id: selectedCardId,
+        item_id: itemRow.id,
+        qty: 1,
+        status: "OPEN",
+        notes: null,
+        sort_order: nextSort,
+      })
+      .select(
+        "id,pref_card_id,item_id,qty,status,notes,sort_order,items(id,name,barcode,vendor,category,reference_number,unit)"
+      )
+      .single();
+
+    if (error) return setToast(`Add item failed: ${error.message}`);
+
+    const normalized: PrefCardItem = {
+      id: data.id,
+      pref_card_id: data.pref_card_id,
+      item_id: data.item_id,
+      qty: data.qty,
+      status: data.status,
+      notes: data.notes,
+      sort_order: data.sort_order,
+      items: oneItem((data as any).items),
+    };
+
+    setPrefItems((prev) => [...prev, normalized]);
+    setItemSearch("");
+    setItemResults([]);
+    setToast("Item added ✅");
+  }
+
+  async function savePrefItem(
+    row: PrefCardItem,
+    field: "qty" | "status" | "notes" | "sort_order",
+    value: string
+  ) {
+    if (locked) return setToast("PIN required");
+
+    let patch: any = {};
+
+    if (field === "qty" || field === "sort_order") {
+      const num = Number(value);
+      if (!Number.isFinite(num) || num < 0) return setToast("Enter a valid number");
+      patch = { [field]: num };
+    } else if (field === "status") {
+      if (!["OPEN", "HOLD", "PRN"].includes(value)) return setToast("Invalid status");
+      patch = { status: value };
+    } else {
+      patch = { notes: value || null };
+    }
+
+    const key = `${row.id}:${field}`;
+    setSavingPrefKey(key);
+
+    const { error } = await supabase
+      .from("pref_card_items")
+      .update(patch)
+      .eq("id", row.id);
+
+    if (error) {
+      setSavingPrefKey(null);
+      return setToast(`Save failed: ${error.message}`);
+    }
+
+    setPrefItems((prev) =>
+      prev
+        .map((x) => (x.id === row.id ? { ...x, ...patch } : x))
+        .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
+    );
+
+    setSavingPrefKey(null);
+    setToast("Saved ✅");
+  }
+
+  async function removePrefItem(row: PrefCardItem) {
+    if (locked) return setToast("PIN required");
+
+    const ok = confirm(`Remove "${oneItem(row.items)?.name || "item"}" from this pref card?`);
+    if (!ok) return;
+
+    const { error } = await supabase.from("pref_card_items").delete().eq("id", row.id);
+    if (error) return setToast(`Remove failed: ${error.message}`);
+
+    setPrefItems((prev) => prev.filter((x) => x.id !== row.id));
+    setToast("Item removed");
+  }
+
+  // ---------------- Pull Sessions ----------------
+
   async function loadSessions(cardId: string) {
     if (!cardId) {
       setSessions([]);
@@ -552,3 +682,1045 @@ export default function AdminPage() {
     const { data, error } = await supabase
       .from("case_pull_sessions")
       .select("*")
+      .eq("pref_card_id", cardId)
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      setSessionsLoading(false);
+      return setToast(`Sessions load failed: ${error.message}`);
+    }
+
+    const rows = (data || []) as PullSession[];
+    setSessions(rows);
+
+    if (!selectedSessionId && rows.length > 0) {
+      setSelectedSessionId(rows[0].id);
+    } else if (selectedSessionId && !rows.some((s) => s.id === selectedSessionId)) {
+      setSelectedSessionId(rows[0]?.id || "");
+    }
+
+    setSessionsLoading(false);
+  }
+
+  async function loadSessionItems(sessionId: string) {
+    if (!sessionId) {
+      setSessionItems([]);
+      return;
+    }
+
+    setSessionItemsLoading(true);
+
+    const { data, error } = await supabase
+      .from("case_pull_session_items")
+      .select(
+        "id,session_id,pref_card_item_id,item_id,line_type,planned_qty,pulled_qty,used_qty,notes,sort_order,items(id,name,barcode,vendor,category,reference_number,unit)"
+      )
+      .eq("session_id", sessionId)
+      .order("sort_order", { ascending: true })
+      .order("created_at", { ascending: true });
+
+    if (error) {
+      setSessionItemsLoading(false);
+      return setToast(`Session items load failed: ${error.message}`);
+    }
+
+    const normalized: PullSessionItem[] = (data || []).map((row: any) => ({
+      id: row.id,
+      session_id: row.session_id,
+      pref_card_item_id: row.pref_card_item_id,
+      item_id: row.item_id,
+      line_type: row.line_type,
+      planned_qty: row.planned_qty,
+      pulled_qty: row.pulled_qty,
+      used_qty: row.used_qty,
+      notes: row.notes,
+      sort_order: row.sort_order,
+      items: oneItem(row.items),
+    }));
+
+    setSessionItems(normalized);
+    setSessionItemsLoading(false);
+  }
+
+  async function createPullSessionFromPrefCard() {
+    if (locked) return setToast("PIN required");
+    if (!selectedCardId) return setToast("Select a pref card first");
+    if (prefItems.length === 0) return setToast("This pref card has no items");
+
+    const sessionName =
+      sessionNameInput.trim() ||
+      `${surgeonInput || "Case"} - ${procedureInput || "Pull"} - ${new Date().toLocaleDateString()}`;
+
+    const { data: sessionData, error: sessionError } = await supabase
+      .from("case_pull_sessions")
+      .insert({
+        pref_card_id: selectedCardId,
+        session_name: sessionName,
+        scheduled_for: sessionDateInput || null,
+        notes: sessionNotesInput.trim() || null,
+      })
+      .select("*")
+      .single();
+
+    if (sessionError) return setToast(`Create pull session failed: ${sessionError.message}`);
+
+    const sessionId = sessionData.id as string;
+
+    const insertRows = prefItems.map((x) => ({
+      session_id: sessionId,
+      pref_card_item_id: x.id,
+      item_id: x.item_id,
+      line_type: x.status,
+      planned_qty: x.qty,
+      pulled_qty: 0,
+      used_qty: 0,
+      notes: x.notes,
+      sort_order: x.sort_order,
+    }));
+
+    const { error: itemsError } = await supabase
+      .from("case_pull_session_items")
+      .insert(insertRows);
+
+    if (itemsError) {
+      return setToast(`Session lines failed: ${itemsError.message}`);
+    }
+
+    setToast("Case pull created ✅");
+    setSessionNameInput("");
+    setSessionDateInput("");
+    setSessionNotesInput("");
+
+    await loadSessions(selectedCardId);
+    setSelectedSessionId(sessionId);
+    await loadSessionItems(sessionId);
+  }
+
+  async function saveSessionItem(
+    row: PullSessionItem,
+    field: "planned_qty" | "pulled_qty" | "used_qty" | "notes",
+    value: string
+  ) {
+    if (locked) return setToast("PIN required");
+
+    let patch: any = {};
+
+    if (field === "notes") {
+      patch = { notes: value || null };
+    } else {
+      const num = Number(value);
+      if (!Number.isFinite(num) || num < 0) return setToast("Enter a valid number");
+      patch = { [field]: num };
+    }
+
+    const key = `${row.id}:${field}`;
+    setSavingSessionKey(key);
+
+    const { error } = await supabase
+      .from("case_pull_session_items")
+      .update(patch)
+      .eq("id", row.id);
+
+    if (error) {
+      setSavingSessionKey(null);
+      return setToast(`Save failed: ${error.message}`);
+    }
+
+    setSessionItems((prev) =>
+      prev.map((x) => (x.id === row.id ? { ...x, ...patch } : x))
+    );
+
+    setSavingSessionKey(null);
+    setToast("Saved ✅");
+  }
+
+  async function deleteSession() {
+    if (locked) return setToast("PIN required");
+    if (!selectedSession) return;
+
+    const ok = confirm(`Delete pull session "${selectedSession.session_name}"?`);
+    if (!ok) return;
+
+    const { error } = await supabase
+      .from("case_pull_sessions")
+      .delete()
+      .eq("id", selectedSession.id);
+
+    if (error) return setToast(`Delete failed: ${error.message}`);
+
+    setSelectedSessionId("");
+    setSessionItems([]);
+    setToast("Pull session deleted");
+    await loadSessions(selectedCardId);
+  }
+
+  function printSession() {
+    window.print();
+  }
+
+  useEffect(() => {
+    if (tab !== "prefcards") return;
+    loadPrefCards();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab]);
+
+  useEffect(() => {
+    if (tab !== "prefcards") return;
+    if (!selectedCardId) {
+      setPrefItems([]);
+      setSessions([]);
+      setSessionItems([]);
+      return;
+    }
+    loadPrefItems(selectedCardId);
+    loadSessions(selectedCardId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedCardId, tab]);
+
+  useEffect(() => {
+    if (tab !== "prefcards") return;
+    loadSessionItems(selectedSessionId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedSessionId, tab]);
+
+  useEffect(() => {
+    if (tab !== "prefcards") return;
+
+    const q = dItemSearch.trim();
+    if (!q || q.length < 2) {
+      setItemResults([]);
+      setItemSearchLoading(false);
+      return;
+    }
+
+    let alive = true;
+
+    (async () => {
+      setItemSearchLoading(true);
+
+      const { data, error } = await supabase
+        .from("items")
+        .select("id,name,barcode,vendor,category,reference_number,unit")
+        .or(
+          `name.ilike.%${q}%,barcode.ilike.%${q}%,reference_number.ilike.%${q}%,vendor.ilike.%${q}%`
+        )
+        .order("name", { ascending: true })
+        .limit(12);
+
+      if (!alive) return;
+
+      if (error) {
+        setItemResults([]);
+        setItemSearchLoading(false);
+        return setToast(`Item search failed: ${error.message}`);
+      }
+
+      setItemResults((data || []) as ItemSearchRow[]);
+      setItemSearchLoading(false);
+    })();
+
+    return () => {
+      alive = false;
+    };
+  }, [dItemSearch, tab]);
+
+  const selectedPrefCard = useMemo(
+    () => prefCards.find((c) => c.id === selectedCardId) || null,
+    [prefCards, selectedCardId]
+  );
+
+  const selectedSession = useMemo(
+    () => sessions.find((s) => s.id === selectedSessionId) || null,
+    [sessions, selectedSessionId]
+  );
+
+  useEffect(() => {
+    if (!selectedPrefCard) return;
+    setSurgeonInput(selectedPrefCard.surgeon || "");
+    setProcedureInput(selectedPrefCard.procedure_name || "");
+    setSpecialtyInput(selectedPrefCard.specialty || "");
+    setPrefNotesInput(selectedPrefCard.notes || "");
+  }, [selectedPrefCard?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const inventoryStats = useMemo(() => {
+    const total = rows.length;
+    const low = rows.filter((r) => r.low).length;
+    const notified = rows.filter((r) => r.low_notified).length;
+    return { total, low, notified };
+  }, [rows]);
+
+  const prefStats = useMemo(() => {
+    const totalCards = prefCards.length;
+    const activeCards = prefCards.filter((c) => c.is_active).length;
+    const itemCount = prefItems.length;
+    return { totalCards, activeCards, itemCount };
+  }, [prefCards, prefItems]);
+
+  const openPrefItems = useMemo(
+    () => prefItems.filter((x) => x.status === "OPEN"),
+    [prefItems]
+  );
+  const holdPrefItems = useMemo(
+    () => prefItems.filter((x) => x.status === "HOLD"),
+    [prefItems]
+  );
+  const prnPrefItems = useMemo(
+    () => prefItems.filter((x) => x.status === "PRN"),
+    [prefItems]
+  );
+
+  const sessionOpenItems = useMemo(
+    () => sessionItems.filter((x) => x.line_type === "OPEN"),
+    [sessionItems]
+  );
+  const sessionHoldItems = useMemo(
+    () => sessionItems.filter((x) => x.line_type === "HOLD"),
+    [sessionItems]
+  );
+  const sessionPrnItems = useMemo(
+    () => sessionItems.filter((x) => x.line_type === "PRN"),
+    [sessionItems]
+  );
+
+  const sessionSummary = useMemo(() => {
+    const planned = sessionItems.reduce((n, x) => n + (x.planned_qty || 0), 0);
+    const pulled = sessionItems.reduce((n, x) => n + (x.pulled_qty || 0), 0);
+    const used = sessionItems.reduce((n, x) => n + (x.used_qty || 0), 0);
+    return { planned, pulled, used };
+  }, [sessionItems]);
+
+  return (
+    <div className="min-h-screen bg-black text-white overflow-x-hidden">
+      <div className="pointer-events-none fixed inset-0 opacity-70">
+        <div className="absolute -top-24 left-1/2 h-80 w-[980px] -translate-x-1/2 rounded-full bg-white/10 blur-3xl" />
+        <div className="absolute top-40 left-10 h-64 w-64 rounded-full bg-white/5 blur-3xl" />
+        <div className="absolute bottom-10 right-10 h-80 w-80 rounded-full bg-white/5 blur-3xl" />
+      </div>
+
+      <div className="sticky top-0 z-20 border-b border-white/10 bg-black/70">
+        <div className="mx-auto w-full max-w-6xl px-4 py-4">
+          <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+            <div className="min-w-0">
+              <div className="text-[11px] tracking-[0.25em] text-white/45">
+                BAXTER ASC • ADMIN CONSOLE
+              </div>
+              <h1 className="mt-1 text-3xl font-extrabold leading-tight">
+                Admin Center <span className="text-white/55">(Inventory + Pref Cards)</span>
+              </h1>
+              <p className="mt-1 text-sm text-white/60">
+                Inventory editing, pref card building, and automatic case pull sessions.
+              </p>
+            </div>
+
+            <div className="flex w-full flex-col gap-2 md:w-auto md:items-end">
+              <div className="flex w-full flex-wrap gap-2 md:w-auto md:justify-end">
+                <Link
+                  href="/"
+                  className="rounded-2xl bg-white/5 px-4 py-2.5 text-sm font-extrabold ring-1 ring-white/10 hover:bg-white/10"
+                >
+                  Home
+                </Link>
+                <Link
+                  href="/inventory"
+                  className="rounded-2xl bg-white/5 px-4 py-2.5 text-sm font-extrabold ring-1 ring-white/10 hover:bg-white/10"
+                >
+                  App
+                </Link>
+                <IconButton onClick={lockNow} active={locked}>
+                  {locked ? "🔒 Locked" : "Lock"}
+                </IconButton>
+              </div>
+
+              <div className="grid grid-cols-4 gap-2 w-full md:w-auto">
+                <StatChip label="STATE" value={locked ? "LOCKED" : "OPEN"} tone={locked ? "bad" : "good"} />
+                {tab === "inventory" ? (
+                  <>
+                    <StatChip label="ROWS" value={inventoryStats.total} />
+                    <StatChip label="LOW" value={inventoryStats.low} tone={inventoryStats.low ? "warn" : "neutral"} />
+                    <StatChip label="NOTIFIED" value={inventoryStats.notified} tone={inventoryStats.notified ? "warn" : "neutral"} />
+                  </>
+                ) : (
+                  <>
+                    <StatChip label="CARDS" value={prefStats.totalCards} />
+                    <StatChip label="ACTIVE" value={prefStats.activeCards} tone={prefStats.activeCards ? "good" : "neutral"} />
+                    <StatChip label="LINES" value={prefStats.itemCount} />
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div className="flex flex-wrap gap-2">
+              <IconButton onClick={() => setTab("inventory")} active={tab === "inventory"}>
+                Inventory Table
+              </IconButton>
+              <IconButton onClick={() => setTab("prefcards")} active={tab === "prefcards"}>
+                Pref Cards + Pulls
+              </IconButton>
+            </div>
+
+            <div className="flex w-full gap-2 md:w-auto md:justify-end">
+              <input
+                inputMode="numeric"
+                value={pinEntry}
+                onChange={(e) => setPinEntry(e.target.value.replace(/\D/g, "").slice(0, 8))}
+                placeholder="Enter admin PIN"
+                className="w-full rounded-2xl bg-white/5 px-4 py-3 text-sm text-white placeholder:text-white/40 ring-1 ring-white/10 outline-none focus:ring-white/30 md:w-48"
+              />
+              <button
+                type="button"
+                onClick={openPinAndUnlock}
+                className="whitespace-nowrap rounded-2xl bg-white px-4 py-3 text-sm font-extrabold text-black hover:bg-white/90"
+              >
+                Unlock
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="mx-auto w-full max-w-6xl px-4 py-6">
+        {tab === "inventory" ? (
+          <>
+            <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+              <div className="flex w-full flex-col gap-2 md:flex-row md:items-center">
+                <div className="relative w-full md:max-w-xl">
+                  <input
+                    value={q}
+                    onChange={(e) => setQ(e.target.value)}
+                    placeholder="Search item, area, barcode, vendor, category…"
+                    className="w-full rounded-2xl bg-white/5 px-4 py-3 text-sm text-white placeholder:text-white/40 ring-1 ring-white/10 outline-none focus:ring-white/30"
+                  />
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setOnlyLow((v) => !v)}
+                  className={cn(
+                    "rounded-2xl px-4 py-3 text-sm font-extrabold ring-1 transition",
+                    onlyLow
+                      ? "bg-amber-400/20 text-amber-100 ring-amber-300/30"
+                      : "bg-white/5 text-white/80 ring-white/10 hover:bg-white/10"
+                  )}
+                >
+                  {onlyLow ? "Showing: LOW" : "Filter: LOW only"}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={loadFirstPage}
+                  className="rounded-2xl bg-white/5 px-4 py-3 text-sm font-extrabold ring-1 ring-white/10 hover:bg-white/10"
+                >
+                  Refresh
+                </button>
+              </div>
+            </div>
+
+            <div className="overflow-hidden rounded-3xl border border-white/10 bg-white/[0.03] ring-1 ring-white/5">
+              <div className="overflow-x-auto">
+                <div className="min-w-[980px]">
+                  <div className="sticky top-0 z-20 grid grid-cols-12 gap-0 border-b border-white/10 bg-black/70 px-4 py-3 text-xs font-semibold tracking-wider text-white/55">
+                    <div className="col-span-3 sticky left-0 z-30 bg-black/70 pr-2">AREA</div>
+                    <div className="col-span-4 sticky left-[240px] z-30 bg-black/70 pr-2">ITEM</div>
+                    <div className="col-span-2">BARCODE</div>
+                    <div className="col-span-1 text-center">ON HAND</div>
+                    <div className="col-span-1 text-center">PAR</div>
+                    <div className="col-span-1 sticky right-0 z-30 bg-black/70 text-right pl-2">STATUS</div>
+                  </div>
+
+                  {loading ? (
+                    <div className="p-6 text-white/60">Loading…</div>
+                  ) : rows.length === 0 ? (
+                    <div className="p-6 text-white/60">No results.</div>
+                  ) : (
+                    <div className="divide-y divide-white/10">
+                      {rows.map((r) => {
+                        const areaName = r.storage_areas?.name || "(unknown area)";
+                        const itemName = r.items?.name || "(unknown item)";
+                        const barcode = r.items?.barcode || "";
+                        const statusTone = r.low ? "warn" : "good";
+                        const rowKey = `${r.storage_area_id}:${r.item_id}`;
+
+                        return (
+                          <div
+                            key={rowKey}
+                            className={cn(
+                              "grid grid-cols-12 items-center gap-0 px-4 py-3 transition",
+                              r.low ? "bg-amber-500/8 hover:bg-amber-500/14" : "hover:bg-white/[0.04]"
+                            )}
+                          >
+                            <div className="col-span-3 sticky left-0 z-10 bg-black/60 pr-2">
+                              <div className="text-sm font-extrabold text-white/90">{areaName}</div>
+                              <div className="mt-0.5 text-xs text-white/45">
+                                {r.items?.vendor ? r.items.vendor : r.items?.category ? r.items.category : ""}
+                              </div>
+                            </div>
+
+                            <div className="col-span-4 sticky left-[240px] z-10 bg-black/60 pr-2 min-w-0">
+                              <div className="text-sm font-extrabold truncate">{itemName}</div>
+                              <div className="mt-0.5 text-xs text-white/45">
+                                {r.items?.category ? `Category: ${r.items.category}` : ""}
+                              </div>
+                            </div>
+
+                            <div className="col-span-2">
+                              <div className="text-sm text-white/80 break-all">{barcode || "—"}</div>
+                            </div>
+
+                            <div className="col-span-1 flex justify-center">
+                              <input
+                                disabled={locked}
+                                defaultValue={String(r.on_hand ?? 0)}
+                                onFocus={(e) => e.currentTarget.select()}
+                                onBlur={(e) => saveCell(r, "on_hand", e.target.value)}
+                                className={cn(
+                                  "w-20 rounded-2xl bg-white/5 px-3 py-2 text-center text-sm font-extrabold tabular-nums",
+                                  "ring-1 ring-white/10 outline-none focus:ring-white/30",
+                                  locked && "opacity-60"
+                                )}
+                              />
+                            </div>
+
+                            <div className="col-span-1 flex justify-center">
+                              <input
+                                disabled={locked}
+                                defaultValue={String(r.par_level ?? 0)}
+                                onFocus={(e) => e.currentTarget.select()}
+                                onBlur={(e) => saveCell(r, "par_level", e.target.value)}
+                                className={cn(
+                                  "w-20 rounded-2xl bg-white/5 px-3 py-2 text-center text-sm font-extrabold tabular-nums",
+                                  "ring-1 ring-white/10 outline-none focus:ring-white/30",
+                                  locked && "opacity-60"
+                                )}
+                              />
+                            </div>
+
+                            <div className="col-span-1 sticky right-0 z-10 bg-black/60 pl-2 flex justify-end">
+                              <div className="flex items-center gap-2">
+                                {(savingKey === `${rowKey}:on_hand` ||
+                                  savingKey === `${rowKey}:par_level`) && (
+                                  <Pill tone="neutral">Saving…</Pill>
+                                )}
+                                <Pill tone={statusTone as any}>{r.low ? "LOW" : "OK"}</Pill>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  <div ref={sentinelRef} className="h-10" />
+
+                  {rows.length > 0 && (
+                    <div className="px-4 py-4 text-sm text-white/55">
+                      {loadingMore ? "Loading more…" : hasMore ? "Scroll to load more…" : "End of results."}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </>
+        ) : (
+          <div className="grid gap-4 lg:grid-cols-[320px_minmax(0,1fr)]">
+            <div className="space-y-4">
+              <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-4 ring-1 ring-white/5">
+                <div className="text-lg font-extrabold">Create Pref Card</div>
+                <div className="mt-3 space-y-2">
+                  <input
+                    value={surgeonInput}
+                    onChange={(e) => setSurgeonInput(e.target.value)}
+                    placeholder="Surgeon"
+                    className="w-full rounded-2xl bg-white/5 px-4 py-3 text-sm ring-1 ring-white/10 outline-none focus:ring-white/30"
+                  />
+                  <input
+                    value={procedureInput}
+                    onChange={(e) => setProcedureInput(e.target.value)}
+                    placeholder="Procedure"
+                    className="w-full rounded-2xl bg-white/5 px-4 py-3 text-sm ring-1 ring-white/10 outline-none focus:ring-white/30"
+                  />
+                  <input
+                    value={specialtyInput}
+                    onChange={(e) => setSpecialtyInput(e.target.value)}
+                    placeholder="Specialty (optional)"
+                    className="w-full rounded-2xl bg-white/5 px-4 py-3 text-sm ring-1 ring-white/10 outline-none focus:ring-white/30"
+                  />
+                  <textarea
+                    value={prefNotesInput}
+                    onChange={(e) => setPrefNotesInput(e.target.value)}
+                    placeholder="General notes"
+                    className="min-h-[100px] w-full rounded-2xl bg-white/5 px-4 py-3 text-sm ring-1 ring-white/10 outline-none focus:ring-white/30"
+                  />
+                  <button
+                    onClick={createPrefCard}
+                    className="w-full rounded-2xl bg-white px-4 py-3 text-sm font-extrabold text-black hover:bg-white/90"
+                  >
+                    Create Pref Card
+                  </button>
+                </div>
+              </div>
+
+              <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-4 ring-1 ring-white/5">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="text-lg font-extrabold">Saved Cards</div>
+                  <Pill tone="neutral">{prefCards.length}</Pill>
+                </div>
+
+                <div className="mt-3 max-h-[520px] space-y-2 overflow-y-auto pr-1">
+                  {prefCardsLoading ? (
+                    <div className="text-sm text-white/60">Loading…</div>
+                  ) : prefCards.length === 0 ? (
+                    <div className="text-sm text-white/60">No pref cards yet.</div>
+                  ) : (
+                    prefCards.map((card) => (
+                      <button
+                        key={card.id}
+                        onClick={() => startEditingCard(card)}
+                        className={cn(
+                          "w-full rounded-2xl p-3 text-left ring-1 transition",
+                          selectedCardId === card.id
+                            ? "bg-white text-black ring-white/40"
+                            : "bg-white/5 text-white ring-white/10 hover:bg-white/10"
+                        )}
+                      >
+                        <div className="text-sm font-extrabold">{card.surgeon}</div>
+                        <div className="mt-0.5 text-sm">{card.procedure_name}</div>
+                        <div className="mt-1 text-xs opacity-75">
+                          {card.specialty || "—"} • {card.is_active ? "Active" : "Inactive"}
+                        </div>
+                      </button>
+                    ))
+                  )}
+                </div>
+              </div>
+
+              <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-4 ring-1 ring-white/5">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="text-lg font-extrabold">Pull Sessions</div>
+                  <Pill tone="neutral">{sessions.length}</Pill>
+                </div>
+
+                <div className="mt-3 space-y-2">
+                  <input
+                    value={sessionNameInput}
+                    onChange={(e) => setSessionNameInput(e.target.value)}
+                    placeholder="Case / session name"
+                    className="w-full rounded-2xl bg-white/5 px-4 py-3 text-sm ring-1 ring-white/10 outline-none focus:ring-white/30"
+                  />
+                  <input
+                    type="date"
+                    value={sessionDateInput}
+                    onChange={(e) => setSessionDateInput(e.target.value)}
+                    className="w-full rounded-2xl bg-white/5 px-4 py-3 text-sm ring-1 ring-white/10 outline-none focus:ring-white/30"
+                  />
+                  <textarea
+                    value={sessionNotesInput}
+                    onChange={(e) => setSessionNotesInput(e.target.value)}
+                    placeholder="Session notes"
+                    className="min-h-[80px] w-full rounded-2xl bg-white/5 px-4 py-3 text-sm ring-1 ring-white/10 outline-none focus:ring-white/30"
+                  />
+                  <button
+                    onClick={createPullSessionFromPrefCard}
+                    disabled={!selectedCardId || prefItems.length === 0}
+                    className="w-full rounded-2xl bg-white px-4 py-3 text-sm font-extrabold text-black disabled:opacity-50"
+                  >
+                    Auto Build Case Pull From Pref Card
+                  </button>
+                </div>
+
+                <div className="mt-4 max-h-[300px] space-y-2 overflow-y-auto pr-1">
+                  {sessionsLoading ? (
+                    <div className="text-sm text-white/60">Loading…</div>
+                  ) : sessions.length === 0 ? (
+                    <div className="text-sm text-white/60">No pull sessions yet.</div>
+                  ) : (
+                    sessions.map((s) => (
+                      <button
+                        key={s.id}
+                        onClick={() => setSelectedSessionId(s.id)}
+                        className={cn(
+                          "w-full rounded-2xl p-3 text-left ring-1 transition",
+                          selectedSessionId === s.id
+                            ? "bg-white text-black ring-white/40"
+                            : "bg-white/5 text-white ring-white/10 hover:bg-white/10"
+                        )}
+                      >
+                        <div className="text-sm font-extrabold">{s.session_name}</div>
+                        <div className="mt-1 text-xs opacity-75">
+                          {s.scheduled_for || "No date"} • {new Date(s.created_at).toLocaleString()}
+                        </div>
+                      </button>
+                    ))
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-4 ring-1 ring-white/5">
+                <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                  <div>
+                    <div className="text-lg font-extrabold">Pref Card Builder</div>
+                    <div className="mt-1 text-sm text-white/60">
+                      Build the standard supply card, then auto-create pull sessions from it.
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      onClick={savePrefCardHeader}
+                      disabled={!selectedPrefCard}
+                      className="rounded-2xl bg-white/10 px-4 py-2.5 text-sm font-extrabold ring-1 ring-white/10 disabled:opacity-50"
+                    >
+                      Save Header
+                    </button>
+                    <button
+                      onClick={togglePrefCardActive}
+                      disabled={!selectedPrefCard}
+                      className="rounded-2xl bg-white/10 px-4 py-2.5 text-sm font-extrabold ring-1 ring-white/10 disabled:opacity-50"
+                    >
+                      {selectedPrefCard?.is_active ? "Move Inactive" : "Restore Active"}
+                    </button>
+                    <button
+                      onClick={deletePrefCard}
+                      disabled={!selectedPrefCard}
+                      className="rounded-2xl bg-rose-500/20 px-4 py-2.5 text-sm font-extrabold text-rose-100 ring-1 ring-rose-300/25 disabled:opacity-50"
+                    >
+                      Delete Card
+                    </button>
+                  </div>
+                </div>
+
+                {!selectedPrefCard ? (
+                  <div className="mt-4 rounded-2xl bg-white/5 p-4 text-sm text-white/60 ring-1 ring-white/10">
+                    Select a pref card from the left or create a new one.
+                  </div>
+                ) : (
+                  <>
+                    <div className="mt-4 grid gap-3 md:grid-cols-2">
+                      <input
+                        value={surgeonInput}
+                        onChange={(e) => setSurgeonInput(e.target.value)}
+                        placeholder="Surgeon"
+                        className="w-full rounded-2xl bg-white/5 px-4 py-3 text-sm ring-1 ring-white/10 outline-none focus:ring-white/30"
+                      />
+                      <input
+                        value={procedureInput}
+                        onChange={(e) => setProcedureInput(e.target.value)}
+                        placeholder="Procedure"
+                        className="w-full rounded-2xl bg-white/5 px-4 py-3 text-sm ring-1 ring-white/10 outline-none focus:ring-white/30"
+                      />
+                      <input
+                        value={specialtyInput}
+                        onChange={(e) => setSpecialtyInput(e.target.value)}
+                        placeholder="Specialty"
+                        className="w-full rounded-2xl bg-white/5 px-4 py-3 text-sm ring-1 ring-white/10 outline-none focus:ring-white/30"
+                      />
+                      <div className="flex items-center">
+                        <Pill tone={selectedPrefCard.is_active ? "good" : "warn"}>
+                          {selectedPrefCard.is_active ? "ACTIVE CARD" : "INACTIVE CARD"}
+                        </Pill>
+                      </div>
+                    </div>
+
+                    <textarea
+                      value={prefNotesInput}
+                      onChange={(e) => setPrefNotesInput(e.target.value)}
+                      placeholder="General notes"
+                      className="mt-3 min-h-[90px] w-full rounded-2xl bg-white/5 px-4 py-3 text-sm ring-1 ring-white/10 outline-none focus:ring-white/30"
+                    />
+
+                    <div className="mt-4 rounded-3xl bg-black/30 p-4 ring-1 ring-white/10">
+                      <div className="text-base font-extrabold">Add Standard Items</div>
+                      <div className="mt-2 flex flex-col gap-2">
+                        <input
+                          value={itemSearch}
+                          onChange={(e) => setItemSearch(e.target.value)}
+                          placeholder="Search items by name, barcode, ref, vendor…"
+                          className="w-full rounded-2xl bg-white/5 px-4 py-3 text-sm ring-1 ring-white/10 outline-none focus:ring-white/30"
+                        />
+                        <div className="text-xs text-white/50">
+                          Type 2+ characters to search your current items.
+                        </div>
+                      </div>
+
+                      <div className="mt-3 space-y-2">
+                        {itemSearchLoading ? (
+                          <div className="text-sm text-white/60">Searching…</div>
+                        ) : itemResults.length === 0 ? (
+                          <div className="text-sm text-white/50">No search results yet.</div>
+                        ) : (
+                          itemResults.map((r) => (
+                            <button
+                              key={r.id}
+                              onClick={() => addItemToPrefCard(r)}
+                              className="w-full rounded-2xl bg-white/5 p-3 text-left ring-1 ring-white/10 hover:bg-white/10"
+                            >
+                              <div className="text-sm font-extrabold">{r.name || "—"}</div>
+                              <div className="mt-1 text-xs text-white/55 break-words">
+                                {r.vendor || "—"} • {r.category || "—"}
+                                {r.reference_number ? ` • ${r.reference_number}` : ""}
+                                {r.barcode ? ` • ${r.barcode}` : ""}
+                              </div>
+                            </button>
+                          ))
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="mt-4 rounded-3xl bg-black/30 p-4 ring-1 ring-white/10">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="text-base font-extrabold">Pref Card Items</div>
+                        <div className="flex gap-2">
+                          <Pill tone="good">OPEN {openPrefItems.length}</Pill>
+                          <Pill tone="warn">HOLD {holdPrefItems.length}</Pill>
+                          <Pill tone="neutral">PRN {prnPrefItems.length}</Pill>
+                        </div>
+                      </div>
+
+                      {prefItemsLoading ? (
+                        <div className="mt-4 text-sm text-white/60">Loading items…</div>
+                      ) : prefItems.length === 0 ? (
+                        <div className="mt-4 text-sm text-white/60">No items on this pref card yet.</div>
+                      ) : (
+                        <div className="mt-4 space-y-3">
+                          {prefItems.map((row) => (
+                            <div key={row.id} className="rounded-2xl bg-white/5 p-3 ring-1 ring-white/10">
+                              <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                                <div className="min-w-0">
+                                  <div className="text-sm font-extrabold">
+                                    {oneItem(row.items)?.name || "Unknown item"}
+                                  </div>
+                                  <div className="mt-1 text-xs text-white/55 break-words">
+                                    {oneItem(row.items)?.vendor || "—"} • {oneItem(row.items)?.category || "—"}
+                                    {oneItem(row.items)?.reference_number
+                                      ? ` • ${oneItem(row.items)?.reference_number}`
+                                      : ""}
+                                    {oneItem(row.items)?.barcode ? ` • ${oneItem(row.items)?.barcode}` : ""}
+                                  </div>
+                                </div>
+
+                                <button
+                                  onClick={() => removePrefItem(row)}
+                                  className="rounded-2xl bg-rose-500/15 px-3 py-2 text-xs font-extrabold text-rose-100 ring-1 ring-rose-300/20"
+                                >
+                                  Remove
+                                </button>
+                              </div>
+
+                              <div className="mt-3 grid gap-2 md:grid-cols-4">
+                                <div>
+                                  <div className="mb-1 text-xs text-white/55">Qty</div>
+                                  <input
+                                    defaultValue={String(row.qty ?? 1)}
+                                    onFocus={(e) => e.currentTarget.select()}
+                                    onBlur={(e) => savePrefItem(row, "qty", e.target.value)}
+                                    className="w-full rounded-2xl bg-white/5 px-3 py-3 text-sm font-extrabold ring-1 ring-white/10 outline-none focus:ring-white/30"
+                                  />
+                                </div>
+
+                                <div>
+                                  <div className="mb-1 text-xs text-white/55">Status</div>
+                                  <select
+                                    value={row.status}
+                                    onChange={(e) => savePrefItem(row, "status", e.target.value)}
+                                    className="w-full rounded-2xl bg-white/5 px-3 py-3 text-sm font-extrabold ring-1 ring-white/10 outline-none focus:ring-white/30"
+                                  >
+                                    <option value="OPEN">OPEN</option>
+                                    <option value="HOLD">HOLD</option>
+                                    <option value="PRN">PRN</option>
+                                  </select>
+                                </div>
+
+                                <div>
+                                  <div className="mb-1 text-xs text-white/55">Sort</div>
+                                  <input
+                                    defaultValue={String(row.sort_order ?? 0)}
+                                    onFocus={(e) => e.currentTarget.select()}
+                                    onBlur={(e) => savePrefItem(row, "sort_order", e.target.value)}
+                                    className="w-full rounded-2xl bg-white/5 px-3 py-3 text-sm font-extrabold ring-1 ring-white/10 outline-none focus:ring-white/30"
+                                  />
+                                </div>
+
+                                <div className="flex items-end">
+                                  {savingPrefKey?.startsWith(row.id) ? (
+                                    <Pill tone="neutral">Saving…</Pill>
+                                  ) : (
+                                    <Pill
+                                      tone={
+                                        row.status === "OPEN"
+                                          ? "good"
+                                          : row.status === "HOLD"
+                                          ? "warn"
+                                          : "neutral"
+                                      }
+                                    >
+                                      {row.status}
+                                    </Pill>
+                                  )}
+                                </div>
+                              </div>
+
+                              <div className="mt-2">
+                                <div className="mb-1 text-xs text-white/55">Notes</div>
+                                <input
+                                  defaultValue={row.notes || ""}
+                                  onBlur={(e) => savePrefItem(row, "notes", e.target.value)}
+                                  className="w-full rounded-2xl bg-white/5 px-3 py-3 text-sm ring-1 ring-white/10 outline-none focus:ring-white/30"
+                                  placeholder="Optional line note"
+                                />
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="mt-4 rounded-3xl bg-black/30 p-4 ring-1 ring-white/10">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="text-base font-extrabold">Active Case Pull Session</div>
+                        <div className="flex flex-wrap gap-2">
+                          <Pill tone="neutral">Planned {sessionSummary.planned}</Pill>
+                          <Pill tone="warn">Pulled {sessionSummary.pulled}</Pill>
+                          <Pill tone="good">Used {sessionSummary.used}</Pill>
+                        </div>
+                      </div>
+
+                      {!selectedSession ? (
+                        <div className="mt-4 text-sm text-white/60">
+                          Build a case pull session from this pref card to automatically pull all needed lines.
+                        </div>
+                      ) : (
+                        <>
+                          <div className="mt-3 flex flex-wrap items-center gap-2">
+                            <Pill tone="good">{selectedSession.session_name}</Pill>
+                            <Pill tone="neutral">{selectedSession.scheduled_for || "No date"}</Pill>
+                            <button
+                              onClick={deleteSession}
+                              className="rounded-2xl bg-rose-500/15 px-3 py-2 text-xs font-extrabold text-rose-100 ring-1 ring-rose-300/20"
+                            >
+                              Delete Session
+                            </button>
+                            <button
+                              onClick={printSession}
+                              className="rounded-2xl bg-white px-3 py-2 text-xs font-extrabold text-black"
+                            >
+                              Print / Save PDF
+                            </button>
+                          </div>
+
+                          {sessionItemsLoading ? (
+                            <div className="mt-4 text-sm text-white/60">Loading session lines…</div>
+                          ) : sessionItems.length === 0 ? (
+                            <div className="mt-4 text-sm text-white/60">No lines in this session.</div>
+                          ) : (
+                            <div className="mt-4 space-y-4">
+                              {[
+                                { title: "OPEN", rows: sessionOpenItems },
+                                { title: "HOLD", rows: sessionHoldItems },
+                                { title: "PRN", rows: sessionPrnItems },
+                              ].map((group) => (
+                                <div key={group.title} className="rounded-2xl bg-white/5 p-3 ring-1 ring-white/10">
+                                  <div className="text-sm font-extrabold">{group.title}</div>
+
+                                  <div className="mt-3 space-y-3">
+                                    {group.rows.length === 0 ? (
+                                      <div className="text-sm text-white/50">None</div>
+                                    ) : (
+                                      group.rows.map((row) => (
+                                        <div key={row.id} className="rounded-2xl bg-black/30 p-3 ring-1 ring-white/10">
+                                          <div className="text-sm font-extrabold">
+                                            {oneItem(row.items)?.name || "Unknown item"}
+                                          </div>
+                                          <div className="mt-1 text-xs text-white/55 break-words">
+                                            {oneItem(row.items)?.vendor || "—"} • {oneItem(row.items)?.category || "—"}
+                                            {oneItem(row.items)?.reference_number
+                                              ? ` • ${oneItem(row.items)?.reference_number}`
+                                              : ""}
+                                          </div>
+
+                                          <div className="mt-3 grid gap-2 md:grid-cols-4">
+                                            <div>
+                                              <div className="mb-1 text-xs text-white/55">Planned</div>
+                                              <input
+                                                defaultValue={String(row.planned_qty ?? 0)}
+                                                onFocus={(e) => e.currentTarget.select()}
+                                                onBlur={(e) =>
+                                                  saveSessionItem(row, "planned_qty", e.target.value)
+                                                }
+                                                className="w-full rounded-2xl bg-white/5 px-3 py-3 text-sm font-extrabold ring-1 ring-white/10 outline-none focus:ring-white/30"
+                                              />
+                                            </div>
+
+                                            <div>
+                                              <div className="mb-1 text-xs text-white/55">Pulled</div>
+                                              <input
+                                                defaultValue={String(row.pulled_qty ?? 0)}
+                                                onFocus={(e) => e.currentTarget.select()}
+                                                onBlur={(e) =>
+                                                  saveSessionItem(row, "pulled_qty", e.target.value)
+                                                }
+                                                className="w-full rounded-2xl bg-white/5 px-3 py-3 text-sm font-extrabold ring-1 ring-white/10 outline-none focus:ring-white/30"
+                                              />
+                                            </div>
+
+                                            <div>
+                                              <div className="mb-1 text-xs text-white/55">Used</div>
+                                              <input
+                                                defaultValue={String(row.used_qty ?? 0)}
+                                                onFocus={(e) => e.currentTarget.select()}
+                                                onBlur={(e) =>
+                                                  saveSessionItem(row, "used_qty", e.target.value)
+                                                }
+                                                className="w-full rounded-2xl bg-white/5 px-3 py-3 text-sm font-extrabold ring-1 ring-white/10 outline-none focus:ring-white/30"
+                                              />
+                                            </div>
+
+                                            <div className="flex items-end">
+                                              {savingSessionKey?.startsWith(row.id) ? (
+                                                <Pill tone="neutral">Saving…</Pill>
+                                              ) : (
+                                                <Pill tone="neutral">{row.line_type}</Pill>
+                                              )}
+                                            </div>
+                                          </div>
+
+                                          <div className="mt-2">
+                                            <div className="mb-1 text-xs text-white/55">Notes</div>
+                                            <input
+                                              defaultValue={row.notes || ""}
+                                              onBlur={(e) =>
+                                                saveSessionItem(row, "notes", e.target.value)
+                                              }
+                                              className="w-full rounded-2xl bg-white/5 px-3 py-3 text-sm ring-1 ring-white/10 outline-none focus:ring-white/30"
+                                              placeholder="Case line notes"
+                                            />
+                                          </div>
+                                        </div>
+                                      ))
+                                    )}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {toast && (
+          <div className="fixed bottom-4 left-1/2 z-50 -translate-x-1/2 rounded-2xl bg-black/80 px-4 py-3 text-sm font-semibold text-white ring-1 ring-white/15 backdrop-blur-xl">
+            {toast}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
