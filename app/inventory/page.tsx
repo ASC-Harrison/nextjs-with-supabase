@@ -234,6 +234,9 @@ export default function InventoryPage() {
   const [orderStatusLoading, setOrderStatusLoading] = useState(false);
   const [orderStatusRows, setOrderStatusRows] = useState<OrderStatusRow[]>([]);
 
+  const [totalsOrderLoading, setTotalsOrderLoading] = useState(false);
+  const [totalsOrderRows, setTotalsOrderRows] = useState<OrderStatusRow[]>([]);
+
   const filteredTotals = useMemo(() => {
     const q = totalsSearch.trim().toLowerCase();
     let list = totals.filter((r) =>
@@ -1073,7 +1076,54 @@ export default function InventoryPage() {
     });
   }
 
-  function openTotalsEditor(row: BuildingTotalRow) {
+  async function loadOrderRowsForItem(itemId: string, mode: "modal" | "totals" = "modal") {
+    if (mode === "modal") {
+      setOrderStatusLoading(true);
+      setOrderStatusRows([]);
+    } else {
+      setTotalsOrderLoading(true);
+      setTotalsOrderRows([]);
+    }
+
+    try {
+      const { data, error } = await supabase
+        .from("purchase_order_items")
+        .select(
+          "id,qty_ordered,qty_received,status,notes,purchase_orders(id,po_number,vendor,status,expected_date,order_date,notes)"
+        )
+        .eq("item_id", itemId)
+        .order("created_at", { ascending: false });
+
+      if (error) throw error;
+
+      if (mode === "modal") {
+        setOrderStatusRows((data as OrderStatusRow[]) ?? []);
+      } else {
+        setTotalsOrderRows((data as OrderStatusRow[]) ?? []);
+      }
+    } catch (e: any) {
+      if (mode === "modal") {
+        alert(`Order status failed: ${e?.message ?? "unknown error"}`);
+        setOrderStatusOpen(false);
+      } else {
+        setTotalsOrderRows([]);
+      }
+    } finally {
+      if (mode === "modal") {
+        setOrderStatusLoading(false);
+      } else {
+        setTotalsOrderLoading(false);
+      }
+    }
+  }
+
+  async function openOrderStatus() {
+    if (!item?.id) return;
+    setOrderStatusOpen(true);
+    await loadOrderRowsForItem(item.id, "modal");
+  }
+
+  async function openTotalsEditor(row: BuildingTotalRow) {
     setTotalsEditRow(row);
     setSetOnHandInput(String(row.total_on_hand ?? 0));
     setDeltaInput("");
@@ -1085,6 +1135,7 @@ export default function InventoryPage() {
     setTotalsLowInput(String(row.low_level ?? 0));
     setRefInput(row.reference_number ?? "");
     setTotalsEditOpen(true);
+    await loadOrderRowsForItem(row.item_id, "totals");
   }
 
   function parseIntSafe(raw: string): number | null {
@@ -1309,32 +1360,6 @@ export default function InventoryPage() {
 
     setAreaEditOpen(false);
     await loadAreaInventory();
-  }
-
-  async function openOrderStatus() {
-    if (!item?.id) return;
-
-    setOrderStatusOpen(true);
-    setOrderStatusLoading(true);
-    setOrderStatusRows([]);
-
-    try {
-      const { data, error } = await supabase
-        .from("purchase_order_items")
-        .select(
-          "id,qty_ordered,qty_received,status,notes,purchase_orders(id,po_number,vendor,status,expected_date,order_date,notes)"
-        )
-        .eq("item_id", item.id)
-        .order("created_at", { ascending: false });
-
-      if (error) throw error;
-      setOrderStatusRows((data as OrderStatusRow[]) ?? []);
-    } catch (e: any) {
-      alert(`Order status failed: ${e?.message ?? "unknown error"}`);
-      setOrderStatusOpen(false);
-    } finally {
-      setOrderStatusLoading(false);
-    }
   }
 
   const staffMissing = !staffName.trim();
@@ -2024,60 +2049,7 @@ export default function InventoryPage() {
                     No order history found for this item.
                   </div>
                 ) : (
-                  <div className="space-y-3">
-                    {orderStatusRows.map((row) => {
-                      const pending = Math.max(
-                        (row.qty_ordered ?? 0) - (row.qty_received ?? 0),
-                        0
-                      );
-
-                      return (
-                        <div
-                          key={row.id}
-                          className="rounded-2xl bg-black/30 p-3 ring-1 ring-white/10"
-                        >
-                          <div className="flex items-start justify-between gap-2">
-                            <div className="min-w-0">
-                              <div className="text-sm font-extrabold break-words">
-                                {row.purchase_orders?.vendor || "Unknown vendor"}
-                              </div>
-                              <div className="mt-1 text-xs text-white/60 break-words">
-                                PO: {row.purchase_orders?.po_number || "—"}
-                              </div>
-                            </div>
-                            <div className="rounded-2xl bg-white/10 px-3 py-2 text-xs font-extrabold ring-1 ring-white/10">
-                              {row.status}
-                            </div>
-                          </div>
-
-                          <div className="mt-3 grid grid-cols-3 gap-2 text-xs">
-                            <div className="rounded-xl bg-white/5 p-2 ring-1 ring-white/10">
-                              <div className="text-white/60">Ordered</div>
-                              <div className="font-semibold">{row.qty_ordered ?? 0}</div>
-                            </div>
-                            <div className="rounded-xl bg-white/5 p-2 ring-1 ring-white/10">
-                              <div className="text-white/60">Received</div>
-                              <div className="font-semibold">{row.qty_received ?? 0}</div>
-                            </div>
-                            <div className="rounded-xl bg-white/5 p-2 ring-1 ring-white/10">
-                              <div className="text-white/60">Pending</div>
-                              <div className="font-semibold">{pending}</div>
-                            </div>
-                          </div>
-
-                          <div className="mt-2 text-xs text-white/60">
-                            Expected: {row.purchase_orders?.expected_date || "—"}
-                          </div>
-
-                          {(row.notes || row.purchase_orders?.notes) && (
-                            <div className="mt-2 text-[11px] text-white/55 break-words">
-                              Notes: {row.notes || row.purchase_orders?.notes}
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
+                  <OrderStatusList rows={orderStatusRows} />
                 )}
               </Modal>
             )}
@@ -2281,6 +2253,25 @@ export default function InventoryPage() {
                     {totalsEditRow.reference_number
                       ? `• ${totalsEditRow.reference_number}`
                       : ""}
+                  </div>
+                </div>
+
+                <div className="mt-3 rounded-2xl bg-black/30 p-3 ring-1 ring-white/10">
+                  <div className="text-sm font-semibold">Current order status</div>
+                  <div className="mt-2 text-[11px] text-white/55">
+                    Read-only here. Use the admin On Order tab to edit purchase orders.
+                  </div>
+
+                  <div className="mt-3">
+                    {totalsOrderLoading ? (
+                      <div className="text-sm text-white/70">Loading order status…</div>
+                    ) : totalsOrderRows.length === 0 ? (
+                      <div className="rounded-2xl bg-white/5 p-3 text-sm text-white/60 ring-1 ring-white/10">
+                        No order history found for this item.
+                      </div>
+                    ) : (
+                      <OrderStatusList rows={totalsOrderRows} />
+                    )}
                   </div>
                 </div>
 
@@ -2628,6 +2619,65 @@ export default function InventoryPage() {
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+function OrderStatusList({ rows }: { rows: OrderStatusRow[] }) {
+  return (
+    <div className="space-y-3">
+      {rows.map((row) => {
+        const pending = Math.max(
+          (row.qty_ordered ?? 0) - (row.qty_received ?? 0),
+          0
+        );
+
+        return (
+          <div
+            key={row.id}
+            className="rounded-2xl bg-black/30 p-3 ring-1 ring-white/10"
+          >
+            <div className="flex items-start justify-between gap-2">
+              <div className="min-w-0">
+                <div className="text-sm font-extrabold break-words">
+                  {row.purchase_orders?.vendor || "Unknown vendor"}
+                </div>
+                <div className="mt-1 text-xs text-white/60 break-words">
+                  PO: {row.purchase_orders?.po_number || "—"}
+                </div>
+              </div>
+              <div className="rounded-2xl bg-white/10 px-3 py-2 text-xs font-extrabold ring-1 ring-white/10">
+                {row.status}
+              </div>
+            </div>
+
+            <div className="mt-3 grid grid-cols-3 gap-2 text-xs">
+              <div className="rounded-xl bg-white/5 p-2 ring-1 ring-white/10">
+                <div className="text-white/60">Ordered</div>
+                <div className="font-semibold">{row.qty_ordered ?? 0}</div>
+              </div>
+              <div className="rounded-xl bg-white/5 p-2 ring-1 ring-white/10">
+                <div className="text-white/60">Received</div>
+                <div className="font-semibold">{row.qty_received ?? 0}</div>
+              </div>
+              <div className="rounded-xl bg-white/5 p-2 ring-1 ring-white/10">
+                <div className="text-white/60">Pending</div>
+                <div className="font-semibold">{pending}</div>
+              </div>
+            </div>
+
+            <div className="mt-2 text-xs text-white/60">
+              Expected: {row.purchase_orders?.expected_date || "—"}
+            </div>
+
+            {(row.notes || row.purchase_orders?.notes) && (
+              <div className="mt-2 text-[11px] text-white/55 break-words">
+                Notes: {row.notes || row.purchase_orders?.notes}
+              </div>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }
