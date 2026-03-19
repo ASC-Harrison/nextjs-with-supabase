@@ -87,37 +87,41 @@ type PullSessionItem = {
   storage_areas?: { id?: string | null; name?: string | null } | null;
 };
 
-type PurchaseOrder = {
-  id: string;
-  po_number: string | null;
-  vendor: string;
-  status: "ORDERED" | "BACKORDER" | "PARTIAL" | "RECEIVED" | "CANCELLED";
-  order_date: string | null;
-  expected_date: string | null;
-  notes: string | null;
-  created_at: string;
-};
-
-type PurchaseOrderItem = {
-  id: string;
-  purchase_order_id: string;
-  item_id: string;
-  storage_area_id: string | null;
-  qty_ordered: number;
-  qty_received: number;
-  status: "ORDERED" | "BACKORDER" | "PARTIAL" | "RECEIVED" | "CANCELLED";
-  notes: string | null;
-  created_at: string;
-  items?: ItemSearchRow | ItemSearchRow[] | null;
-  storage_areas?: { id?: string | null; name?: string | null } | null;
-};
-
 type ApiResp = {
   ok: boolean;
   rows?: Row[];
   nextCursor?: string | null;
   hasMore?: boolean;
   error?: string;
+};
+
+type OrderItemLookupRow = {
+  id: string;
+  name: string | null;
+  barcode: string | null;
+  vendor: string | null;
+  category: string | null;
+  reference_number: string | null;
+  unit: string | null;
+};
+
+type OrderLineRow = {
+  id: string;
+  item_id: string;
+  qty_ordered: number;
+  qty_received: number;
+  status: "ORDERED" | "BACKORDER" | "PARTIAL" | "RECEIVED" | "CANCELLED";
+  notes: string | null;
+  purchase_order_id?: string | null;
+  purchase_orders?: {
+    id?: string | null;
+    po_number?: string | null;
+    vendor?: string | null;
+    status?: string | null;
+    expected_date?: string | null;
+    order_date?: string | null;
+    notes?: string | null;
+  } | null;
 };
 
 function oneItem(
@@ -226,6 +230,7 @@ function useDebounced<T>(value: T, ms: number) {
 export default function AdminPage() {
   const [tab, setTab] = useState<AdminTab>("inventory");
 
+  const [locked, setLocked] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
 
   // Inventory
@@ -275,32 +280,23 @@ export default function AdminPage() {
   const [sessionNotesInput, setSessionNotesInput] = useState("");
   const [staffNameInput, setStaffNameInput] = useState("");
 
-  // Orders
-  const [orders, setOrders] = useState<PurchaseOrder[]>([]);
-  const [ordersLoading, setOrdersLoading] = useState(false);
-  const [selectedOrderId, setSelectedOrderId] = useState("");
-  const [orderItems, setOrderItems] = useState<PurchaseOrderItem[]>([]);
-  const [orderItemsLoading, setOrderItemsLoading] = useState(false);
+  // Order item lookup
+  const [orderLookupQuery, setOrderLookupQuery] = useState("");
+  const [orderLookupLoading, setOrderLookupLoading] = useState(false);
+  const [orderLookupResults, setOrderLookupResults] = useState<OrderItemLookupRow[]>([]);
+  const dOrderLookupQuery = useDebounced(orderLookupQuery, 250);
+
+  const [selectedOrderItem, setSelectedOrderItem] = useState<OrderItemLookupRow | null>(null);
+  const [orderLines, setOrderLines] = useState<OrderLineRow[]>([]);
+  const [orderLinesLoading, setOrderLinesLoading] = useState(false);
   const [savingOrderKey, setSavingOrderKey] = useState<string | null>(null);
 
-  const [poNumberInput, setPoNumberInput] = useState("");
-  const [orderVendorInput, setOrderVendorInput] = useState("");
-  const [orderStatusInput, setOrderStatusInput] =
-    useState<PurchaseOrder["status"]>("ORDERED");
-  const [orderDateInput, setOrderDateInput] = useState("");
-  const [expectedDateInput, setExpectedDateInput] = useState("");
-  const [orderNotesInput, setOrderNotesInput] = useState("");
-
-  const [orderItemSearch, setOrderItemSearch] = useState("");
-  const [orderItemResults, setOrderItemResults] = useState<ItemSearchRow[]>([]);
-  const [orderItemSearchLoading, setOrderItemSearchLoading] = useState(false);
-  const dOrderItemSearch = useDebounced(orderItemSearch, 250);
-
   useEffect(() => {
+    setLocked(false);
     try {
+      localStorage.setItem("ASC_ADMIN_UNLOCKED", "true");
       const savedStaff = localStorage.getItem("ASC_CASE_POSTED_BY") || "";
       setStaffNameInput(savedStaff);
-      localStorage.setItem("ASC_ADMIN_UNLOCKED", "true");
     } catch {}
     loadAreas();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -590,11 +586,7 @@ export default function AdminPage() {
     );
     if (!ok) return;
 
-    const { error } = await supabase
-      .from("pref_cards")
-      .delete()
-      .eq("id", selected.id);
-
+    const { error } = await supabase.from("pref_cards").delete().eq("id", selected.id);
     if (error) return setToast(`Delete failed: ${error.message}`);
 
     setSelectedCardId("");
@@ -700,11 +692,7 @@ export default function AdminPage() {
     const ok = confirm(`Remove "${oneItem(row.items)?.name || "item"}" from this pref card?`);
     if (!ok) return;
 
-    const { error } = await supabase
-      .from("pref_card_items")
-      .delete()
-      .eq("id", row.id);
-
+    const { error } = await supabase.from("pref_card_items").delete().eq("id", row.id);
     if (error) return setToast(`Remove failed: ${error.message}`);
 
     setPrefItems((prev) => prev.filter((x) => x.id !== row.id));
@@ -987,212 +975,94 @@ export default function AdminPage() {
     window.print();
   }
 
-  // ---------------- Orders ----------------
+  // ---------------- Orders / item lookup ----------------
 
-  async function loadOrders() {
-    setOrdersLoading(true);
+  useEffect(() => {
+    if (tab !== "orders") return;
+
+    const q = dOrderLookupQuery.trim();
+    if (!q || q.length < 2) {
+      setOrderLookupResults([]);
+      setOrderLookupLoading(false);
+      return;
+    }
+
+    let alive = true;
+
+    (async () => {
+      setOrderLookupLoading(true);
+
+      const { data, error } = await supabase
+        .from("items")
+        .select("id,name,barcode,vendor,category,reference_number,unit")
+        .or(
+          `name.ilike.%${q}%,barcode.ilike.%${q}%,reference_number.ilike.%${q}%,vendor.ilike.%${q}%`
+        )
+        .order("name", { ascending: true })
+        .limit(20);
+
+      if (!alive) return;
+
+      if (error) {
+        setOrderLookupResults([]);
+        setOrderLookupLoading(false);
+        return setToast(`Item lookup failed: ${error.message}`);
+      }
+
+      setOrderLookupResults((data || []) as OrderItemLookupRow[]);
+      setOrderLookupLoading(false);
+    })();
+
+    return () => {
+      alive = false;
+    };
+  }, [dOrderLookupQuery, tab]);
+
+  async function loadOrderLinesForItem(itemId: string) {
+    if (!itemId) {
+      setOrderLines([]);
+      return;
+    }
+
+    setOrderLinesLoading(true);
 
     const { data, error } = await supabase
-      .from("purchase_orders")
-      .select("*")
+      .from("purchase_order_items")
+      .select(
+        "id,item_id,qty_ordered,qty_received,status,notes,purchase_order_id,purchase_orders(id,po_number,vendor,status,expected_date,order_date,notes)"
+      )
+      .eq("item_id", itemId)
       .order("created_at", { ascending: false });
 
     if (error) {
-      setToast(`Orders load failed: ${error.message}`);
-      setOrdersLoading(false);
-      return;
+      setOrderLines([]);
+      setOrderLinesLoading(false);
+      return setToast(`Order lines load failed: ${error.message}`);
     }
 
-    const rows = (data || []) as PurchaseOrder[];
-    setOrders(rows);
-
-    if (!selectedOrderId && rows.length > 0) {
-      setSelectedOrderId(rows[0].id);
-    } else if (selectedOrderId && !rows.some((o) => o.id === selectedOrderId)) {
-      setSelectedOrderId(rows[0]?.id || "");
-    }
-
-    setOrdersLoading(false);
+    setOrderLines((data || []) as OrderLineRow[]);
+    setOrderLinesLoading(false);
   }
 
-  async function loadOrderItems(orderId: string) {
-    if (!orderId) {
-      setOrderItems([]);
-      return;
-    }
-
-    setOrderItemsLoading(true);
-
-    const { data, error } = await supabase
-      .from("purchase_order_items")
-      .select(
-        "id,purchase_order_id,item_id,storage_area_id,qty_ordered,qty_received,status,notes,created_at,items(id,name,barcode,vendor,category,reference_number,unit),storage_areas(id,name)"
-      )
-      .eq("purchase_order_id", orderId)
-      .order("created_at", { ascending: true });
-
-    if (error) {
-      setToast(`Order items load failed: ${error.message}`);
-      setOrderItemsLoading(false);
-      return;
-    }
-
-    const normalized: PurchaseOrderItem[] = (data || []).map((row: any) => ({
-      id: row.id,
-      purchase_order_id: row.purchase_order_id,
-      item_id: row.item_id,
-      storage_area_id: row.storage_area_id ?? null,
-      qty_ordered: row.qty_ordered,
-      qty_received: row.qty_received,
-      status: row.status,
-      notes: row.notes,
-      created_at: row.created_at,
-      items: oneItem(row.items),
-      storage_areas: row.storage_areas ?? null,
-    }));
-
-    setOrderItems(normalized);
-    setOrderItemsLoading(false);
+  async function openOrderItem(itemRow: OrderItemLookupRow) {
+    setSelectedOrderItem(itemRow);
+    await loadOrderLinesForItem(itemRow.id);
   }
 
-  async function createOrder() {
-    if (!orderVendorInput.trim()) return setToast("Enter vendor");
-
-    const { data, error } = await supabase
-      .from("purchase_orders")
-      .insert({
-        po_number: poNumberInput.trim() || null,
-        vendor: orderVendorInput.trim(),
-        status: orderStatusInput,
-        order_date: orderDateInput || null,
-        expected_date: expectedDateInput || null,
-        notes: orderNotesInput.trim() || null,
-      })
-      .select("*")
-      .single();
-
-    if (error) return setToast(`Create order failed: ${error.message}`);
-
-    setToast("Order created ✅");
-    await loadOrders();
-    if (data?.id) setSelectedOrderId(data.id);
-
-    setPoNumberInput("");
-    setOrderVendorInput("");
-    setOrderStatusInput("ORDERED");
-    setOrderDateInput("");
-    setExpectedDateInput("");
-    setOrderNotesInput("");
-  }
-
-  async function saveOrderHeader() {
-    if (!selectedOrderId) return;
-    if (!orderVendorInput.trim()) return setToast("Enter vendor");
-
-    const { error } = await supabase
-      .from("purchase_orders")
-      .update({
-        po_number: poNumberInput.trim() || null,
-        vendor: orderVendorInput.trim(),
-        status: orderStatusInput,
-        order_date: orderDateInput || null,
-        expected_date: expectedDateInput || null,
-        notes: orderNotesInput.trim() || null,
-      })
-      .eq("id", selectedOrderId);
-
-    if (error) return setToast(`Save failed: ${error.message}`);
-
-    setToast("Order saved ✅");
-    await loadOrders();
-  }
-
-  async function deleteOrder() {
-    const selected = orders.find((o) => o.id === selectedOrderId);
-    if (!selected) return;
-
-    const ok = confirm(
-      `Delete order?\n\n${selected.vendor}${selected.po_number ? ` • ${selected.po_number}` : ""}\n\nThis deletes all order lines too.`
-    );
-    if (!ok) return;
-
-    const { error } = await supabase
-      .from("purchase_orders")
-      .delete()
-      .eq("id", selected.id);
-
-    if (error) return setToast(`Delete failed: ${error.message}`);
-
-    setSelectedOrderId("");
-    setOrderItems([]);
-    setToast("Order deleted");
-    await loadOrders();
-  }
-
-  function startEditingOrder(order: PurchaseOrder) {
-    setSelectedOrderId(order.id);
-    setPoNumberInput(order.po_number || "");
-    setOrderVendorInput(order.vendor || "");
-    setOrderStatusInput(order.status);
-    setOrderDateInput(order.order_date || "");
-    setExpectedDateInput(order.expected_date || "");
-    setOrderNotesInput(order.notes || "");
-  }
-
-  async function addItemToOrder(itemRow: ItemSearchRow) {
-    if (!selectedOrderId) return setToast("Select an order first");
-
-    const { data, error } = await supabase
-      .from("purchase_order_items")
-      .insert({
-        purchase_order_id: selectedOrderId,
-        item_id: itemRow.id,
-        storage_area_id: null,
-        qty_ordered: 1,
-        qty_received: 0,
-        status: "ORDERED",
-        notes: null,
-      })
-      .select(
-        "id,purchase_order_id,item_id,storage_area_id,qty_ordered,qty_received,status,notes,created_at,items(id,name,barcode,vendor,category,reference_number,unit),storage_areas(id,name)"
-      )
-      .single();
-
-    if (error) return setToast(`Add order item failed: ${error.message}`);
-
-    const normalized: PurchaseOrderItem = {
-      id: data.id,
-      purchase_order_id: data.purchase_order_id,
-      item_id: data.item_id,
-      storage_area_id: data.storage_area_id,
-      qty_ordered: data.qty_ordered,
-      qty_received: data.qty_received,
-      status: data.status,
-      notes: data.notes,
-      created_at: data.created_at,
-      items: oneItem((data as any).items),
-      storage_areas: (data as any).storage_areas ?? null,
-    };
-
-    setOrderItems((prev) => [...prev, normalized]);
-    setOrderItemSearch("");
-    setOrderItemResults([]);
-    setToast("Order item added ✅");
-  }
-
-  async function saveOrderItem(
-    row: PurchaseOrderItem,
-    field: "qty_ordered" | "qty_received" | "status" | "notes" | "storage_area_id",
+  async function saveOrderLine(
+    row: OrderLineRow,
+    field: "status" | "qty_ordered" | "qty_received" | "notes",
     value: string
   ) {
     let patch: any = {};
 
-    if (field === "notes") {
-      patch = { notes: value || null };
-    } else if (field === "storage_area_id") {
-      patch = { storage_area_id: value || null };
-    } else if (field === "status") {
+    if (field === "status") {
+      if (!["ORDERED", "BACKORDER", "PARTIAL", "RECEIVED", "CANCELLED"].includes(value)) {
+        return setToast("Invalid status");
+      }
       patch = { status: value };
+    } else if (field === "notes") {
+      patch = { notes: value || null };
     } else {
       const num = Number(value);
       if (!Number.isFinite(num) || num < 0) return setToast("Enter a valid number");
@@ -1212,40 +1082,19 @@ export default function AdminPage() {
       return setToast(`Save failed: ${error.message}`);
     }
 
-    setOrderItems((prev) =>
-      prev.map((x) =>
-        x.id === row.id
-          ? {
-              ...x,
-              ...patch,
-              storage_areas:
-                field === "storage_area_id"
-                  ? areas.find((a) => a.id === value)
-                    ? { id: value, name: areas.find((a) => a.id === value)?.name || null }
-                    : null
-                  : x.storage_areas,
-            }
-          : x
-      )
+    setOrderLines((prev) =>
+      prev.map((x) => (x.id === row.id ? { ...x, ...patch } : x))
     );
 
     setSavingOrderKey(null);
-    setToast("Saved ✅");
+    setToast("Order line saved ✅");
   }
 
-  async function removeOrderItem(row: PurchaseOrderItem) {
-    const ok = confirm(`Remove "${oneItem(row.items)?.name || "item"}" from this order?`);
-    if (!ok) return;
-
-    const { error } = await supabase
-      .from("purchase_order_items")
-      .delete()
-      .eq("id", row.id);
-
-    if (error) return setToast(`Remove failed: ${error.message}`);
-
-    setOrderItems((prev) => prev.filter((x) => x.id !== row.id));
-    setToast("Order item removed");
+  function clearOrderLookup() {
+    setOrderLookupQuery("");
+    setOrderLookupResults([]);
+    setSelectedOrderItem(null);
+    setOrderLines([]);
   }
 
   useEffect(() => {
@@ -1314,63 +1163,6 @@ export default function AdminPage() {
     };
   }, [dItemSearch, tab]);
 
-  useEffect(() => {
-    if (tab !== "orders") return;
-    loadOrders();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab]);
-
-  useEffect(() => {
-    if (tab !== "orders") return;
-    if (!selectedOrderId) {
-      setOrderItems([]);
-      return;
-    }
-    loadOrderItems(selectedOrderId);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedOrderId, tab]);
-
-  useEffect(() => {
-    if (tab !== "orders") return;
-
-    const q = dOrderItemSearch.trim();
-    if (!q || q.length < 2) {
-      setOrderItemResults([]);
-      setOrderItemSearchLoading(false);
-      return;
-    }
-
-    let alive = true;
-
-    (async () => {
-      setOrderItemSearchLoading(true);
-
-      const { data, error } = await supabase
-        .from("items")
-        .select("id,name,barcode,vendor,category,reference_number,unit")
-        .or(
-          `name.ilike.%${q}%,barcode.ilike.%${q}%,reference_number.ilike.%${q}%,vendor.ilike.%${q}%`
-        )
-        .order("name", { ascending: true })
-        .limit(12);
-
-      if (!alive) return;
-
-      if (error) {
-        setOrderItemResults([]);
-        setOrderItemSearchLoading(false);
-        return setToast(`Order item search failed: ${error.message}`);
-      }
-
-      setOrderItemResults((data || []) as ItemSearchRow[]);
-      setOrderItemSearchLoading(false);
-    })();
-
-    return () => {
-      alive = false;
-    };
-  }, [dOrderItemSearch, tab]);
-
   const selectedPrefCard = useMemo(
     () => prefCards.find((c) => c.id === selectedCardId) || null,
     [prefCards, selectedCardId]
@@ -1381,11 +1173,6 @@ export default function AdminPage() {
     [sessions, selectedSessionId]
   );
 
-  const selectedOrder = useMemo(
-    () => orders.find((o) => o.id === selectedOrderId) || null,
-    [orders, selectedOrderId]
-  );
-
   useEffect(() => {
     if (!selectedPrefCard) return;
     setSurgeonInput(selectedPrefCard.surgeon || "");
@@ -1393,16 +1180,6 @@ export default function AdminPage() {
     setSpecialtyInput(selectedPrefCard.specialty || "");
     setPrefNotesInput(selectedPrefCard.notes || "");
   }, [selectedPrefCard?.id]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  useEffect(() => {
-    if (!selectedOrder) return;
-    setPoNumberInput(selectedOrder.po_number || "");
-    setOrderVendorInput(selectedOrder.vendor || "");
-    setOrderStatusInput(selectedOrder.status);
-    setOrderDateInput(selectedOrder.order_date || "");
-    setExpectedDateInput(selectedOrder.expected_date || "");
-    setOrderNotesInput(selectedOrder.notes || "");
-  }, [selectedOrder?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const inventoryStats = useMemo(() => {
     const total = rows.length;
@@ -1419,16 +1196,14 @@ export default function AdminPage() {
   }, [prefCards, prefItems]);
 
   const orderStats = useMemo(() => {
-    const totalOrders = orders.length;
-    const openOrders = orders.filter((o) =>
-      ["ORDERED", "BACKORDER", "PARTIAL"].includes(o.status)
-    ).length;
-    const pendingItems = orderItems.reduce((sum, x) => {
-      const pending = Math.max((x.qty_ordered || 0) - (x.qty_received || 0), 0);
-      return sum + pending;
+    const results = orderLookupResults.length;
+    const lines = orderLines.length;
+    const pending = orderLines.reduce((sum, row) => {
+      const left = Math.max((row.qty_ordered ?? 0) - (row.qty_received ?? 0), 0);
+      return sum + left;
     }, 0);
-    return { totalOrders, openOrders, pendingItems };
-  }, [orders, orderItems]);
+    return { results, lines, pending };
+  }, [orderLookupResults, orderLines]);
 
   const openPrefItems = useMemo(
     () => prefItems.filter((x) => x.status === "OPEN"),
@@ -1482,7 +1257,7 @@ export default function AdminPage() {
                 Admin Center <span className="text-white/55">(Unlocked)</span>
               </h1>
               <p className="mt-1 text-sm text-white/60">
-                Inventory editing, pref cards, case pulls, and on-order tracking.
+                Inventory editing, pref card building, item order lookup, and automatic case pull sessions.
               </p>
             </div>
 
@@ -1506,26 +1281,24 @@ export default function AdminPage() {
               </div>
 
               <div className="grid grid-cols-4 gap-2 w-full md:w-auto">
+                <StatChip label="STATE" value="OPEN" tone="good" />
                 {tab === "inventory" ? (
                   <>
-                    <StatChip label="STATE" value="OPEN" tone="good" />
                     <StatChip label="ROWS" value={inventoryStats.total} />
                     <StatChip label="LOW" value={inventoryStats.low} tone={inventoryStats.low ? "warn" : "neutral"} />
                     <StatChip label="NOTIFIED" value={inventoryStats.notified} tone={inventoryStats.notified ? "warn" : "neutral"} />
                   </>
                 ) : tab === "prefcards" ? (
                   <>
-                    <StatChip label="STATE" value="OPEN" tone="good" />
                     <StatChip label="CARDS" value={prefStats.totalCards} />
                     <StatChip label="ACTIVE" value={prefStats.activeCards} tone={prefStats.activeCards ? "good" : "neutral"} />
                     <StatChip label="LINES" value={prefStats.itemCount} />
                   </>
                 ) : (
                   <>
-                    <StatChip label="STATE" value="OPEN" tone="good" />
-                    <StatChip label="ORDERS" value={orderStats.totalOrders} />
-                    <StatChip label="OPEN" value={orderStats.openOrders} tone={orderStats.openOrders ? "warn" : "neutral"} />
-                    <StatChip label="PENDING" value={orderStats.pendingItems} tone={orderStats.pendingItems ? "warn" : "neutral"} />
+                    <StatChip label="RESULTS" value={orderStats.results} />
+                    <StatChip label="LINES" value={orderStats.lines} />
+                    <StatChip label="PENDING" value={orderStats.pending} tone={orderStats.pending ? "warn" : "neutral"} />
                   </>
                 )}
               </div>
@@ -1541,7 +1314,7 @@ export default function AdminPage() {
                 Pref Cards + Pulls
               </IconButton>
               <IconButton onClick={() => setTab("orders")} active={tab === "orders"}>
-                On Order
+                Item Order Lookup
               </IconButton>
             </div>
 
@@ -2230,92 +2003,65 @@ export default function AdminPage() {
             </div>
           </div>
         ) : (
-          <div className="grid gap-4 lg:grid-cols-[320px_minmax(0,1fr)]">
+          <div className="grid gap-4 lg:grid-cols-[360px_minmax(0,1fr)]">
             <div className="space-y-4">
               <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-4 ring-1 ring-white/5">
-                <div className="text-lg font-extrabold">Create Order</div>
+                <div className="text-lg font-extrabold">Find Item Orders</div>
+                <div className="mt-1 text-sm text-white/60">
+                  Search by name, barcode, ref number, or vendor.
+                </div>
+
                 <div className="mt-3 space-y-2">
                   <input
-                    value={poNumberInput}
-                    onChange={(e) => setPoNumberInput(e.target.value)}
-                    placeholder="PO number (optional)"
+                    value={orderLookupQuery}
+                    onChange={(e) => setOrderLookupQuery(e.target.value)}
+                    placeholder="Search item..."
                     className="w-full rounded-2xl bg-white/5 px-4 py-3 text-sm ring-1 ring-white/10 outline-none focus:ring-white/30"
                   />
-                  <input
-                    value={orderVendorInput}
-                    onChange={(e) => setOrderVendorInput(e.target.value)}
-                    placeholder="Vendor"
-                    className="w-full rounded-2xl bg-white/5 px-4 py-3 text-sm ring-1 ring-white/10 outline-none focus:ring-white/30"
-                  />
-                  <select
-                    value={orderStatusInput}
-                    onChange={(e) => setOrderStatusInput(e.target.value as PurchaseOrder["status"])}
-                    className="w-full rounded-2xl bg-white/5 px-4 py-3 text-sm ring-1 ring-white/10 outline-none focus:ring-white/30"
-                  >
-                    <option value="ORDERED">ORDERED</option>
-                    <option value="BACKORDER">BACKORDER</option>
-                    <option value="PARTIAL">PARTIAL</option>
-                    <option value="RECEIVED">RECEIVED</option>
-                    <option value="CANCELLED">CANCELLED</option>
-                  </select>
-                  <input
-                    type="date"
-                    value={orderDateInput}
-                    onChange={(e) => setOrderDateInput(e.target.value)}
-                    className="w-full rounded-2xl bg-white/5 px-4 py-3 text-sm ring-1 ring-white/10 outline-none focus:ring-white/30"
-                  />
-                  <input
-                    type="date"
-                    value={expectedDateInput}
-                    onChange={(e) => setExpectedDateInput(e.target.value)}
-                    className="w-full rounded-2xl bg-white/5 px-4 py-3 text-sm ring-1 ring-white/10 outline-none focus:ring-white/30"
-                  />
-                  <textarea
-                    value={orderNotesInput}
-                    onChange={(e) => setOrderNotesInput(e.target.value)}
-                    placeholder="Order notes"
-                    className="min-h-[100px] w-full rounded-2xl bg-white/5 px-4 py-3 text-sm ring-1 ring-white/10 outline-none focus:ring-white/30"
-                  />
-                  <button
-                    onClick={createOrder}
-                    className="w-full rounded-2xl bg-white px-4 py-3 text-sm font-extrabold text-black hover:bg-white/90"
-                  >
-                    Create Order
-                  </button>
-                </div>
-              </div>
-
-              <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-4 ring-1 ring-white/5">
-                <div className="flex items-center justify-between gap-2">
-                  <div className="text-lg font-extrabold">Saved Orders</div>
-                  <Pill tone="neutral">{orders.length}</Pill>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => {
+                        if (selectedOrderItem) loadOrderLinesForItem(selectedOrderItem.id);
+                      }}
+                      className="flex-1 rounded-2xl bg-white/10 px-4 py-3 text-sm font-extrabold ring-1 ring-white/10"
+                    >
+                      Refresh
+                    </button>
+                    <button
+                      onClick={clearOrderLookup}
+                      className="rounded-2xl bg-white/10 px-4 py-3 text-sm font-extrabold ring-1 ring-white/10"
+                    >
+                      Clear
+                    </button>
+                  </div>
                 </div>
 
-                <div className="mt-3 max-h-[520px] space-y-2 overflow-y-auto pr-1">
-                  {ordersLoading ? (
-                    <div className="text-sm text-white/60">Loading…</div>
-                  ) : orders.length === 0 ? (
-                    <div className="text-sm text-white/60">No orders yet.</div>
+                <div className="mt-4 max-h-[620px] space-y-2 overflow-y-auto pr-1">
+                  {orderLookupLoading ? (
+                    <div className="text-sm text-white/60">Searching…</div>
+                  ) : orderLookupQuery.trim().length < 2 ? (
+                    <div className="text-sm text-white/50">Type at least 2 characters.</div>
+                  ) : orderLookupResults.length === 0 ? (
+                    <div className="text-sm text-white/60">No matching items.</div>
                   ) : (
-                    orders.map((order) => (
+                    orderLookupResults.map((itemRow) => (
                       <button
-                        key={order.id}
-                        onClick={() => startEditingOrder(order)}
+                        key={itemRow.id}
+                        onClick={() => openOrderItem(itemRow)}
                         className={cn(
                           "w-full rounded-2xl p-3 text-left ring-1 transition",
-                          selectedOrderId === order.id
+                          selectedOrderItem?.id === itemRow.id
                             ? "bg-white text-black ring-white/40"
                             : "bg-white/5 text-white ring-white/10 hover:bg-white/10"
                         )}
                       >
-                        <div className="text-sm font-extrabold">
-                          {order.vendor}
+                        <div className="text-sm font-extrabold">{itemRow.name || "—"}</div>
+                        <div className="mt-1 text-xs opacity-75 break-words">
+                          {itemRow.vendor || "—"} • {itemRow.category || "—"}
+                          {itemRow.reference_number ? ` • ${itemRow.reference_number}` : ""}
                         </div>
-                        <div className="mt-0.5 text-sm">
-                          {order.po_number || "No PO #"}
-                        </div>
-                        <div className="mt-1 text-xs opacity-75">
-                          {order.status} • {order.expected_date || "No expected date"}
+                        <div className="mt-1 text-xs opacity-60 break-all">
+                          {itemRow.barcode || "No barcode"}
                         </div>
                       </button>
                     ))
@@ -2328,261 +2074,157 @@ export default function AdminPage() {
               <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-4 ring-1 ring-white/5">
                 <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                   <div>
-                    <div className="text-lg font-extrabold">On Order Manager</div>
+                    <div className="text-lg font-extrabold">Item Order Editor</div>
                     <div className="mt-1 text-sm text-white/60">
-                      Track ordered items, backorders, expected dates, and pending quantities.
+                      See every purchase order line tied to the selected item and update status/quantities.
                     </div>
                   </div>
-
-                  <div className="flex flex-wrap gap-2">
-                    <button
-                      onClick={saveOrderHeader}
-                      disabled={!selectedOrder}
-                      className="rounded-2xl bg-white/10 px-4 py-2.5 text-sm font-extrabold ring-1 ring-white/10 disabled:opacity-50"
-                    >
-                      Save Order
-                    </button>
-                    <button
-                      onClick={deleteOrder}
-                      disabled={!selectedOrder}
-                      className="rounded-2xl bg-rose-500/20 px-4 py-2.5 text-sm font-extrabold text-rose-100 ring-1 ring-rose-300/25 disabled:opacity-50"
-                    >
-                      Delete Order
-                    </button>
-                  </div>
+                  {selectedOrderItem && (
+                    <Pill tone="good">{selectedOrderItem.name || "Selected item"}</Pill>
+                  )}
                 </div>
 
-                {!selectedOrder ? (
+                {!selectedOrderItem ? (
                   <div className="mt-4 rounded-2xl bg-white/5 p-4 text-sm text-white/60 ring-1 ring-white/10">
-                    Select an order from the left or create a new one.
+                    Search for an item on the left, then tap it to load all order lines.
                   </div>
                 ) : (
                   <>
-                    <div className="mt-4 grid gap-3 md:grid-cols-2">
-                      <input
-                        value={poNumberInput}
-                        onChange={(e) => setPoNumberInput(e.target.value)}
-                        placeholder="PO number"
-                        className="w-full rounded-2xl bg-white/5 px-4 py-3 text-sm ring-1 ring-white/10 outline-none focus:ring-white/30"
-                      />
-                      <input
-                        value={orderVendorInput}
-                        onChange={(e) => setOrderVendorInput(e.target.value)}
-                        placeholder="Vendor"
-                        className="w-full rounded-2xl bg-white/5 px-4 py-3 text-sm ring-1 ring-white/10 outline-none focus:ring-white/30"
-                      />
-                      <select
-                        value={orderStatusInput}
-                        onChange={(e) => setOrderStatusInput(e.target.value as PurchaseOrder["status"])}
-                        className="w-full rounded-2xl bg-white/5 px-4 py-3 text-sm ring-1 ring-white/10 outline-none focus:ring-white/30"
-                      >
-                        <option value="ORDERED">ORDERED</option>
-                        <option value="BACKORDER">BACKORDER</option>
-                        <option value="PARTIAL">PARTIAL</option>
-                        <option value="RECEIVED">RECEIVED</option>
-                        <option value="CANCELLED">CANCELLED</option>
-                      </select>
-                      <input
-                        type="date"
-                        value={orderDateInput}
-                        onChange={(e) => setOrderDateInput(e.target.value)}
-                        className="w-full rounded-2xl bg-white/5 px-4 py-3 text-sm ring-1 ring-white/10 outline-none focus:ring-white/30"
-                      />
-                      <input
-                        type="date"
-                        value={expectedDateInput}
-                        onChange={(e) => setExpectedDateInput(e.target.value)}
-                        className="w-full rounded-2xl bg-white/5 px-4 py-3 text-sm ring-1 ring-white/10 outline-none focus:ring-white/30"
-                      />
-                      <div className="flex items-center">
-                        <Pill
-                          tone={
-                            orderStatusInput === "RECEIVED"
-                              ? "good"
-                              : orderStatusInput === "CANCELLED"
-                              ? "bad"
-                              : "warn"
-                          }
-                        >
-                          {orderStatusInput}
-                        </Pill>
+                    <div className="mt-4 rounded-2xl bg-black/30 p-4 ring-1 ring-white/10">
+                      <div className="text-sm font-extrabold">
+                        {selectedOrderItem.name || "Unknown item"}
+                      </div>
+                      <div className="mt-2 text-xs text-white/55 break-words">
+                        {selectedOrderItem.vendor || "—"} • {selectedOrderItem.category || "—"}
+                        {selectedOrderItem.reference_number
+                          ? ` • ${selectedOrderItem.reference_number}`
+                          : ""}
+                      </div>
+                      <div className="mt-1 text-xs text-white/45 break-all">
+                        Barcode: {selectedOrderItem.barcode || "—"}
                       </div>
                     </div>
 
-                    <textarea
-                      value={orderNotesInput}
-                      onChange={(e) => setOrderNotesInput(e.target.value)}
-                      placeholder="Order notes"
-                      className="mt-3 min-h-[90px] w-full rounded-2xl bg-white/5 px-4 py-3 text-sm ring-1 ring-white/10 outline-none focus:ring-white/30"
-                    />
-
-                    <div className="mt-4 rounded-3xl bg-black/30 p-4 ring-1 ring-white/10">
-                      <div className="text-base font-extrabold">Add Items To Order</div>
-                      <div className="mt-2 flex flex-col gap-2">
-                        <input
-                          value={orderItemSearch}
-                          onChange={(e) => setOrderItemSearch(e.target.value)}
-                          placeholder="Search items by name, barcode, ref, vendor…"
-                          className="w-full rounded-2xl bg-white/5 px-4 py-3 text-sm ring-1 ring-white/10 outline-none focus:ring-white/30"
-                        />
-                        <div className="text-xs text-white/50">
-                          Type 2+ characters to search your current items.
-                        </div>
+                    {orderLinesLoading ? (
+                      <div className="mt-4 text-sm text-white/60">Loading order lines…</div>
+                    ) : orderLines.length === 0 ? (
+                      <div className="mt-4 rounded-2xl bg-white/5 p-4 text-sm text-white/60 ring-1 ring-white/10">
+                        No purchase order lines found for this item.
                       </div>
+                    ) : (
+                      <div className="mt-4 space-y-3">
+                        {orderLines.map((row) => {
+                          const pending = Math.max(
+                            (row.qty_ordered ?? 0) - (row.qty_received ?? 0),
+                            0
+                          );
 
-                      <div className="mt-3 space-y-2">
-                        {orderItemSearchLoading ? (
-                          <div className="text-sm text-white/60">Searching…</div>
-                        ) : orderItemResults.length === 0 ? (
-                          <div className="text-sm text-white/50">No search results yet.</div>
-                        ) : (
-                          orderItemResults.map((r) => (
-                            <button
-                              key={r.id}
-                              onClick={() => addItemToOrder(r)}
-                              className="w-full rounded-2xl bg-white/5 p-3 text-left ring-1 ring-white/10 hover:bg-white/10"
+                          return (
+                            <div
+                              key={row.id}
+                              className="rounded-2xl bg-black/30 p-4 ring-1 ring-white/10"
                             >
-                              <div className="text-sm font-extrabold">{r.name || "—"}</div>
-                              <div className="mt-1 text-xs text-white/55 break-words">
-                                {r.vendor || "—"} • {r.category || "—"}
-                                {r.reference_number ? ` • ${r.reference_number}` : ""}
-                                {r.barcode ? ` • ${r.barcode}` : ""}
+                              <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                                <div className="min-w-0">
+                                  <div className="text-sm font-extrabold break-words">
+                                    PO {row.purchase_orders?.po_number || "—"}
+                                  </div>
+                                  <div className="mt-1 text-xs text-white/55 break-words">
+                                    {row.purchase_orders?.vendor || "—"} • PO status:{" "}
+                                    {row.purchase_orders?.status || "—"}
+                                  </div>
+                                  <div className="mt-1 text-xs text-white/45">
+                                    Expected: {row.purchase_orders?.expected_date || "—"}
+                                  </div>
+                                  <div className="mt-1 text-xs text-white/45">
+                                    Pending on this line: {pending}
+                                  </div>
+                                </div>
+
+                                <div className="flex items-center gap-2">
+                                  {savingOrderKey?.startsWith(row.id) ? (
+                                    <Pill tone="neutral">Saving…</Pill>
+                                  ) : (
+                                    <Pill
+                                      tone={
+                                        row.status === "BACKORDER"
+                                          ? "warn"
+                                          : row.status === "CANCELLED"
+                                          ? "bad"
+                                          : row.status === "RECEIVED"
+                                          ? "good"
+                                          : "neutral"
+                                      }
+                                    >
+                                      {row.status}
+                                    </Pill>
+                                  )}
+                                </div>
                               </div>
-                            </button>
-                          ))
-                        )}
-                      </div>
-                    </div>
 
-                    <div className="mt-4 rounded-3xl bg-black/30 p-4 ring-1 ring-white/10">
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="text-base font-extrabold">Order Items</div>
-                        <div className="flex gap-2">
-                          <Pill tone="neutral">{orderItems.length} lines</Pill>
-                          <Pill tone="warn">
-                            Pending{" "}
-                            {orderItems.reduce(
-                              (sum, x) => sum + Math.max((x.qty_ordered || 0) - (x.qty_received || 0), 0),
-                              0
-                            )}
-                          </Pill>
-                        </div>
-                      </div>
-
-                      {orderItemsLoading ? (
-                        <div className="mt-4 text-sm text-white/60">Loading items…</div>
-                      ) : orderItems.length === 0 ? (
-                        <div className="mt-4 text-sm text-white/60">No items on this order yet.</div>
-                      ) : (
-                        <div className="mt-4 space-y-3">
-                          {orderItems.map((row) => {
-                            const pending = Math.max(
-                              (row.qty_ordered || 0) - (row.qty_received || 0),
-                              0
-                            );
-
-                            return (
-                              <div key={row.id} className="rounded-2xl bg-white/5 p-3 ring-1 ring-white/10">
-                                <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                                  <div className="min-w-0">
-                                    <div className="text-sm font-extrabold">
-                                      {oneItem(row.items)?.name || "Unknown item"}
-                                    </div>
-                                    <div className="mt-1 text-xs text-white/55 break-words">
-                                      {oneItem(row.items)?.vendor || "—"} • {oneItem(row.items)?.category || "—"}
-                                      {oneItem(row.items)?.reference_number
-                                        ? ` • ${oneItem(row.items)?.reference_number}`
-                                        : ""}
-                                      {oneItem(row.items)?.barcode ? ` • ${oneItem(row.items)?.barcode}` : ""}
-                                    </div>
-                                  </div>
-
-                                  <button
-                                    onClick={() => removeOrderItem(row)}
-                                    className="rounded-2xl bg-rose-500/15 px-3 py-2 text-xs font-extrabold text-rose-100 ring-1 ring-rose-300/20"
+                              <div className="mt-4 grid gap-2 md:grid-cols-4">
+                                <div>
+                                  <div className="mb-1 text-xs text-white/55">Line status</div>
+                                  <select
+                                    value={row.status}
+                                    onChange={(e) => saveOrderLine(row, "status", e.target.value)}
+                                    className="w-full rounded-2xl bg-white/5 px-3 py-3 text-sm font-extrabold ring-1 ring-white/10 outline-none focus:ring-white/30"
                                   >
-                                    Remove
-                                  </button>
+                                    <option value="ORDERED">ORDERED</option>
+                                    <option value="BACKORDER">BACKORDER</option>
+                                    <option value="PARTIAL">PARTIAL</option>
+                                    <option value="RECEIVED">RECEIVED</option>
+                                    <option value="CANCELLED">CANCELLED</option>
+                                  </select>
                                 </div>
 
-                                <div className="mt-3 grid gap-2 md:grid-cols-5">
-                                  <div>
-                                    <div className="mb-1 text-xs text-white/55">Location</div>
-                                    <select
-                                      value={row.storage_area_id || ""}
-                                      onChange={(e) => saveOrderItem(row, "storage_area_id", e.target.value)}
-                                      className="w-full rounded-2xl bg-white/5 px-3 py-3 text-sm font-extrabold ring-1 ring-white/10 outline-none focus:ring-white/30"
-                                    >
-                                      <option value="">Select area</option>
-                                      {areas.map((a) => (
-                                        <option key={a.id} value={a.id}>
-                                          {a.name}
-                                        </option>
-                                      ))}
-                                    </select>
-                                  </div>
-
-                                  <div>
-                                    <div className="mb-1 text-xs text-white/55">Ordered</div>
-                                    <input
-                                      defaultValue={String(row.qty_ordered ?? 0)}
-                                      onFocus={(e) => e.currentTarget.select()}
-                                      onBlur={(e) => saveOrderItem(row, "qty_ordered", e.target.value)}
-                                      className="w-full rounded-2xl bg-white/5 px-3 py-3 text-sm font-extrabold ring-1 ring-white/10 outline-none focus:ring-white/30"
-                                    />
-                                  </div>
-
-                                  <div>
-                                    <div className="mb-1 text-xs text-white/55">Received</div>
-                                    <input
-                                      defaultValue={String(row.qty_received ?? 0)}
-                                      onFocus={(e) => e.currentTarget.select()}
-                                      onBlur={(e) => saveOrderItem(row, "qty_received", e.target.value)}
-                                      className="w-full rounded-2xl bg-white/5 px-3 py-3 text-sm font-extrabold ring-1 ring-white/10 outline-none focus:ring-white/30"
-                                    />
-                                  </div>
-
-                                  <div>
-                                    <div className="mb-1 text-xs text-white/55">Status</div>
-                                    <select
-                                      value={row.status}
-                                      onChange={(e) => saveOrderItem(row, "status", e.target.value)}
-                                      className="w-full rounded-2xl bg-white/5 px-3 py-3 text-sm font-extrabold ring-1 ring-white/10 outline-none focus:ring-white/30"
-                                    >
-                                      <option value="ORDERED">ORDERED</option>
-                                      <option value="BACKORDER">BACKORDER</option>
-                                      <option value="PARTIAL">PARTIAL</option>
-                                      <option value="RECEIVED">RECEIVED</option>
-                                      <option value="CANCELLED">CANCELLED</option>
-                                    </select>
-                                  </div>
-
-                                  <div className="flex items-end">
-                                    {savingOrderKey?.startsWith(row.id) ? (
-                                      <Pill tone="neutral">Saving…</Pill>
-                                    ) : pending > 0 ? (
-                                      <Pill tone="warn">Pending {pending}</Pill>
-                                    ) : (
-                                      <Pill tone="good">Complete</Pill>
-                                    )}
-                                  </div>
-                                </div>
-
-                                <div className="mt-2">
-                                  <div className="mb-1 text-xs text-white/55">Notes</div>
+                                <div>
+                                  <div className="mb-1 text-xs text-white/55">Qty ordered</div>
                                   <input
-                                    defaultValue={row.notes || ""}
-                                    onBlur={(e) => saveOrderItem(row, "notes", e.target.value)}
-                                    className="w-full rounded-2xl bg-white/5 px-3 py-3 text-sm ring-1 ring-white/10 outline-none focus:ring-white/30"
-                                    placeholder="Delay / backorder / receiving notes"
+                                    defaultValue={String(row.qty_ordered ?? 0)}
+                                    onFocus={(e) => e.currentTarget.select()}
+                                    onBlur={(e) => saveOrderLine(row, "qty_ordered", e.target.value)}
+                                    className="w-full rounded-2xl bg-white/5 px-3 py-3 text-sm font-extrabold ring-1 ring-white/10 outline-none focus:ring-white/30"
                                   />
                                 </div>
+
+                                <div>
+                                  <div className="mb-1 text-xs text-white/55">Qty received</div>
+                                  <input
+                                    defaultValue={String(row.qty_received ?? 0)}
+                                    onFocus={(e) => e.currentTarget.select()}
+                                    onBlur={(e) => saveOrderLine(row, "qty_received", e.target.value)}
+                                    className="w-full rounded-2xl bg-white/5 px-3 py-3 text-sm font-extrabold ring-1 ring-white/10 outline-none focus:ring-white/30"
+                                  />
+                                </div>
+
+                                <div className="flex items-end">
+                                  <div className="w-full rounded-2xl bg-white/5 px-3 py-3 text-sm font-extrabold ring-1 ring-white/10">
+                                    Pending: {pending}
+                                  </div>
+                                </div>
                               </div>
-                            );
-                          })}
-                        </div>
-                      )}
-                    </div>
+
+                              <div className="mt-3">
+                                <div className="mb-1 text-xs text-white/55">Line notes</div>
+                                <input
+                                  defaultValue={row.notes || ""}
+                                  onBlur={(e) => saveOrderLine(row, "notes", e.target.value)}
+                                  className="w-full rounded-2xl bg-white/5 px-3 py-3 text-sm ring-1 ring-white/10 outline-none focus:ring-white/30"
+                                  placeholder="Backorder note / vendor note / etc."
+                                />
+                              </div>
+
+                              {row.purchase_orders?.notes && (
+                                <div className="mt-3 rounded-2xl bg-white/5 p-3 text-xs text-white/55 ring-1 ring-white/10">
+                                  PO Notes: {row.purchase_orders.notes}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
                   </>
                 )}
               </div>
