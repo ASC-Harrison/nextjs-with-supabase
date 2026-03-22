@@ -15,6 +15,8 @@ type Item = {
   name: string;
   barcode: string;
   reference_number?: string | null;
+  order_status?: string | null;
+  backordered?: boolean | null;
 };
 
 type AuditEvent = {
@@ -42,7 +44,8 @@ type AuditEvent = {
     | "AREA_ROW_EDIT_OPEN"
     | "AREA_ROW_EDIT_SAVE"
     | "ITEM_INACTIVE"
-    | "ITEM_RESTORED";
+    | "ITEM_RESTORED"
+    | "ITEM_STATUS_SAVE";
   details?: string;
 };
 
@@ -58,6 +61,8 @@ type BuildingTotalRow = {
   unit: string | null;
   notes: string | null;
   is_active: boolean | null;
+  order_status?: string | null;
+  backordered?: boolean | null;
 };
 
 type AreaInvRow = {
@@ -73,6 +78,8 @@ type AreaInvRow = {
   category: string | null;
   reference_number: string | null;
   notes: string | null;
+  order_status?: string | null;
+  backordered?: boolean | null;
 };
 
 type LastTx = {
@@ -102,6 +109,16 @@ type OrderStatusRow = {
     notes?: string | null;
   } | null;
 };
+
+const ITEM_STATUS_OPTIONS = [
+  "IN STOCK",
+  "ORDERED",
+  "BACKORDER",
+  "PARTIAL",
+  "OUT OF STOCK",
+  "RECEIVED",
+  "CANCELLED",
+] as const;
 
 const LS = {
   PIN: "asc_pin_v1",
@@ -156,7 +173,7 @@ export default function InventoryPage() {
   const [locked, setLocked] = useState(true);
   const [pinOpen, setPinOpen] = useState(false);
   const [pinPurpose, setPinPurpose] = useState<
-    "unlock" | "lock" | "changeLocation" | "addItem" | "totalsEdit" | "areaRowEdit"
+    "unlock" | "lock" | "changeLocation" | "addItem" | "totalsEdit" | "areaRowEdit" | "itemStatusEdit"
   >("unlock");
   const [pinInput, setPinInput] = useState("");
   const [pendingArea, setPendingArea] = useState("");
@@ -197,6 +214,8 @@ export default function InventoryPage() {
   const [notesInput, setNotesInput] = useState<string>("");
   const [totalsLowInput, setTotalsLowInput] = useState<string>("");
   const [refInput, setRefInput] = useState<string>("");
+  const [totalsOrderStatusInput, setTotalsOrderStatusInput] = useState<string>("IN STOCK");
+  const [totalsBackorderedInput, setTotalsBackorderedInput] = useState<boolean>(false);
 
   const [pendingTotalsAction, setPendingTotalsAction] = useState<
     | null
@@ -237,6 +256,22 @@ export default function InventoryPage() {
   const [totalsOrderLoading, setTotalsOrderLoading] = useState(false);
   const [totalsOrderRows, setTotalsOrderRows] = useState<OrderStatusRow[]>([]);
 
+  const [itemStatusSaving, setItemStatusSaving] = useState(false);
+  const [itemStatusDraft, setItemStatusDraft] = useState<{
+    order_status: string;
+    backordered: boolean;
+  }>({
+    order_status: "IN STOCK",
+    backordered: false,
+  });
+
+  const [pendingItemStatusSave, setPendingItemStatusSave] = useState<null | {
+    item_id: string;
+    order_status: string;
+    backordered: boolean;
+    item_name?: string;
+  }>(null);
+
   const filteredTotals = useMemo(() => {
     const q = totalsSearch.trim().toLowerCase();
     let list = totals.filter((r) =>
@@ -249,7 +284,8 @@ export default function InventoryPage() {
           (r.name || "").toLowerCase().includes(q) ||
           (r.vendor || "").toLowerCase().includes(q) ||
           (r.category || "").toLowerCase().includes(q) ||
-          (r.reference_number || "").toLowerCase().includes(q)
+          (r.reference_number || "").toLowerCase().includes(q) ||
+          (r.order_status || "").toLowerCase().includes(q)
         );
       });
     }
@@ -283,7 +319,8 @@ export default function InventoryPage() {
           (r.item_name || "").toLowerCase().includes(q) ||
           (r.vendor || "").toLowerCase().includes(q) ||
           (r.category || "").toLowerCase().includes(q) ||
-          (r.reference_number || "").toLowerCase().includes(q)
+          (r.reference_number || "").toLowerCase().includes(q) ||
+          (r.order_status || "").toLowerCase().includes(q)
         );
       });
     }
@@ -428,7 +465,7 @@ export default function InventoryPage() {
       const { data, error } = await supabase
         .from("building_inventory_sheet_view")
         .select(
-          "item_id,name,reference_number,vendor,category,total_on_hand,par_level,low_level,unit,notes,is_active"
+          "item_id,name,reference_number,vendor,category,total_on_hand,par_level,low_level,unit,notes,is_active,order_status,backordered"
         )
         .order("name", { ascending: true });
 
@@ -459,7 +496,7 @@ export default function InventoryPage() {
       const { data, error } = await supabase
         .from("storage_inventory_area_view")
         .select(
-          "storage_area_id,storage_area_name,item_id,item_name,on_hand,par_level,low_level,unit,vendor,category,reference_number,notes"
+          "storage_area_id,storage_area_name,item_id,item_name,on_hand,par_level,low_level,unit,vendor,category,reference_number,notes,order_status,backordered"
         )
         .eq("storage_area_id", areaId)
         .order("item_name", { ascending: true });
@@ -619,11 +656,20 @@ export default function InventoryPage() {
   }
 
   function mapItemRow(r: any): Item {
+    const itemObj = Array.isArray(r.items) ? r.items[0] : r.items;
     return {
       id: r.id,
       name: r.name,
       barcode: r.barcode ?? "",
       reference_number: r.reference_number ?? null,
+      order_status:
+        r.order_status ??
+        itemObj?.order_status ??
+        "IN STOCK",
+      backordered:
+        r.backordered ??
+        itemObj?.backordered ??
+        false,
     };
   }
 
@@ -653,6 +699,10 @@ export default function InventoryPage() {
     if (json.item) {
       const it = mapItemRow(json.item);
       setItem(it);
+      setItemStatusDraft({
+        order_status: it.order_status || "IN STOCK",
+        backordered: !!it.backordered,
+      });
       setStatus(`Found: ${it.name}`);
       pushAudit({
         action: "LOOKUP_FOUND",
@@ -820,6 +870,19 @@ export default function InventoryPage() {
       await saveAreaRow(payload, true);
       return;
     }
+
+    if (pinPurpose === "itemStatusEdit") {
+      const payload = pendingItemStatusSave;
+      setPendingItemStatusSave(null);
+      if (!payload) return;
+      await doSaveItemStatus(
+        payload.item_id,
+        payload.order_status,
+        payload.backordered,
+        payload.item_name
+      );
+      return;
+    }
   }
 
   function requestLocationChange(newId: string) {
@@ -859,7 +922,12 @@ export default function InventoryPage() {
     const json = await res.json();
     if (!json.ok) return alert(`Add failed: ${json.error}`);
 
-    setItem(mapItemRow(json.item));
+    const nextItem = mapItemRow(json.item);
+    setItem(nextItem);
+    setItemStatusDraft({
+      order_status: nextItem.order_status || "IN STOCK",
+      backordered: !!nextItem.backordered,
+    });
     setMatches([]);
     setAddOpen(false);
     setStatus(`Added: ${json.item.name}`);
@@ -1134,6 +1202,8 @@ export default function InventoryPage() {
     setNotesInput(row.notes ?? "");
     setTotalsLowInput(String(row.low_level ?? 0));
     setRefInput(row.reference_number ?? "");
+    setTotalsOrderStatusInput(row.order_status || "IN STOCK");
+    setTotalsBackorderedInput(!!row.backordered);
     setTotalsEditOpen(true);
     await loadOrderRowsForItem(row.item_id, "totals");
   }
@@ -1285,6 +1355,114 @@ export default function InventoryPage() {
 
     setTotalsEditOpen(false);
     await loadTotals();
+  }
+
+  async function doSaveItemStatus(
+    itemId: string,
+    order_status: string,
+    backordered: boolean,
+    itemName?: string
+  ) {
+    setItemStatusSaving(true);
+    try {
+      const cleanStatus = (order_status || "IN STOCK").trim().toUpperCase();
+
+      const { error } = await supabase
+        .from("items")
+        .update({
+          order_status: cleanStatus,
+          backordered: !!backordered,
+        })
+        .eq("id", itemId);
+
+      if (error) throw error;
+
+      if (item && item.id === itemId) {
+        setItem({
+          ...item,
+          order_status: cleanStatus,
+          backordered: !!backordered,
+        });
+      }
+
+      setMatches((prev) =>
+        prev.map((m) =>
+          m.id === itemId
+            ? { ...m, order_status: cleanStatus, backordered: !!backordered }
+            : m
+        )
+      );
+
+      setTotals((prev) =>
+        prev.map((r) =>
+          r.item_id === itemId
+            ? { ...r, order_status: cleanStatus, backordered: !!backordered }
+            : r
+        )
+      );
+
+      setAreaInv((prev) =>
+        prev.map((r) =>
+          r.item_id === itemId
+            ? { ...r, order_status: cleanStatus, backordered: !!backordered }
+            : r
+        )
+      );
+
+      if (totalsEditRow?.item_id === itemId) {
+        setTotalsEditRow({
+          ...totalsEditRow,
+          order_status: cleanStatus,
+          backordered: !!backordered,
+        });
+        setTotalsOrderStatusInput(cleanStatus);
+        setTotalsBackorderedInput(!!backordered);
+      }
+
+      if (areaEditRow?.item_id === itemId) {
+        setAreaEditRow({
+          ...areaEditRow,
+          order_status: cleanStatus,
+          backordered: !!backordered,
+        });
+      }
+
+      setStatus(`Saved item status for ${itemName || item?.name || "item"}`);
+      pushAudit({
+        action: "ITEM_STATUS_SAVE",
+        details: `Item=${itemName || item?.name || itemId} Status=${cleanStatus} Backordered=${backordered ? "YES" : "NO"}`,
+      });
+    } catch (e: any) {
+      alert(`Status save failed: ${e?.message ?? "unknown error"}`);
+    } finally {
+      setItemStatusSaving(false);
+    }
+  }
+
+  async function saveItemStatus(
+    itemId: string,
+    order_status: string,
+    backordered: boolean,
+    itemName?: string
+  ) {
+    if (!staffName.trim()) {
+      setTab("Audit");
+      alert("Enter staff name in Audit tab first.");
+      return;
+    }
+
+    if (locked) {
+      setPendingItemStatusSave({
+        item_id: itemId,
+        order_status,
+        backordered,
+        item_name: itemName,
+      });
+      openPin("itemStatusEdit");
+      return;
+    }
+
+    await doSaveItemStatus(itemId, order_status, backordered, itemName);
   }
 
   function openAreaRowEditor(row: AreaInvRow) {
@@ -1564,7 +1742,7 @@ export default function InventoryPage() {
                   <input
                     value={areaInvSearch}
                     onChange={(e) => setAreaInvSearch(e.target.value)}
-                    placeholder="Search item/vendor/category…"
+                    placeholder="Search item/vendor/category/status…"
                     className="w-full rounded-2xl bg-white text-black px-4 py-3"
                   />
                 </div>
@@ -1596,6 +1774,10 @@ export default function InventoryPage() {
                             <div className="mt-1 text-xs text-white/60 break-words">
                               {r.vendor ?? "—"} • {r.category ?? "—"}{" "}
                               {r.reference_number ? `• ${r.reference_number}` : ""}
+                            </div>
+                            <div className="mt-1 text-[11px] text-white/55">
+                              Status: {r.order_status || "IN STOCK"}{" "}
+                              {r.backordered ? "• BACKORDERED" : ""}
                             </div>
                           </div>
 
@@ -1671,6 +1853,60 @@ export default function InventoryPage() {
                       </div>
                     </div>
 
+                    <div className="mt-3 rounded-2xl bg-black/30 p-3 ring-1 ring-white/10">
+                      <div className="text-sm font-semibold">Item status</div>
+
+                      <div className="mt-3">
+                        <div className="mb-1 text-xs text-white/60">Order status</div>
+                        <select
+                          value={areaEditRow.order_status || "IN STOCK"}
+                          onChange={(e) =>
+                            setAreaEditRow({
+                              ...areaEditRow,
+                              order_status: e.target.value,
+                            })
+                          }
+                          className="w-full rounded-2xl bg-white text-black px-3 py-3"
+                        >
+                          {ITEM_STATUS_OPTIONS.map((opt) => (
+                            <option key={opt} value={opt}>
+                              {opt}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <label className="mt-3 flex items-center gap-2 text-sm">
+                        <input
+                          type="checkbox"
+                          checked={!!areaEditRow.backordered}
+                          onChange={(e) =>
+                            setAreaEditRow({
+                              ...areaEditRow,
+                              backordered: e.target.checked,
+                            })
+                          }
+                        />
+                        <span>Backordered</span>
+                      </label>
+
+                      <button
+                        onClick={async () => {
+                          await saveItemStatus(
+                            areaEditRow.item_id,
+                            areaEditRow.order_status || "IN STOCK",
+                            !!areaEditRow.backordered,
+                            areaEditRow.item_name
+                          );
+                          await loadAreaInventory();
+                        }}
+                        disabled={itemStatusSaving}
+                        className="mt-3 w-full rounded-2xl bg-white px-4 py-3 text-sm font-extrabold text-black disabled:opacity-60"
+                      >
+                        {itemStatusSaving ? "Saving..." : "Save Item Status"}
+                      </button>
+                    </div>
+
                     <div className="mt-4 grid grid-cols-3 gap-2">
                       <div>
                         <div className="text-xs text-white/60 mb-1">On hand</div>
@@ -1708,8 +1944,8 @@ export default function InventoryPage() {
                     </div>
 
                     <div className="mt-2 text-xs text-white/50">
-                      Saves to <span className="font-semibold">storage_inventory</span> for this
-                      area + item.
+                      Saves counts to <span className="font-semibold">storage_inventory</span> and
+                      status to <span className="font-semibold">items</span>.
                     </div>
                   </Modal>
                 )}
@@ -1889,6 +2125,10 @@ export default function InventoryPage() {
                         key={m.id}
                         onClick={() => {
                           setItem(m);
+                          setItemStatusDraft({
+                            order_status: m.order_status || "IN STOCK",
+                            backordered: !!m.backordered,
+                          });
                           setOrderStatusRows([]);
                           setMatches([]);
                           setStatus(`Selected: ${m.name}`);
@@ -1900,6 +2140,9 @@ export default function InventoryPage() {
                           {m.reference_number ? `Ref: ${m.reference_number}` : "Ref: —"}
                           {" • "}
                           {m.barcode ? `Barcode: ${m.barcode}` : "Barcode: —"}
+                        </div>
+                        <div className="mt-1 text-[11px] text-white/55">
+                          Status: {m.order_status || "IN STOCK"} {m.backordered ? "• BACKORDERED" : ""}
                         </div>
                       </button>
                     ))}
@@ -1919,11 +2162,68 @@ export default function InventoryPage() {
                       {item.barcode ? `Barcode: ${item.barcode}` : ""}
                     </div>
 
+                    <div className="mt-3 rounded-2xl bg-white/5 p-3 ring-1 ring-white/10">
+                      <div className="text-sm font-semibold">Item status</div>
+
+                      <div className="mt-3">
+                        <div className="mb-1 text-xs text-white/60">Order status</div>
+                        <select
+                          value={itemStatusDraft.order_status}
+                          onChange={(e) =>
+                            setItemStatusDraft((prev) => ({
+                              ...prev,
+                              order_status: e.target.value,
+                            }))
+                          }
+                          className="w-full rounded-2xl bg-white text-black px-4 py-3"
+                        >
+                          {ITEM_STATUS_OPTIONS.map((opt) => (
+                            <option key={opt} value={opt}>
+                              {opt}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <label className="mt-3 flex items-center gap-2 text-sm">
+                        <input
+                          type="checkbox"
+                          checked={itemStatusDraft.backordered}
+                          onChange={(e) =>
+                            setItemStatusDraft((prev) => ({
+                              ...prev,
+                              backordered: e.target.checked,
+                            }))
+                          }
+                        />
+                        <span>Backordered</span>
+                      </label>
+
+                      <button
+                        onClick={async () => {
+                          await saveItemStatus(
+                            item.id,
+                            itemStatusDraft.order_status,
+                            itemStatusDraft.backordered,
+                            item.name
+                          );
+                        }}
+                        disabled={itemStatusSaving || staffMissing}
+                        className="mt-3 w-full rounded-2xl bg-white px-4 py-3 text-sm font-extrabold text-black disabled:opacity-60"
+                      >
+                        {itemStatusSaving ? "Saving..." : "Save Item Status"}
+                      </button>
+
+                      <div className="mt-2 text-[11px] text-white/55">
+                        This updates the item itself so app and admin both see it.
+                      </div>
+                    </div>
+
                     <button
                       onClick={openOrderStatus}
                       className="mt-3 w-full rounded-2xl bg-white/10 px-4 py-3 text-sm font-extrabold text-white ring-1 ring-white/10"
                     >
-                      View Order Status
+                      View Order History
                     </button>
                   </div>
                 )}
@@ -1967,6 +2267,8 @@ export default function InventoryPage() {
                     ? "Enter PIN to add item"
                     : pinPurpose === "areaRowEdit"
                     ? "Enter PIN to edit this area item"
+                    : pinPurpose === "itemStatusEdit"
+                    ? "Enter PIN to save item status"
                     : "Enter PIN to edit totals"
                 }
                 okText="OK"
@@ -1975,6 +2277,7 @@ export default function InventoryPage() {
                   setPendingArea("");
                   setPendingTotalsAction(null);
                   setPendingAreaRowSave(null);
+                  setPendingItemStatusSave(null);
                 }}
                 onOk={onPinConfirm}
               >
@@ -2042,6 +2345,15 @@ export default function InventoryPage() {
                 onCancel={() => setOrderStatusOpen(false)}
                 onOk={() => setOrderStatusOpen(false)}
               >
+                {item && (
+                  <div className="mb-3 rounded-2xl bg-black/30 p-3 ring-1 ring-white/10">
+                    <div className="text-sm font-semibold">Current item status</div>
+                    <div className="mt-1 text-xs text-white/60">
+                      {item.order_status || "IN STOCK"} {item.backordered ? "• BACKORDERED" : ""}
+                    </div>
+                  </div>
+                )}
+
                 {orderStatusLoading ? (
                   <div className="text-sm text-white/70">Loading…</div>
                 ) : orderStatusRows.length === 0 ? (
@@ -2069,7 +2381,7 @@ export default function InventoryPage() {
               <input
                 value={totalsSearch}
                 onChange={(e) => setTotalsSearch(e.target.value)}
-                placeholder="Search name, vendor, category…"
+                placeholder="Search name, vendor, category, status…"
                 className="w-full rounded-2xl bg-white text-black px-4 py-3"
               />
             </div>
@@ -2175,6 +2487,10 @@ export default function InventoryPage() {
                           {r.vendor ?? "—"} • {r.category ?? "—"}{" "}
                           {r.reference_number ? `• ${r.reference_number}` : ""}
                         </div>
+                        <div className="mt-1 text-[11px] text-white/55">
+                          Status: {r.order_status || "IN STOCK"}{" "}
+                          {r.backordered ? "• BACKORDERED" : ""}
+                        </div>
                       </div>
 
                       <div
@@ -2257,9 +2573,53 @@ export default function InventoryPage() {
                 </div>
 
                 <div className="mt-3 rounded-2xl bg-black/30 p-3 ring-1 ring-white/10">
-                  <div className="text-sm font-semibold">Current order status</div>
+                  <div className="text-sm font-semibold">Item status</div>
+
+                  <div className="mt-3">
+                    <div className="mb-1 text-xs text-white/60">Order status</div>
+                    <select
+                      value={totalsOrderStatusInput}
+                      onChange={(e) => setTotalsOrderStatusInput(e.target.value)}
+                      className="w-full rounded-2xl bg-white text-black px-4 py-3"
+                    >
+                      {ITEM_STATUS_OPTIONS.map((opt) => (
+                        <option key={opt} value={opt}>
+                          {opt}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <label className="mt-3 flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={totalsBackorderedInput}
+                      onChange={(e) => setTotalsBackorderedInput(e.target.checked)}
+                    />
+                    <span>Backordered</span>
+                  </label>
+
+                  <button
+                    onClick={async () => {
+                      await saveItemStatus(
+                        totalsEditRow.item_id,
+                        totalsOrderStatusInput,
+                        totalsBackorderedInput,
+                        totalsEditRow.name
+                      );
+                      await loadTotals();
+                    }}
+                    disabled={itemStatusSaving}
+                    className="mt-3 w-full rounded-2xl bg-white px-4 py-3 text-sm font-extrabold text-black disabled:opacity-60"
+                  >
+                    {itemStatusSaving ? "Saving..." : "Save Item Status"}
+                  </button>
+                </div>
+
+                <div className="mt-3 rounded-2xl bg-black/30 p-3 ring-1 ring-white/10">
+                  <div className="text-sm font-semibold">Order history</div>
                   <div className="mt-2 text-[11px] text-white/55">
-                    Read-only here. Use the admin On Order tab to edit purchase orders.
+                    This is read-only history from purchase orders.
                   </div>
 
                   <div className="mt-3">
