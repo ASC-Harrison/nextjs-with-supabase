@@ -20,6 +20,9 @@ type Row = {
     barcode?: string | null;
     vendor?: string | null;
     category?: string | null;
+    reference_number?: string | null;
+    order_status?: string | null;
+    backordered?: boolean | null;
   } | null;
 };
 
@@ -123,6 +126,17 @@ type OrderLineRow = {
     notes?: string | null;
   } | null;
 };
+
+const ITEM_STATUS_OPTIONS = [
+  "IN STOCK",
+  "ORDERED",
+  "BACKORDER",
+  "PARTIAL",
+  "RECEIVED",
+  "OUT OF STOCK",
+  "HOLD",
+  "CANCELLED",
+] as const;
 
 function oneItem(
   x?: ItemSearchRow | ItemSearchRow[] | null
@@ -440,6 +454,48 @@ export default function AdminPage() {
       prev.map((x) =>
         x.storage_area_id === r.storage_area_id && x.item_id === r.item_id
           ? { ...x, [field]: num }
+          : x
+      )
+    );
+
+    setSavingKey(null);
+    setToast("Saved ✅");
+  }
+
+  async function saveItemStatus(
+    r: Row,
+    field: "order_status" | "backordered",
+    value: string | boolean
+  ) {
+    const rowKey = `${r.storage_area_id}:${r.item_id}:${field}`;
+    setSavingKey(rowKey);
+
+    const patch =
+      field === "order_status"
+        ? { order_status: String(value || "IN STOCK") }
+        : { backordered: Boolean(value) };
+
+    const { error } = await supabase
+      .from("items")
+      .update(patch)
+      .eq("id", r.item_id);
+
+    if (error) {
+      setToast(`Save failed: ${error.message}`);
+      setSavingKey(null);
+      return;
+    }
+
+    setRows((prev) =>
+      prev.map((x) =>
+        x.item_id === r.item_id
+          ? {
+              ...x,
+              items: {
+                ...(x.items || {}),
+                ...patch,
+              },
+            }
           : x
       )
     );
@@ -1366,14 +1422,16 @@ export default function AdminPage() {
 
             <div className="overflow-hidden rounded-3xl border border-white/10 bg-white/[0.03] ring-1 ring-white/5">
               <div className="overflow-x-auto">
-                <div className="min-w-[980px]">
-                  <div className="sticky top-0 z-20 grid grid-cols-12 gap-0 border-b border-white/10 bg-black/70 px-4 py-3 text-xs font-semibold tracking-wider text-white/55">
+                <div className="min-w-[1480px]">
+                  <div className="sticky top-0 z-20 grid grid-cols-16 gap-0 border-b border-white/10 bg-black/70 px-4 py-3 text-xs font-semibold tracking-wider text-white/55">
                     <div className="col-span-3 sticky left-0 z-30 bg-black/70 pr-2">AREA</div>
                     <div className="col-span-4 sticky left-[240px] z-30 bg-black/70 pr-2">ITEM</div>
                     <div className="col-span-2">BARCODE</div>
                     <div className="col-span-1 text-center">ON HAND</div>
                     <div className="col-span-1 text-center">PAR</div>
-                    <div className="col-span-1 sticky right-0 z-30 bg-black/70 text-right pl-2">STATUS</div>
+                    <div className="col-span-2 text-center">ITEM STATUS</div>
+                    <div className="col-span-2 text-center">BACKORDERED</div>
+                    <div className="col-span-1 sticky right-0 z-30 bg-black/70 text-right pl-2">LOW</div>
                   </div>
 
                   {loading ? (
@@ -1386,14 +1444,19 @@ export default function AdminPage() {
                         const areaName = r.storage_areas?.name || "(unknown area)";
                         const itemName = r.items?.name || "(unknown item)";
                         const barcode = r.items?.barcode || "";
-                        const statusTone = r.low ? "warn" : "good";
+                        const itemStatus = r.items?.order_status || "IN STOCK";
+                        const isBackordered = !!r.items?.backordered;
+                        const statusTone =
+                          r.low || isBackordered || itemStatus === "BACKORDER"
+                            ? "warn"
+                            : "good";
                         const rowKey = `${r.storage_area_id}:${r.item_id}`;
 
                         return (
                           <div
                             key={rowKey}
                             className={cn(
-                              "grid grid-cols-12 items-center gap-0 px-4 py-3 transition",
+                              "grid grid-cols-16 items-center gap-0 px-4 py-3 transition",
                               r.low ? "bg-amber-500/8 hover:bg-amber-500/14" : "hover:bg-white/[0.04]"
                             )}
                           >
@@ -1408,6 +1471,7 @@ export default function AdminPage() {
                               <div className="text-sm font-extrabold truncate">{itemName}</div>
                               <div className="mt-0.5 text-xs text-white/45">
                                 {r.items?.category ? `Category: ${r.items.category}` : ""}
+                                {r.items?.reference_number ? ` • Ref: ${r.items.reference_number}` : ""}
                               </div>
                             </div>
 
@@ -1433,13 +1497,47 @@ export default function AdminPage() {
                               />
                             </div>
 
+                            <div className="col-span-2 flex justify-center px-2">
+                              <select
+                                value={itemStatus}
+                                onChange={(e) => saveItemStatus(r, "order_status", e.target.value)}
+                                className="w-full rounded-2xl bg-white/5 px-3 py-2 text-sm font-extrabold ring-1 ring-white/10 outline-none focus:ring-white/30"
+                              >
+                                {ITEM_STATUS_OPTIONS.map((opt) => (
+                                  <option key={opt} value={opt}>
+                                    {opt}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+
+                            <div className="col-span-2 flex justify-center px-2">
+                              <label className="flex items-center gap-2 rounded-2xl bg-white/5 px-3 py-2 ring-1 ring-white/10">
+                                <input
+                                  type="checkbox"
+                                  checked={isBackordered}
+                                  onChange={(e) =>
+                                    saveItemStatus(r, "backordered", e.target.checked)
+                                  }
+                                  className="h-4 w-4"
+                                />
+                                <span className="text-sm font-extrabold">
+                                  {isBackordered ? "YES" : "NO"}
+                                </span>
+                              </label>
+                            </div>
+
                             <div className="col-span-1 sticky right-0 z-10 bg-black/60 pl-2 flex justify-end">
                               <div className="flex items-center gap-2">
                                 {(savingKey === `${rowKey}:on_hand` ||
-                                  savingKey === `${rowKey}:par_level`) && (
+                                  savingKey === `${rowKey}:par_level` ||
+                                  savingKey === `${rowKey}:order_status` ||
+                                  savingKey === `${rowKey}:backordered`) && (
                                   <Pill tone="neutral">Saving…</Pill>
                                 )}
-                                <Pill tone={statusTone as any}>{r.low ? "LOW" : "OK"}</Pill>
+                                <Pill tone={statusTone as any}>
+                                  {r.low ? "LOW" : itemStatus === "BACKORDER" || isBackordered ? "WATCH" : "OK"}
+                                </Pill>
                               </div>
                             </div>
                           </div>
@@ -1611,633 +1709,4 @@ export default function AdminPage() {
                       className="rounded-2xl bg-white/10 px-4 py-2.5 text-sm font-extrabold ring-1 ring-white/10 disabled:opacity-50"
                     >
                       Save Header
-                    </button>
-                    <button
-                      onClick={togglePrefCardActive}
-                      disabled={!selectedPrefCard}
-                      className="rounded-2xl bg-white/10 px-4 py-2.5 text-sm font-extrabold ring-1 ring-white/10 disabled:opacity-50"
-                    >
-                      {selectedPrefCard?.is_active ? "Move Inactive" : "Restore Active"}
-                    </button>
-                    <button
-                      onClick={deletePrefCard}
-                      disabled={!selectedPrefCard}
-                      className="rounded-2xl bg-rose-500/20 px-4 py-2.5 text-sm font-extrabold text-rose-100 ring-1 ring-rose-300/25 disabled:opacity-50"
-                    >
-                      Delete Card
-                    </button>
-                  </div>
-                </div>
-
-                {!selectedPrefCard ? (
-                  <div className="mt-4 rounded-2xl bg-white/5 p-4 text-sm text-white/60 ring-1 ring-white/10">
-                    Select a pref card from the left or create a new one.
-                  </div>
-                ) : (
-                  <>
-                    <div className="mt-4 grid gap-3 md:grid-cols-2">
-                      <input
-                        value={surgeonInput}
-                        onChange={(e) => setSurgeonInput(e.target.value)}
-                        placeholder="Surgeon"
-                        className="w-full rounded-2xl bg-white/5 px-4 py-3 text-sm ring-1 ring-white/10 outline-none focus:ring-white/30"
-                      />
-                      <input
-                        value={procedureInput}
-                        onChange={(e) => setProcedureInput(e.target.value)}
-                        placeholder="Procedure"
-                        className="w-full rounded-2xl bg-white/5 px-4 py-3 text-sm ring-1 ring-white/10 outline-none focus:ring-white/30"
-                      />
-                      <input
-                        value={specialtyInput}
-                        onChange={(e) => setSpecialtyInput(e.target.value)}
-                        placeholder="Specialty"
-                        className="w-full rounded-2xl bg-white/5 px-4 py-3 text-sm ring-1 ring-white/10 outline-none focus:ring-white/30"
-                      />
-                      <div className="flex items-center">
-                        <Pill tone={selectedPrefCard.is_active ? "good" : "warn"}>
-                          {selectedPrefCard.is_active ? "ACTIVE CARD" : "INACTIVE CARD"}
-                        </Pill>
-                      </div>
-                    </div>
-
-                    <textarea
-                      value={prefNotesInput}
-                      onChange={(e) => setPrefNotesInput(e.target.value)}
-                      placeholder="General notes"
-                      className="mt-3 min-h-[90px] w-full rounded-2xl bg-white/5 px-4 py-3 text-sm ring-1 ring-white/10 outline-none focus:ring-white/30"
-                    />
-
-                    <div className="mt-4 rounded-3xl bg-black/30 p-4 ring-1 ring-white/10">
-                      <div className="text-base font-extrabold">Add Standard Items</div>
-                      <div className="mt-2 flex flex-col gap-2">
-                        <input
-                          value={itemSearch}
-                          onChange={(e) => setItemSearch(e.target.value)}
-                          placeholder="Search items by name, barcode, ref, vendor…"
-                          className="w-full rounded-2xl bg-white/5 px-4 py-3 text-sm ring-1 ring-white/10 outline-none focus:ring-white/30"
-                        />
-                        <div className="text-xs text-white/50">
-                          Type 2+ characters to search your current items.
-                        </div>
-                      </div>
-
-                      <div className="mt-3 space-y-2">
-                        {itemSearchLoading ? (
-                          <div className="text-sm text-white/60">Searching…</div>
-                        ) : itemResults.length === 0 ? (
-                          <div className="text-sm text-white/50">No search results yet.</div>
-                        ) : (
-                          itemResults.map((r) => (
-                            <button
-                              key={r.id}
-                              onClick={() => addItemToPrefCard(r)}
-                              className="w-full rounded-2xl bg-white/5 p-3 text-left ring-1 ring-white/10 hover:bg-white/10"
-                            >
-                              <div className="text-sm font-extrabold">{r.name || "—"}</div>
-                              <div className="mt-1 text-xs text-white/55 break-words">
-                                {r.vendor || "—"} • {r.category || "—"}
-                                {r.reference_number ? ` • ${r.reference_number}` : ""}
-                                {r.barcode ? ` • ${r.barcode}` : ""}
-                              </div>
-                            </button>
-                          ))
-                        )}
-                      </div>
-                    </div>
-
-                    <div className="mt-4 rounded-3xl bg-black/30 p-4 ring-1 ring-white/10">
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="text-base font-extrabold">Pref Card Items</div>
-                        <div className="flex gap-2">
-                          <Pill tone="good">OPEN {openPrefItems.length}</Pill>
-                          <Pill tone="warn">HOLD {holdPrefItems.length}</Pill>
-                          <Pill tone="neutral">PRN {prnPrefItems.length}</Pill>
-                        </div>
-                      </div>
-
-                      {prefItemsLoading ? (
-                        <div className="mt-4 text-sm text-white/60">Loading items…</div>
-                      ) : prefItems.length === 0 ? (
-                        <div className="mt-4 text-sm text-white/60">No items on this pref card yet.</div>
-                      ) : (
-                        <div className="mt-4 space-y-3">
-                          {prefItems.map((row) => (
-                            <div key={row.id} className="rounded-2xl bg-white/5 p-3 ring-1 ring-white/10">
-                              <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                                <div className="min-w-0">
-                                  <div className="text-sm font-extrabold">
-                                    {oneItem(row.items)?.name || "Unknown item"}
-                                  </div>
-                                  <div className="mt-1 text-xs text-white/55 break-words">
-                                    {oneItem(row.items)?.vendor || "—"} • {oneItem(row.items)?.category || "—"}
-                                    {oneItem(row.items)?.reference_number
-                                      ? ` • ${oneItem(row.items)?.reference_number}`
-                                      : ""}
-                                    {oneItem(row.items)?.barcode ? ` • ${oneItem(row.items)?.barcode}` : ""}
-                                  </div>
-                                </div>
-
-                                <button
-                                  onClick={() => removePrefItem(row)}
-                                  className="rounded-2xl bg-rose-500/15 px-3 py-2 text-xs font-extrabold text-rose-100 ring-1 ring-rose-300/20"
-                                >
-                                  Remove
-                                </button>
-                              </div>
-
-                              <div className="mt-3 grid gap-2 md:grid-cols-4">
-                                <div>
-                                  <div className="mb-1 text-xs text-white/55">Qty</div>
-                                  <input
-                                    defaultValue={String(row.qty ?? 1)}
-                                    onFocus={(e) => e.currentTarget.select()}
-                                    onBlur={(e) => savePrefItem(row, "qty", e.target.value)}
-                                    className="w-full rounded-2xl bg-white/5 px-3 py-3 text-sm font-extrabold ring-1 ring-white/10 outline-none focus:ring-white/30"
-                                  />
-                                </div>
-
-                                <div>
-                                  <div className="mb-1 text-xs text-white/55">Status</div>
-                                  <select
-                                    value={row.status}
-                                    onChange={(e) => savePrefItem(row, "status", e.target.value)}
-                                    className="w-full rounded-2xl bg-white/5 px-3 py-3 text-sm font-extrabold ring-1 ring-white/10 outline-none focus:ring-white/30"
-                                  >
-                                    <option value="OPEN">OPEN</option>
-                                    <option value="HOLD">HOLD</option>
-                                    <option value="PRN">PRN</option>
-                                  </select>
-                                </div>
-
-                                <div>
-                                  <div className="mb-1 text-xs text-white/55">Sort</div>
-                                  <input
-                                    defaultValue={String(row.sort_order ?? 0)}
-                                    onFocus={(e) => e.currentTarget.select()}
-                                    onBlur={(e) => savePrefItem(row, "sort_order", e.target.value)}
-                                    className="w-full rounded-2xl bg-white/5 px-3 py-3 text-sm font-extrabold ring-1 ring-white/10 outline-none focus:ring-white/30"
-                                  />
-                                </div>
-
-                                <div className="flex items-end">
-                                  {savingPrefKey?.startsWith(row.id) ? (
-                                    <Pill tone="neutral">Saving…</Pill>
-                                  ) : (
-                                    <Pill
-                                      tone={
-                                        row.status === "OPEN"
-                                          ? "good"
-                                          : row.status === "HOLD"
-                                          ? "warn"
-                                          : "neutral"
-                                      }
-                                    >
-                                      {row.status}
-                                    </Pill>
-                                  )}
-                                </div>
-                              </div>
-
-                              <div className="mt-2">
-                                <div className="mb-1 text-xs text-white/55">Notes</div>
-                                <input
-                                  defaultValue={row.notes || ""}
-                                  onBlur={(e) => savePrefItem(row, "notes", e.target.value)}
-                                  className="w-full rounded-2xl bg-white/5 px-3 py-3 text-sm ring-1 ring-white/10 outline-none focus:ring-white/30"
-                                  placeholder="Optional line note"
-                                />
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-
-                    <div className="mt-4 rounded-3xl bg-black/30 p-4 ring-1 ring-white/10">
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="text-base font-extrabold">Active Case Pull Session</div>
-                        <div className="flex flex-wrap gap-2">
-                          <Pill tone="neutral">Planned {sessionSummary.planned}</Pill>
-                          <Pill tone="warn">Pulled {sessionSummary.pulled}</Pill>
-                          <Pill tone="good">Used {sessionSummary.used}</Pill>
-                        </div>
-                      </div>
-
-                      {!selectedSession ? (
-                        <div className="mt-4 text-sm text-white/60">
-                          Build a case pull session from this pref card to automatically pull all needed lines.
-                        </div>
-                      ) : (
-                        <>
-                          <div className="mt-3 flex flex-wrap items-center gap-2">
-                            <Pill tone="good">{selectedSession.session_name}</Pill>
-                            <Pill tone="neutral">{selectedSession.scheduled_for || "No date"}</Pill>
-                            <Pill tone={selectedSession.is_posted ? "good" : "warn"}>
-                              {selectedSession.is_posted ? "POSTED" : "NOT POSTED"}
-                            </Pill>
-                            {selectedSession.posted_by && (
-                              <Pill tone="neutral">By {selectedSession.posted_by}</Pill>
-                            )}
-                            <button
-                              onClick={deleteSession}
-                              className="rounded-2xl bg-rose-500/15 px-3 py-2 text-xs font-extrabold text-rose-100 ring-1 ring-rose-300/20"
-                            >
-                              Delete Session
-                            </button>
-                            <button
-                              onClick={printSession}
-                              className="rounded-2xl bg-white px-3 py-2 text-xs font-extrabold text-black"
-                            >
-                              Print / Save PDF
-                            </button>
-                          </div>
-
-                          <div className="mt-3 rounded-2xl bg-white/5 p-3 ring-1 ring-white/10">
-                            <div className="mb-2 text-xs text-white/55">Post used items as</div>
-                            <div className="flex flex-col gap-2 md:flex-row">
-                              <input
-                                value={staffNameInput}
-                                onChange={(e) => setStaffNameInput(e.target.value)}
-                                placeholder="Your name"
-                                className="flex-1 rounded-2xl bg-black/30 px-4 py-3 text-sm ring-1 ring-white/10 outline-none focus:ring-white/30"
-                              />
-                              <button
-                                onClick={finalizeUsedItemsToInventory}
-                                disabled={selectedSession.is_posted}
-                                className="rounded-2xl bg-white px-4 py-3 text-sm font-extrabold text-black disabled:opacity-50"
-                              >
-                                {selectedSession.is_posted ? "Already Posted" : "Finalize Used Items"}
-                              </button>
-                            </div>
-
-                            <div className="mt-2 text-xs text-white/50">
-                              This subtracts only <span className="font-semibold">used_qty</span> from inventory and prevents double-posting.
-                            </div>
-                          </div>
-
-                          {sessionItemsLoading ? (
-                            <div className="mt-4 text-sm text-white/60">Loading session lines…</div>
-                          ) : sessionItems.length === 0 ? (
-                            <div className="mt-4 text-sm text-white/60">No lines in this session.</div>
-                          ) : (
-                            <div className="mt-4 space-y-4">
-                              {[
-                                { title: "OPEN", rows: sessionOpenItems },
-                                { title: "HOLD", rows: sessionHoldItems },
-                                { title: "PRN", rows: sessionPrnItems },
-                              ].map((group) => (
-                                <div key={group.title} className="rounded-2xl bg-white/5 p-3 ring-1 ring-white/10">
-                                  <div className="text-sm font-extrabold">{group.title}</div>
-
-                                  <div className="mt-3 space-y-3">
-                                    {group.rows.length === 0 ? (
-                                      <div className="text-sm text-white/50">None</div>
-                                    ) : (
-                                      group.rows.map((row) => (
-                                        <div key={row.id} className="rounded-2xl bg-black/30 p-3 ring-1 ring-white/10">
-                                          <div className="text-sm font-extrabold">
-                                            {oneItem(row.items)?.name || "Unknown item"}
-                                          </div>
-                                          <div className="mt-1 text-xs text-white/55 break-words">
-                                            {oneItem(row.items)?.vendor || "—"} • {oneItem(row.items)?.category || "—"}
-                                            {oneItem(row.items)?.reference_number
-                                              ? ` • ${oneItem(row.items)?.reference_number}`
-                                              : ""}
-                                          </div>
-
-                                          <div className="mt-3 grid gap-2 md:grid-cols-5">
-                                            <div>
-                                              <div className="mb-1 text-xs text-white/55">Location</div>
-                                              <select
-                                                value={row.storage_area_id || ""}
-                                                onChange={(e) =>
-                                                  saveSessionItem(row, "storage_area_id", e.target.value)
-                                                }
-                                                disabled={selectedSession.is_posted}
-                                                className="w-full rounded-2xl bg-white/5 px-3 py-3 text-sm font-extrabold ring-1 ring-white/10 outline-none focus:ring-white/30 disabled:opacity-60"
-                                              >
-                                                <option value="">Select area</option>
-                                                {areas.map((a) => (
-                                                  <option key={a.id} value={a.id}>
-                                                    {a.name}
-                                                  </option>
-                                                ))}
-                                              </select>
-                                            </div>
-
-                                            <div>
-                                              <div className="mb-1 text-xs text-white/55">Planned</div>
-                                              <input
-                                                defaultValue={String(row.planned_qty ?? 0)}
-                                                onFocus={(e) => e.currentTarget.select()}
-                                                onBlur={(e) =>
-                                                  saveSessionItem(row, "planned_qty", e.target.value)
-                                                }
-                                                disabled={selectedSession.is_posted}
-                                                className="w-full rounded-2xl bg-white/5 px-3 py-3 text-sm font-extrabold ring-1 ring-white/10 outline-none focus:ring-white/30 disabled:opacity-60"
-                                              />
-                                            </div>
-
-                                            <div>
-                                              <div className="mb-1 text-xs text-white/55">Pulled</div>
-                                              <input
-                                                defaultValue={String(row.pulled_qty ?? 0)}
-                                                onFocus={(e) => e.currentTarget.select()}
-                                                onBlur={(e) =>
-                                                  saveSessionItem(row, "pulled_qty", e.target.value)
-                                                }
-                                                disabled={selectedSession.is_posted}
-                                                className="w-full rounded-2xl bg-white/5 px-3 py-3 text-sm font-extrabold ring-1 ring-white/10 outline-none focus:ring-white/30 disabled:opacity-60"
-                                              />
-                                            </div>
-
-                                            <div>
-                                              <div className="mb-1 text-xs text-white/55">Used</div>
-                                              <input
-                                                defaultValue={String(row.used_qty ?? 0)}
-                                                onFocus={(e) => e.currentTarget.select()}
-                                                onBlur={(e) =>
-                                                  saveSessionItem(row, "used_qty", e.target.value)
-                                                }
-                                                disabled={selectedSession.is_posted}
-                                                className="w-full rounded-2xl bg-white/5 px-3 py-3 text-sm font-extrabold ring-1 ring-white/10 outline-none focus:ring-white/30 disabled:opacity-60"
-                                              />
-                                            </div>
-
-                                            <div className="flex items-end">
-                                              {savingSessionKey?.startsWith(row.id) ? (
-                                                <Pill tone="neutral">Saving…</Pill>
-                                              ) : (
-                                                <Pill tone="neutral">{row.line_type}</Pill>
-                                              )}
-                                            </div>
-                                          </div>
-
-                                          <div className="mt-2">
-                                            <div className="mb-1 text-xs text-white/55">Notes</div>
-                                            <input
-                                              defaultValue={row.notes || ""}
-                                              onBlur={(e) =>
-                                                saveSessionItem(row, "notes", e.target.value)
-                                              }
-                                              disabled={selectedSession.is_posted}
-                                              className="w-full rounded-2xl bg-white/5 px-3 py-3 text-sm ring-1 ring-white/10 outline-none focus:ring-white/30 disabled:opacity-60"
-                                              placeholder="Case line notes"
-                                            />
-                                          </div>
-                                        </div>
-                                      ))
-                                    )}
-                                  </div>
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                        </>
-                      )}
-                    </div>
-                  </>
-                )}
-              </div>
-            </div>
-          </div>
-        ) : (
-          <div className="grid gap-4 lg:grid-cols-[360px_minmax(0,1fr)]">
-            <div className="space-y-4">
-              <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-4 ring-1 ring-white/5">
-                <div className="text-lg font-extrabold">Find Item Orders</div>
-                <div className="mt-1 text-sm text-white/60">
-                  Search by name, barcode, ref number, or vendor.
-                </div>
-
-                <div className="mt-3 space-y-2">
-                  <input
-                    value={orderLookupQuery}
-                    onChange={(e) => setOrderLookupQuery(e.target.value)}
-                    placeholder="Search item..."
-                    className="w-full rounded-2xl bg-white/5 px-4 py-3 text-sm ring-1 ring-white/10 outline-none focus:ring-white/30"
-                  />
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => {
-                        if (selectedOrderItem) loadOrderLinesForItem(selectedOrderItem.id);
-                      }}
-                      className="flex-1 rounded-2xl bg-white/10 px-4 py-3 text-sm font-extrabold ring-1 ring-white/10"
-                    >
-                      Refresh
-                    </button>
-                    <button
-                      onClick={clearOrderLookup}
-                      className="rounded-2xl bg-white/10 px-4 py-3 text-sm font-extrabold ring-1 ring-white/10"
-                    >
-                      Clear
-                    </button>
-                  </div>
-                </div>
-
-                <div className="mt-4 max-h-[620px] space-y-2 overflow-y-auto pr-1">
-                  {orderLookupLoading ? (
-                    <div className="text-sm text-white/60">Searching…</div>
-                  ) : orderLookupQuery.trim().length < 2 ? (
-                    <div className="text-sm text-white/50">Type at least 2 characters.</div>
-                  ) : orderLookupResults.length === 0 ? (
-                    <div className="text-sm text-white/60">No matching items.</div>
-                  ) : (
-                    orderLookupResults.map((itemRow) => (
-                      <button
-                        key={itemRow.id}
-                        onClick={() => openOrderItem(itemRow)}
-                        className={cn(
-                          "w-full rounded-2xl p-3 text-left ring-1 transition",
-                          selectedOrderItem?.id === itemRow.id
-                            ? "bg-white text-black ring-white/40"
-                            : "bg-white/5 text-white ring-white/10 hover:bg-white/10"
-                        )}
-                      >
-                        <div className="text-sm font-extrabold">{itemRow.name || "—"}</div>
-                        <div className="mt-1 text-xs opacity-75 break-words">
-                          {itemRow.vendor || "—"} • {itemRow.category || "—"}
-                          {itemRow.reference_number ? ` • ${itemRow.reference_number}` : ""}
-                        </div>
-                        <div className="mt-1 text-xs opacity-60 break-all">
-                          {itemRow.barcode || "No barcode"}
-                        </div>
-                      </button>
-                    ))
-                  )}
-                </div>
-              </div>
-            </div>
-
-            <div className="space-y-4">
-              <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-4 ring-1 ring-white/5">
-                <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                  <div>
-                    <div className="text-lg font-extrabold">Item Order Editor</div>
-                    <div className="mt-1 text-sm text-white/60">
-                      See every purchase order line tied to the selected item and update status/quantities.
-                    </div>
-                  </div>
-                  {selectedOrderItem && (
-                    <Pill tone="good">{selectedOrderItem.name || "Selected item"}</Pill>
-                  )}
-                </div>
-
-                {!selectedOrderItem ? (
-                  <div className="mt-4 rounded-2xl bg-white/5 p-4 text-sm text-white/60 ring-1 ring-white/10">
-                    Search for an item on the left, then tap it to load all order lines.
-                  </div>
-                ) : (
-                  <>
-                    <div className="mt-4 rounded-2xl bg-black/30 p-4 ring-1 ring-white/10">
-                      <div className="text-sm font-extrabold">
-                        {selectedOrderItem.name || "Unknown item"}
-                      </div>
-                      <div className="mt-2 text-xs text-white/55 break-words">
-                        {selectedOrderItem.vendor || "—"} • {selectedOrderItem.category || "—"}
-                        {selectedOrderItem.reference_number
-                          ? ` • ${selectedOrderItem.reference_number}`
-                          : ""}
-                      </div>
-                      <div className="mt-1 text-xs text-white/45 break-all">
-                        Barcode: {selectedOrderItem.barcode || "—"}
-                      </div>
-                    </div>
-
-                    {orderLinesLoading ? (
-                      <div className="mt-4 text-sm text-white/60">Loading order lines…</div>
-                    ) : orderLines.length === 0 ? (
-                      <div className="mt-4 rounded-2xl bg-white/5 p-4 text-sm text-white/60 ring-1 ring-white/10">
-                        No purchase order lines found for this item.
-                      </div>
-                    ) : (
-                      <div className="mt-4 space-y-3">
-                        {orderLines.map((row) => {
-                          const pending = Math.max(
-                            (row.qty_ordered ?? 0) - (row.qty_received ?? 0),
-                            0
-                          );
-
-                          return (
-                            <div
-                              key={row.id}
-                              className="rounded-2xl bg-black/30 p-4 ring-1 ring-white/10"
-                            >
-                              <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                                <div className="min-w-0">
-                                  <div className="text-sm font-extrabold break-words">
-                                    PO {row.purchase_orders?.po_number || "—"}
-                                  </div>
-                                  <div className="mt-1 text-xs text-white/55 break-words">
-                                    {row.purchase_orders?.vendor || "—"} • PO status:{" "}
-                                    {row.purchase_orders?.status || "—"}
-                                  </div>
-                                  <div className="mt-1 text-xs text-white/45">
-                                    Expected: {row.purchase_orders?.expected_date || "—"}
-                                  </div>
-                                  <div className="mt-1 text-xs text-white/45">
-                                    Pending on this line: {pending}
-                                  </div>
-                                </div>
-
-                                <div className="flex items-center gap-2">
-                                  {savingOrderKey?.startsWith(row.id) ? (
-                                    <Pill tone="neutral">Saving…</Pill>
-                                  ) : (
-                                    <Pill
-                                      tone={
-                                        row.status === "BACKORDER"
-                                          ? "warn"
-                                          : row.status === "CANCELLED"
-                                          ? "bad"
-                                          : row.status === "RECEIVED"
-                                          ? "good"
-                                          : "neutral"
-                                      }
-                                    >
-                                      {row.status}
-                                    </Pill>
-                                  )}
-                                </div>
-                              </div>
-
-                              <div className="mt-4 grid gap-2 md:grid-cols-4">
-                                <div>
-                                  <div className="mb-1 text-xs text-white/55">Line status</div>
-                                  <select
-                                    value={row.status}
-                                    onChange={(e) => saveOrderLine(row, "status", e.target.value)}
-                                    className="w-full rounded-2xl bg-white/5 px-3 py-3 text-sm font-extrabold ring-1 ring-white/10 outline-none focus:ring-white/30"
-                                  >
-                                    <option value="ORDERED">ORDERED</option>
-                                    <option value="BACKORDER">BACKORDER</option>
-                                    <option value="PARTIAL">PARTIAL</option>
-                                    <option value="RECEIVED">RECEIVED</option>
-                                    <option value="CANCELLED">CANCELLED</option>
-                                  </select>
-                                </div>
-
-                                <div>
-                                  <div className="mb-1 text-xs text-white/55">Qty ordered</div>
-                                  <input
-                                    defaultValue={String(row.qty_ordered ?? 0)}
-                                    onFocus={(e) => e.currentTarget.select()}
-                                    onBlur={(e) => saveOrderLine(row, "qty_ordered", e.target.value)}
-                                    className="w-full rounded-2xl bg-white/5 px-3 py-3 text-sm font-extrabold ring-1 ring-white/10 outline-none focus:ring-white/30"
-                                  />
-                                </div>
-
-                                <div>
-                                  <div className="mb-1 text-xs text-white/55">Qty received</div>
-                                  <input
-                                    defaultValue={String(row.qty_received ?? 0)}
-                                    onFocus={(e) => e.currentTarget.select()}
-                                    onBlur={(e) => saveOrderLine(row, "qty_received", e.target.value)}
-                                    className="w-full rounded-2xl bg-white/5 px-3 py-3 text-sm font-extrabold ring-1 ring-white/10 outline-none focus:ring-white/30"
-                                  />
-                                </div>
-
-                                <div className="flex items-end">
-                                  <div className="w-full rounded-2xl bg-white/5 px-3 py-3 text-sm font-extrabold ring-1 ring-white/10">
-                                    Pending: {pending}
-                                  </div>
-                                </div>
-                              </div>
-
-                              <div className="mt-3">
-                                <div className="mb-1 text-xs text-white/55">Line notes</div>
-                                <input
-                                  defaultValue={row.notes || ""}
-                                  onBlur={(e) => saveOrderLine(row, "notes", e.target.value)}
-                                  className="w-full rounded-2xl bg-white/5 px-3 py-3 text-sm ring-1 ring-white/10 outline-none focus:ring-white/30"
-                                  placeholder="Backorder note / vendor note / etc."
-                                />
-                              </div>
-
-                              {row.purchase_orders?.notes && (
-                                <div className="mt-3 rounded-2xl bg-white/5 p-3 text-xs text-white/55 ring-1 ring-white/10">
-                                  PO Notes: {row.purchase_orders.notes}
-                                </div>
-                              )}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </>
-                )}
-              </div>
-            </div>
-          </div>
-        )}
-
-        {toast && (
-          <div className="fixed bottom-4 left-1/2 z-50 -translate-x-1/2 rounded-2xl bg-black/80 px-4 py-3 text-sm font-semibold text-white ring-1 ring-white/15 backdrop-blur-xl">
-            {toast}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
+                    </
