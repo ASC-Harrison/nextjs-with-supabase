@@ -122,11 +122,14 @@ const ITEM_STATUS_OPTIONS = [
 
 const LS = {
   PIN: "asc_pin_v1",
-  LOCKED: "asc_locked_v1",
   AREA: "asc_area_id_v1",
   STAFF: "asc_staff_name_v1",
   AUDIT: "asc_audit_events_v1",
   LAST_TX: "asc_last_tx_v1",
+};
+
+const SS = {
+  UNLOCKED: "asc_edit_unlocked_session_v1",
 };
 
 function nowIso() {
@@ -143,6 +146,20 @@ function safeJsonParse<T>(raw: string | null, fallback: T): T {
     return JSON.parse(raw) as T;
   } catch {
     return fallback;
+  }
+}
+
+function getSessionUnlocked() {
+  if (typeof window === "undefined") return false;
+  return sessionStorage.getItem(SS.UNLOCKED) === "1";
+}
+
+function setSessionUnlocked(value: boolean) {
+  if (typeof window === "undefined") return;
+  if (value) {
+    sessionStorage.setItem(SS.UNLOCKED, "1");
+  } else {
+    sessionStorage.removeItem(SS.UNLOCKED);
   }
 }
 
@@ -347,7 +364,7 @@ export default function InventoryPage() {
 
   useEffect(() => {
     try {
-      setLocked((localStorage.getItem(LS.LOCKED) ?? "1") === "1");
+      setLocked(!getSessionUnlocked());
 
       const savedArea = localStorage.getItem(LS.AREA);
       if (savedArea) setAreaId(savedArea);
@@ -368,12 +385,6 @@ export default function InventoryPage() {
       setLastTx(savedLastTx);
     } catch {}
   }, []);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(LS.LOCKED, locked ? "1" : "0");
-    } catch {}
-  }, [locked]);
 
   useEffect(() => {
     try {
@@ -821,12 +832,14 @@ export default function InventoryPage() {
     setPinOpen(false);
 
     if (pinPurpose === "unlock") {
+      setSessionUnlocked(true);
       setLocked(false);
       pushAudit({ action: "UNLOCK", details: `Area=${selectedAreaName}` });
       return;
     }
 
     if (pinPurpose === "lock") {
+      setSessionUnlocked(false);
       setLocked(true);
       pushAudit({ action: "LOCK", details: `Area=${selectedAreaName}` });
       return;
@@ -1652,7 +1665,7 @@ export default function InventoryPage() {
 
             {locked && (
               <div className="mt-2 text-xs text-white/50">
-                Locked: PIN required to unlock and change location.
+                Locked: password required once per app session.
               </div>
             )}
 
@@ -1818,7 +1831,7 @@ export default function InventoryPage() {
                         )}
 
                         <div className="mt-2 text-[11px] text-white/50">
-                          Tap to edit (PIN required if locked).
+                          Tap to edit (password required once per app session).
                         </div>
                       </button>
                     );
@@ -2032,7 +2045,7 @@ export default function InventoryPage() {
                       "rounded-2xl px-3 py-3 font-extrabold ring-1 text-xs",
                       lookupMode === "BARCODE"
                         ? "bg-white text-black ring-white/20"
-                        : "bg-white/10 text-white ring-white/10",
+                        : "bg.white/10 text-white ring-white/10".replace(".",""),
                     ].join(" ")}
                   >
                     BARCODE
@@ -2258,18 +2271,18 @@ export default function InventoryPage() {
               <Modal
                 title={
                   pinPurpose === "unlock"
-                    ? "Enter PIN to unlock"
+                    ? "Enter password to unlock edits"
                     : pinPurpose === "lock"
-                    ? "Enter PIN to lock"
+                    ? "Enter password to lock"
                     : pinPurpose === "changeLocation"
-                    ? "Enter PIN to change location"
+                    ? "Enter password to change location"
                     : pinPurpose === "addItem"
-                    ? "Enter PIN to add item"
+                    ? "Enter password to add item"
                     : pinPurpose === "areaRowEdit"
-                    ? "Enter PIN to edit this area item"
+                    ? "Enter password to edit this area item"
                     : pinPurpose === "itemStatusEdit"
-                    ? "Enter PIN to save item status"
-                    : "Enter PIN to edit totals"
+                    ? "Enter password to save item status"
+                    : "Enter password to edit totals"
                 }
                 okText="OK"
                 onCancel={() => {
@@ -2288,11 +2301,11 @@ export default function InventoryPage() {
                   }
                   inputMode="numeric"
                   className="mt-3 w-full rounded-2xl bg-white text-black px-4 py-3"
-                  placeholder="PIN"
+                  placeholder="Password"
                 />
                 <div className="mt-2 text-xs text-white/50">
-                  Default PIN is <span className="font-semibold">1234</span> until set in
-                  Settings.
+                  Unlock lasts until you fully close this app/tab. Default password is{" "}
+                  <span className="font-semibold">1234</span> until changed in Settings.
                 </div>
               </Modal>
             )}
@@ -2548,7 +2561,7 @@ export default function InventoryPage() {
                     )}
                     <div className="mt-2 text-[11px] text-white/50">
                       Tap to edit on-hand + item details{" "}
-                      {locked ? "(PIN required for totals updates)" : ""}
+                      {locked ? "(password required once per app session)" : ""}
                     </div>
                   </button>
                 );
@@ -2636,7 +2649,7 @@ export default function InventoryPage() {
                 </div>
 
                 <div className="mt-3 rounded-2xl bg-black/30 p-3 ring-1 ring-white/10">
-                  <div className="text-sm font-semibold">Item status</div>
+                  <div className="text-sm font-semibold">Item active state</div>
                   <div className="mt-2 grid grid-cols-2 gap-2">
                     <button
                       onClick={async () => {
@@ -2656,7 +2669,7 @@ export default function InventoryPage() {
                     </button>
                   </div>
                   <div className="mt-2 text-[11px] text-white/55">
-                    PIN required if locked. This does not delete the item.
+                    Password required once per app session. This does not delete the item.
                   </div>
                 </div>
 
@@ -2973,7 +2986,7 @@ export default function InventoryPage() {
           <div className="mt-3 rounded-3xl bg-white/5 p-4 ring-1 ring-white/10">
             <div className="text-lg font-semibold">Settings</div>
             <div className="mt-3 text-sm text-white/70">
-              Set/Change PIN (min 4 digits):
+              Set/Change password (min 4 digits):
             </div>
             <PinSetter onSave={savePin} />
           </div>
@@ -3130,14 +3143,14 @@ function PinSetter({ onSave }: any) {
         value={pin}
         onChange={(e) => setPin(e.target.value.replace(/\D/g, "").slice(0, 6))}
         className="w-full rounded-2xl bg-white text-black px-4 py-3"
-        placeholder="New PIN (e.g. 1234)"
+        placeholder="New password (e.g. 1234)"
         inputMode="numeric"
       />
       <button
         onClick={() => onSave(pin)}
         className="mt-3 w-full rounded-2xl bg-white px-4 py-3 font-semibold text-black"
       >
-        Save PIN
+        Save Password
       </button>
     </div>
   );
