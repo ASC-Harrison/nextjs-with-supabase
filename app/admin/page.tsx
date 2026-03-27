@@ -20,10 +20,6 @@ type Row = {
     barcode?: string | null;
     vendor?: string | null;
     category?: string | null;
-    reference_number?: string | null;
-    unit?: string | null;
-    order_status?: string | null;
-    backordered?: boolean | null;
   } | null;
 };
 
@@ -107,6 +103,8 @@ type OrderItemLookupRow = {
   category: string | null;
   reference_number: string | null;
   unit: string | null;
+  order_status?: string | null;
+  backordered?: boolean | null;
 };
 
 type OrderLineRow = {
@@ -127,16 +125,6 @@ type OrderLineRow = {
     notes?: string | null;
   } | null;
 };
-
-const ITEM_STATUS_OPTIONS = [
-  "IN STOCK",
-  "ORDERED",
-  "BACKORDER",
-  "PARTIAL",
-  "OUT OF STOCK",
-  "RECEIVED",
-  "CANCELLED",
-] as const;
 
 function oneItem(
   x?: ItemSearchRow | ItemSearchRow[] | null
@@ -241,10 +229,29 @@ function useDebounced<T>(value: T, ms: number) {
   return v;
 }
 
+function normalizeOrderStatus(status?: string | null) {
+  return (status || "IN STOCK").trim().toUpperCase();
+}
+
+function needsAttention(status?: string | null, backordered?: boolean | null) {
+  const s = normalizeOrderStatus(status);
+  return (
+    !!backordered ||
+    [
+      "ORDERED",
+      "BACKORDER",
+      "PARTIAL",
+      "OUT OF STOCK",
+      "RECEIVED",
+      "CANCELLED",
+    ].includes(s)
+  );
+}
+
 export default function AdminPage() {
   const [tab, setTab] = useState<AdminTab>("inventory");
 
-  const [locked, setLocked] = useState(false);
+  const [, setLocked] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
 
   // Inventory
@@ -294,16 +301,22 @@ export default function AdminPage() {
   const [sessionNotesInput, setSessionNotesInput] = useState("");
   const [staffNameInput, setStaffNameInput] = useState("");
 
-  // Order item lookup
+  // Orders / status
   const [orderLookupQuery, setOrderLookupQuery] = useState("");
   const [orderLookupLoading, setOrderLookupLoading] = useState(false);
   const [orderLookupResults, setOrderLookupResults] = useState<OrderItemLookupRow[]>([]);
   const dOrderLookupQuery = useDebounced(orderLookupQuery, 250);
 
+  const [attentionLoading, setAttentionLoading] = useState(false);
+  const [attentionItems, setAttentionItems] = useState<OrderItemLookupRow[]>([]);
+  const [attentionSearch, setAttentionSearch] = useState("");
+  const dAttentionSearch = useDebounced(attentionSearch, 250);
+
   const [selectedOrderItem, setSelectedOrderItem] = useState<OrderItemLookupRow | null>(null);
   const [orderLines, setOrderLines] = useState<OrderLineRow[]>([]);
   const [orderLinesLoading, setOrderLinesLoading] = useState(false);
   const [savingOrderKey, setSavingOrderKey] = useState<string | null>(null);
+  const [savingItemStatusKey, setSavingItemStatusKey] = useState<string | null>(null);
 
   useEffect(() => {
     setLocked(false);
@@ -394,7 +407,6 @@ export default function AdminPage() {
     const incoming = json.rows || [];
     const seen = new Set(rows.map((r) => `${r.storage_area_id}:${r.item_id}`));
     const merged = [...rows];
-
     for (const r of incoming) {
       const key = `${r.storage_area_id}:${r.item_id}`;
       if (!seen.has(key)) merged.push(r);
@@ -461,48 +473,6 @@ export default function AdminPage() {
 
     setSavingKey(null);
     setToast("Saved ✅");
-  }
-
-  async function saveItemStatus(
-    r: Row,
-    field: "order_status" | "backordered",
-    value: string | boolean
-  ) {
-    const rowKey = `${r.storage_area_id}:${r.item_id}:${field}`;
-    setSavingKey(rowKey);
-
-    const patch =
-      field === "order_status"
-        ? { order_status: String(value || "IN STOCK").trim().toUpperCase() }
-        : { backordered: !!value };
-
-    const { error } = await supabase
-      .from("items")
-      .update(patch)
-      .eq("id", r.item_id);
-
-    if (error) {
-      setToast(`Save failed: ${error.message}`);
-      setSavingKey(null);
-      return;
-    }
-
-    setRows((prev) =>
-      prev.map((x) =>
-        x.item_id === r.item_id
-          ? {
-              ...x,
-              items: {
-                ...(x.items || {}),
-                ...(patch as any),
-              },
-            }
-          : x
-      )
-    );
-
-    setSavingKey(null);
-    setToast("Item status saved ✅");
   }
 
   // ---------------- Pref Cards ----------------
@@ -1051,7 +1021,7 @@ export default function AdminPage() {
 
       const { data, error } = await supabase
         .from("items")
-        .select("id,name,barcode,vendor,category,reference_number,unit")
+        .select("id,name,barcode,vendor,category,reference_number,unit,order_status,backordered")
         .or(
           `name.ilike.%${q}%,barcode.ilike.%${q}%,reference_number.ilike.%${q}%,vendor.ilike.%${q}%`
         )
@@ -1074,6 +1044,50 @@ export default function AdminPage() {
       alive = false;
     };
   }, [dOrderLookupQuery, tab]);
+
+  useEffect(() => {
+    if (tab !== "orders") return;
+
+    let alive = true;
+
+    (async () => {
+      setAttentionLoading(true);
+
+      let query = supabase
+        .from("items")
+        .select("id,name,barcode,vendor,category,reference_number,unit,order_status,backordered")
+        .order("name", { ascending: true })
+        .limit(250);
+
+      const q = dAttentionSearch.trim();
+      if (q.length >= 2) {
+        query = query.or(
+          `name.ilike.%${q}%,barcode.ilike.%${q}%,reference_number.ilike.%${q}%,vendor.ilike.%${q}%`
+        );
+      }
+
+      const { data, error } = await query;
+
+      if (!alive) return;
+
+      if (error) {
+        setAttentionItems([]);
+        setAttentionLoading(false);
+        return setToast(`Needs attention load failed: ${error.message}`);
+      }
+
+      const filtered = ((data || []) as OrderItemLookupRow[]).filter((row) =>
+        needsAttention(row.order_status, row.backordered)
+      );
+
+      setAttentionItems(filtered);
+      setAttentionLoading(false);
+    })();
+
+    return () => {
+      alive = false;
+    };
+  }, [dAttentionSearch, tab]);
 
   async function loadOrderLinesForItem(itemId: string) {
     if (!itemId) {
@@ -1104,6 +1118,54 @@ export default function AdminPage() {
   async function openOrderItem(itemRow: OrderItemLookupRow) {
     setSelectedOrderItem(itemRow);
     await loadOrderLinesForItem(itemRow.id);
+  }
+
+  async function saveItemHeaderStatus(
+    itemRow: OrderItemLookupRow,
+    field: "order_status" | "backordered",
+    value: string | boolean
+  ) {
+    const key = `${itemRow.id}:${field}`;
+    setSavingItemStatusKey(key);
+
+    const patch =
+      field === "order_status"
+        ? { order_status: String(value).trim().toUpperCase() }
+        : { backordered: !!value };
+
+    const { error } = await supabase
+      .from("items")
+      .update(patch)
+      .eq("id", itemRow.id);
+
+    if (error) {
+      setSavingItemStatusKey(null);
+      return setToast(`Save failed: ${error.message}`);
+    }
+
+    const applyPatch = (row: OrderItemLookupRow) => ({ ...row, ...patch });
+
+    setSelectedOrderItem((prev) => (prev && prev.id === itemRow.id ? applyPatch(prev) : prev));
+    setOrderLookupResults((prev) => prev.map((x) => (x.id === itemRow.id ? applyPatch(x) : x)));
+    setAttentionItems((prev) => {
+      const updated = prev
+        .map((x) => (x.id === itemRow.id ? applyPatch(x) : x))
+        .filter((x) => needsAttention(x.order_status, x.backordered));
+      const selectedUpdated =
+        selectedOrderItem?.id === itemRow.id
+          ? applyPatch(selectedOrderItem)
+          : itemRow;
+      if (
+        needsAttention(selectedUpdated.order_status, selectedUpdated.backordered) &&
+        !updated.some((x) => x.id === selectedUpdated.id)
+      ) {
+        updated.unshift(selectedUpdated);
+      }
+      return updated.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+    });
+
+    setSavingItemStatusKey(null);
+    setToast("Item status saved ✅");
   }
 
   async function saveOrderLine(
@@ -1242,8 +1304,7 @@ export default function AdminPage() {
     const total = rows.length;
     const low = rows.filter((r) => r.low).length;
     const notified = rows.filter((r) => r.low_notified).length;
-    const backordered = rows.filter((r) => !!r.items?.backordered).length;
-    return { total, low, notified, backordered };
+    return { total, low, notified };
   }, [rows]);
 
   const prefStats = useMemo(() => {
@@ -1305,7 +1366,7 @@ export default function AdminPage() {
       </div>
 
       <div className="sticky top-0 z-20 border-b border-white/10 bg-black/70">
-        <div className="mx-auto w-full max-w-7xl px-4 py-4">
+        <div className="mx-auto w-full max-w-6xl px-4 py-4">
           <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
             <div className="min-w-0">
               <div className="text-[11px] tracking-[0.25em] text-white/45">
@@ -1344,7 +1405,7 @@ export default function AdminPage() {
                   <>
                     <StatChip label="ROWS" value={inventoryStats.total} />
                     <StatChip label="LOW" value={inventoryStats.low} tone={inventoryStats.low ? "warn" : "neutral"} />
-                    <StatChip label="BACKORD" value={inventoryStats.backordered} tone={inventoryStats.backordered ? "warn" : "neutral"} />
+                    <StatChip label="NOTIFIED" value={inventoryStats.notified} tone={inventoryStats.notified ? "warn" : "neutral"} />
                   </>
                 ) : tab === "prefcards" ? (
                   <>
@@ -1385,7 +1446,7 @@ export default function AdminPage() {
         </div>
       </div>
 
-      <div className="mx-auto w-full max-w-7xl px-4 py-6">
+      <div className="mx-auto w-full max-w-6xl px-4 py-6">
         {tab === "inventory" ? (
           <>
             <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
@@ -1424,16 +1485,14 @@ export default function AdminPage() {
 
             <div className="overflow-hidden rounded-3xl border border-white/10 bg-white/[0.03] ring-1 ring-white/5">
               <div className="overflow-x-auto">
-                <div className="min-w-[1450px]">
-                  <div className="sticky top-0 z-20 grid grid-cols-16 gap-0 border-b border-white/10 bg-black/70 px-4 py-3 text-xs font-semibold tracking-wider text-white/55">
+                <div className="min-w-[980px]">
+                  <div className="sticky top-0 z-20 grid grid-cols-12 gap-0 border-b border-white/10 bg-black/70 px-4 py-3 text-xs font-semibold tracking-wider text-white/55">
                     <div className="col-span-3 sticky left-0 z-30 bg-black/70 pr-2">AREA</div>
                     <div className="col-span-4 sticky left-[240px] z-30 bg-black/70 pr-2">ITEM</div>
                     <div className="col-span-2">BARCODE</div>
                     <div className="col-span-1 text-center">ON HAND</div>
                     <div className="col-span-1 text-center">PAR</div>
-                    <div className="col-span-2 text-center">ORDER STATUS</div>
-                    <div className="col-span-1 text-center">BACKORDER</div>
-                    <div className="col-span-2 sticky right-0 z-30 bg-black/70 text-right pl-2">ROW STATUS</div>
+                    <div className="col-span-1 sticky right-0 z-30 bg-black/70 text-right pl-2">STATUS</div>
                   </div>
 
                   {loading ? (
@@ -1446,21 +1505,14 @@ export default function AdminPage() {
                         const areaName = r.storage_areas?.name || "(unknown area)";
                         const itemName = r.items?.name || "(unknown item)";
                         const barcode = r.items?.barcode || "";
-                        const itemStatus = r.items?.order_status || "IN STOCK";
-                        const isBackordered = !!r.items?.backordered;
-                        const statusTone =
-                          r.low || isBackordered
-                            ? "warn"
-                            : itemStatus === "OUT OF STOCK" || itemStatus === "CANCELLED"
-                            ? "bad"
-                            : "good";
+                        const statusTone = r.low ? "warn" : "good";
                         const rowKey = `${r.storage_area_id}:${r.item_id}`;
 
                         return (
                           <div
                             key={rowKey}
                             className={cn(
-                              "grid grid-cols-16 items-center gap-0 px-4 py-3 transition",
+                              "grid grid-cols-12 items-center gap-0 px-4 py-3 transition",
                               r.low ? "bg-amber-500/8 hover:bg-amber-500/14" : "hover:bg-white/[0.04]"
                             )}
                           >
@@ -1475,7 +1527,6 @@ export default function AdminPage() {
                               <div className="text-sm font-extrabold truncate">{itemName}</div>
                               <div className="mt-0.5 text-xs text-white/45">
                                 {r.items?.category ? `Category: ${r.items.category}` : ""}
-                                {r.items?.reference_number ? ` • Ref: ${r.items.reference_number}` : ""}
                               </div>
                             </div>
 
@@ -1501,49 +1552,13 @@ export default function AdminPage() {
                               />
                             </div>
 
-                            <div className="col-span-2 flex justify-center px-2">
-                              <select
-                                value={itemStatus}
-                                onChange={(e) => saveItemStatus(r, "order_status", e.target.value)}
-                                className="w-full rounded-2xl bg-white/5 px-3 py-2 text-sm font-extrabold ring-1 ring-white/10 outline-none focus:ring-white/30"
-                              >
-                                {ITEM_STATUS_OPTIONS.map((opt) => (
-                                  <option key={opt} value={opt}>
-                                    {opt}
-                                  </option>
-                                ))}
-                              </select>
-                            </div>
-
-                            <div className="col-span-1 flex justify-center">
-                              <label className="inline-flex items-center justify-center">
-                                <input
-                                  type="checkbox"
-                                  checked={isBackordered}
-                                  onChange={(e) =>
-                                    saveItemStatus(r, "backordered", e.target.checked)
-                                  }
-                                  className="h-5 w-5 rounded"
-                                />
-                              </label>
-                            </div>
-
-                            <div className="col-span-2 sticky right-0 z-10 bg-black/60 pl-2 flex justify-end">
+                            <div className="col-span-1 sticky right-0 z-10 bg-black/60 pl-2 flex justify-end">
                               <div className="flex items-center gap-2">
                                 {(savingKey === `${rowKey}:on_hand` ||
-                                  savingKey === `${rowKey}:par_level` ||
-                                  savingKey === `${rowKey}:order_status` ||
-                                  savingKey === `${rowKey}:backordered`) && (
+                                  savingKey === `${rowKey}:par_level`) && (
                                   <Pill tone="neutral">Saving…</Pill>
                                 )}
-
-                                {isBackordered ? (
-                                  <Pill tone="warn">BACKORDERED</Pill>
-                                ) : (
-                                  <Pill tone={statusTone as any}>
-                                    {r.low ? "LOW" : itemStatus || "OK"}
-                                  </Pill>
-                                )}
+                                <Pill tone={statusTone as any}>{r.low ? "LOW" : "OK"}</Pill>
                               </div>
                             </div>
                           </div>
@@ -2107,7 +2122,78 @@ export default function AdminPage() {
             </div>
           </div>
         ) : (
-          <div className="grid gap-4 lg:grid-cols-[360px_minmax(0,1fr)]">
+          <div className="grid gap-4 lg:grid-cols-[340px_340px_minmax(0,1fr)]">
+            <div className="space-y-4">
+              <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-4 ring-1 ring-white/5">
+                <div className="text-lg font-extrabold">Needs Attention</div>
+                <div className="mt-1 text-sm text-white/60">
+                  Items marked backordered or not currently in stock.
+                </div>
+
+                <div className="mt-3 space-y-2">
+                  <input
+                    value={attentionSearch}
+                    onChange={(e) => setAttentionSearch(e.target.value)}
+                    placeholder="Search flagged items..."
+                    className="w-full rounded-2xl bg-white/5 px-4 py-3 text-sm ring-1 ring-white/10 outline-none focus:ring-white/30"
+                  />
+                  <button
+                    onClick={() => {
+                      setAttentionSearch("");
+                    }}
+                    className="w-full rounded-2xl bg-white/10 px-4 py-3 text-sm font-extrabold ring-1 ring-white/10"
+                  >
+                    Clear
+                  </button>
+                </div>
+
+                <div className="mt-4 max-h-[620px] space-y-2 overflow-y-auto pr-1">
+                  {attentionLoading ? (
+                    <div className="text-sm text-white/60">Loading…</div>
+                  ) : attentionItems.length === 0 ? (
+                    <div className="text-sm text-white/60">Nothing needs status review right now.</div>
+                  ) : (
+                    attentionItems.map((itemRow) => (
+                      <button
+                        key={itemRow.id}
+                        onClick={() => openOrderItem(itemRow)}
+                        className={cn(
+                          "w-full rounded-2xl p-3 text-left ring-1 transition",
+                          selectedOrderItem?.id === itemRow.id
+                            ? "bg-white text-black ring-white/40"
+                            : "bg-white/5 text-white ring-white/10 hover:bg-white/10"
+                        )}
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <div className="text-sm font-extrabold">{itemRow.name || "—"}</div>
+                            <div className="mt-1 text-xs opacity-75 break-words">
+                              {itemRow.vendor || "—"} • {itemRow.category || "—"}
+                              {itemRow.reference_number ? ` • ${itemRow.reference_number}` : ""}
+                            </div>
+                          </div>
+                          <div className="flex flex-col items-end gap-1">
+                            <Pill
+                              tone={
+                                itemRow.backordered
+                                  ? "warn"
+                                  : normalizeOrderStatus(itemRow.order_status) === "IN STOCK"
+                                  ? "good"
+                                  : "neutral"
+                              }
+                            >
+                              {normalizeOrderStatus(itemRow.order_status)}
+                            </Pill>
+                            {itemRow.backordered && <Pill tone="warn">BACKORDERED</Pill>}
+                          </div>
+                        </div>
+                      </button>
+                    ))
+                  )}
+                </div>
+              </div>
+            </div>
+
             <div className="space-y-4">
               <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-4 ring-1 ring-white/5">
                 <div className="text-lg font-extrabold">Find Item Orders</div>
@@ -2146,7 +2232,7 @@ export default function AdminPage() {
                   ) : orderLookupQuery.trim().length < 2 ? (
                     <div className="text-sm text-white/50">Type at least 2 characters.</div>
                   ) : orderLookupResults.length === 0 ? (
-                    <div className="text-sm text-white/60">No matching items.</div>
+                    <div className="text-sm text.white/60">No matching items.</div>
                   ) : (
                     orderLookupResults.map((itemRow) => (
                       <button
@@ -2166,6 +2252,10 @@ export default function AdminPage() {
                         </div>
                         <div className="mt-1 text-xs opacity-60 break-all">
                           {itemRow.barcode || "No barcode"}
+                        </div>
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          <Pill tone="neutral">{normalizeOrderStatus(itemRow.order_status)}</Pill>
+                          {itemRow.backordered && <Pill tone="warn">BACKORDERED</Pill>}
                         </div>
                       </button>
                     ))
@@ -2190,7 +2280,7 @@ export default function AdminPage() {
 
                 {!selectedOrderItem ? (
                   <div className="mt-4 rounded-2xl bg-white/5 p-4 text-sm text-white/60 ring-1 ring-white/10">
-                    Search for an item on the left, then tap it to load all order lines.
+                    Select an item from the left to edit its status and review order lines.
                   </div>
                 ) : (
                   <>
@@ -2206,6 +2296,83 @@ export default function AdminPage() {
                       </div>
                       <div className="mt-1 text-xs text-white/45 break-all">
                         Barcode: {selectedOrderItem.barcode || "—"}
+                      </div>
+                    </div>
+
+                    <div className="mt-4 rounded-2xl bg-black/30 p-4 ring-1 ring-white/10">
+                      <div className="text-sm font-extrabold">Quick Item Status</div>
+                      <div className="mt-3 grid gap-3 md:grid-cols-2">
+                        <div>
+                          <div className="mb-1 text-xs text-white/55">Order status</div>
+                          <select
+                            value={normalizeOrderStatus(selectedOrderItem.order_status)}
+                            onChange={(e) =>
+                              setSelectedOrderItem((prev) =>
+                                prev ? { ...prev, order_status: e.target.value } : prev
+                              )
+                            }
+                            className="w-full rounded-2xl bg-white/5 px-3 py-3 text-sm font-extrabold ring-1 ring-white/10 outline-none focus:ring-white/30"
+                          >
+                            <option value="IN STOCK">IN STOCK</option>
+                            <option value="ORDERED">ORDERED</option>
+                            <option value="BACKORDER">BACKORDER</option>
+                            <option value="PARTIAL">PARTIAL</option>
+                            <option value="OUT OF STOCK">OUT OF STOCK</option>
+                            <option value="RECEIVED">RECEIVED</option>
+                            <option value="CANCELLED">CANCELLED</option>
+                          </select>
+                        </div>
+
+                        <div className="flex items-end">
+                          <label className="flex w-full items-center gap-3 rounded-2xl bg-white/5 px-4 py-3 ring-1 ring-white/10">
+                            <input
+                              type="checkbox"
+                              checked={!!selectedOrderItem.backordered}
+                              onChange={(e) =>
+                                setSelectedOrderItem((prev) =>
+                                  prev ? { ...prev, backordered: e.target.checked } : prev
+                                )
+                              }
+                            />
+                            <span className="text-sm font-extrabold">Backordered</span>
+                          </label>
+                        </div>
+                      </div>
+
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <button
+                          onClick={async () => {
+                            if (!selectedOrderItem) return;
+                            await saveItemHeaderStatus(
+                              selectedOrderItem,
+                              "order_status",
+                              normalizeOrderStatus(selectedOrderItem.order_status)
+                            );
+                          }}
+                          disabled={!selectedOrderItem}
+                          className="rounded-2xl bg-white px-4 py-3 text-sm font-extrabold text-black disabled:opacity-50"
+                        >
+                          {savingItemStatusKey === `${selectedOrderItem.id}:order_status`
+                            ? "Saving..."
+                            : "Save Status"}
+                        </button>
+
+                        <button
+                          onClick={async () => {
+                            if (!selectedOrderItem) return;
+                            await saveItemHeaderStatus(
+                              selectedOrderItem,
+                              "backordered",
+                              !!selectedOrderItem.backordered
+                            );
+                          }}
+                          disabled={!selectedOrderItem}
+                          className="rounded-2xl bg-white/10 px-4 py-3 text-sm font-extrabold ring-1 ring-white/10 disabled:opacity-50"
+                        >
+                          {savingItemStatusKey === `${selectedOrderItem.id}:backordered`
+                            ? "Saving..."
+                            : "Save Backordered"}
+                        </button>
                       </div>
                     </div>
 
