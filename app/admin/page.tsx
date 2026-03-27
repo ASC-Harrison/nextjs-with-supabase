@@ -2232,7 +2232,7 @@ export default function AdminPage() {
                   ) : orderLookupQuery.trim().length < 2 ? (
                     <div className="text-sm text-white/50">Type at least 2 characters.</div>
                   ) : orderLookupResults.length === 0 ? (
-                    <div className="text-sm text.white/60">No matching items.</div>
+                    <div className="text-sm text-white/60">No matching items.</div>
                   ) : (
                     orderLookupResults.map((itemRow) => (
                       <button
