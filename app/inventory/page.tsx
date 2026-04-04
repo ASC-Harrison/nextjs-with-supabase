@@ -675,17 +675,43 @@ export default function InventoryPage() {
       const stream = await navigator.mediaDevices.getUserMedia(constraints);
       const v: any = videoRef.current; v.srcObject = stream; await v.play();
       const decodeFromVideoElement = (reader as any).decodeFromVideoElement?.bind(reader);
+
+      // scanFiredRef prevents multiple lookups from a single scan session
+      // Once a barcode is detected we hard-lock and stop processing any more frames
+      let scanFired = false;
+
       const handleText = async (text: string) => {
-        if (!text) return; const now = Date.now(); if (now<scanCooldownRef.current) return; scanCooldownRef.current = now+900;
-        if (text===lastScanRef.current) return; lastScanRef.current = text;
-        setQuery(text); stopScanner(); setScannerOpen(false); setLookupMode("BARCODE"); await lookup(text);
+        if (!text) return;
+        if (scanFired) return; // already handled — ignore all subsequent frames
+        const now = Date.now();
+        if (now < scanCooldownRef.current) return;
+        scanCooldownRef.current = now + 2000; // 2 second cooldown
+        scanFired = true; // lock immediately — no more scans this session
+
+        const cleaned = text.trim().replace(/[\r\n\t]/g, "");
+        if (!cleaned) return;
+
+        // Stop camera first, then do lookup — prevents any further decode callbacks
+        stopScannerCamera();
+        setScannerOpen(false);
+        setQuery(cleaned);
+        setLookupMode("BARCODE");
+        await lookup(cleaned);
       };
+
       if (decodeFromVideoElement) { await decodeFromVideoElement(videoRef.current, async (result: any) => { if (!result) return; await handleText(result.getText?.()??""); }); }
       else { await reader.decodeFromVideoDevice(undefined, videoRef.current, async (result) => { if (!result) return; await handleText(result.getText?.()??""); }); }
     } catch {
       setScannerOpen(false); setStatus("Camera blocked.");
       alert("Camera blocked.\n\nOn iPhone:\nSettings → Safari → Camera → Allow\nThen refresh and try again.");
     }
+  }
+
+  // Stops only the camera stream (used inside scan session to prevent re-fires)
+  function stopScannerCamera() {
+    try { (readerRef.current as any)?.reset?.(); } catch {}
+    readerRef.current = null;
+    try { const v = videoRef.current as any; const stream = v?.srcObject as MediaStream|null; if (stream) { stream.getTracks().forEach((t)=>t.stop()); v.srcObject=null; } } catch {}
   }
 
   function stopScanner() {
