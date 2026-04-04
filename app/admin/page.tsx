@@ -87,6 +87,7 @@ type PullSessionItem = {
   storage_areas?: { id?: string | null; name?: string | null } | null;
 };
 
+// (ApiResp kept for potential future use with paginated API routes)
 type ApiResp = {
   ok: boolean;
   rows?: Row[];
@@ -224,15 +225,12 @@ export default function AdminPage() {
   // ── Inventory ──────────────────────────────────────────────────────────────
   const [rows, setRows] = useState<Row[]>([]);
   const [loading, setLoading] = useState(true);
-  const [loadingMore, setLoadingMore] = useState(false);
-  const [hasMore, setHasMore] = useState(true);
-  const [cursor, setCursor] = useState<string | null>(null);
   const [savingKey, setSavingKey] = useState<string | null>(null);
   const [q, setQ] = useState("");
-  const [onlyLow, setOnlyLow] = useState(false);
+  // "all" | "low" | "notified" | "ok"
+  const [statusFilter, setStatusFilter] = useState<"all" | "low" | "notified" | "ok">("all");
   const dq = useDebounced(q, 300);
   const sentinelRef = useRef<HTMLDivElement | null>(null);
-  const abortRef = useRef<AbortController | null>(null);
 
   // ── Areas ──────────────────────────────────────────────────────────────────
   const [areas, setAreas] = useState<Area[]>([]);
@@ -318,50 +316,54 @@ export default function AdminPage() {
   }
 
   // ════════════════════════════════════════════════════════════════════════════
-  // INVENTORY — unchanged
+  // INVENTORY — direct Supabase query, sorted by status (LOW first), with
+  // client-side filtering. Never touches items.order_status.
   // ════════════════════════════════════════════════════════════════════════════
 
-  async function loadFirstPage() {
-    setLoading(true); setToast(null); setCursor(null); setHasMore(true); setRows([]);
-    abortRef.current?.abort();
-    const ac = new AbortController(); abortRef.current = ac;
-    const params = new URLSearchParams();
-    if (dq.trim()) params.set("q", dq.trim());
-    if (onlyLow) params.set("onlyLow", "1");
-    params.set("limit", "200");
-    const res = await fetch(`/api/admin-inventory?${params.toString()}`, { signal: ac.signal });
-    const json = (await res.json()) as ApiResp;
-    if (!json.ok) { setToast(`Load failed: ${json.error || "unknown error"}`); setLoading(false); return; }
-    setRows(json.rows || []); setCursor(json.nextCursor || null); setHasMore(Boolean(json.hasMore)); setLoading(false);
-  }
+  async function loadInventory() {
+    setLoading(true);
+    setToast(null);
 
-  async function loadMore() {
-    if (!hasMore || loadingMore || !cursor) return;
-    setLoadingMore(true);
-    const params = new URLSearchParams();
-    if (dq.trim()) params.set("q", dq.trim());
-    if (onlyLow) params.set("onlyLow", "1");
-    params.set("limit", "200"); params.set("cursor", cursor);
-    const res = await fetch(`/api/admin-inventory?${params.toString()}`);
-    const json = (await res.json()) as ApiResp;
-    if (!json.ok) { setToast(`Load failed: ${json.error || "unknown error"}`); setLoadingMore(false); return; }
-    const incoming = json.rows || [];
-    const seen = new Set(rows.map((r) => `${r.storage_area_id}:${r.item_id}`));
-    const merged = [...rows];
-    for (const r of incoming) { const key = `${r.storage_area_id}:${r.item_id}`; if (!seen.has(key)) merged.push(r); }
-    setRows(merged); setCursor(json.nextCursor || null); setHasMore(Boolean(json.hasMore)); setLoadingMore(false);
-  }
+    // Fetch ALL storage_inventory rows with item + area details
+    // Sort: low=true first, then low_notified, then alphabetically by area+item
+    const { data, error } = await supabase
+      .from("storage_inventory")
+      .select(
+        `storage_area_id, item_id, on_hand, par_level, low, low_notified, updated_at,
+         storage_areas(name),
+         items(name, barcode, vendor, category)`
+      )
+      .order("low", { ascending: false })           // LOW rows float to top
+      .order("low_notified", { ascending: false })  // then notified
+      .order("updated_at", { ascending: false });   // then most recently changed
 
-  useEffect(() => { if (tab !== "inventory") return; loadFirstPage(); // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dq, onlyLow, tab]);
+    if (error) {
+      setToast(`Inventory load failed: ${error.message}`);
+      setLoading(false);
+      return;
+    }
+
+    const normalized: Row[] = (data || []).map((raw: any) => ({
+      storage_area_id: raw.storage_area_id,
+      item_id: raw.item_id,
+      on_hand: raw.on_hand,
+      par_level: raw.par_level,
+      low: raw.low,
+      low_notified: raw.low_notified,
+      updated_at: raw.updated_at,
+      storage_areas: Array.isArray(raw.storage_areas) ? raw.storage_areas[0] ?? null : raw.storage_areas ?? null,
+      items: Array.isArray(raw.items) ? raw.items[0] ?? null : raw.items ?? null,
+    }));
+
+    setRows(normalized);
+    setLoading(false);
+  }
 
   useEffect(() => {
     if (tab !== "inventory") return;
-    const el = sentinelRef.current; if (!el) return;
-    const io = new IntersectionObserver((entries) => { if (entries[0].isIntersecting) loadMore(); }, { root: null, rootMargin: "900px", threshold: 0 });
-    io.observe(el); return () => io.disconnect();
+    loadInventory();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cursor, hasMore, loadingMore, dq, onlyLow, tab]);
+  }, [tab]);
 
   async function saveCell(r: Row, field: "on_hand" | "par_level", value: string) {
     const num = value === "" ? null : Number(value);
@@ -756,7 +758,43 @@ export default function AdminPage() {
     setSurgeonInput(selectedPrefCard.surgeon || ""); setProcedureInput(selectedPrefCard.procedure_name || ""); setSpecialtyInput(selectedPrefCard.specialty || ""); setPrefNotesInput(selectedPrefCard.notes || "");
   }, [selectedPrefCard?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const inventoryStats = useMemo(() => ({ total: rows.length, low: rows.filter((r) => r.low).length, notified: rows.filter((r) => r.low_notified).length }), [rows]);
+  const inventoryStats = useMemo(() => ({
+    total: rows.length,
+    low: rows.filter((r) => r.low && !r.low_notified).length,
+    notified: rows.filter((r) => r.low_notified).length,
+    ok: rows.filter((r) => !r.low).length,
+  }), [rows]);
+
+  // Client-side filter + search applied on top of the full sorted dataset
+  const filteredRows = useMemo(() => {
+    let result = rows;
+
+    // Status filter
+    if (statusFilter === "low") result = result.filter((r) => r.low && !r.low_notified);
+    else if (statusFilter === "notified") result = result.filter((r) => r.low_notified);
+    else if (statusFilter === "ok") result = result.filter((r) => !r.low);
+
+    // Search filter
+    const sq = dq.trim().toLowerCase();
+    if (sq.length >= 1) {
+      result = result.filter((r) => {
+        const areaName = r.storage_areas?.name?.toLowerCase() || "";
+        const itemName = r.items?.name?.toLowerCase() || "";
+        const barcode = r.items?.barcode?.toLowerCase() || "";
+        const vendor = r.items?.vendor?.toLowerCase() || "";
+        const category = r.items?.category?.toLowerCase() || "";
+        return (
+          areaName.includes(sq) ||
+          itemName.includes(sq) ||
+          barcode.includes(sq) ||
+          vendor.includes(sq) ||
+          category.includes(sq)
+        );
+      });
+    }
+
+    return result;
+  }, [rows, statusFilter, dq]);
   const prefStats = useMemo(() => ({ totalCards: prefCards.length, activeCards: prefCards.filter((c) => c.is_active).length, itemCount: prefItems.length }), [prefCards, prefItems]);
 
   const orderStats = useMemo(() => ({
@@ -808,9 +846,9 @@ export default function AdminPage() {
                 <StatChip label="STATE" value="OPEN" tone="good" />
                 {tab === "inventory" ? (
                   <>
-                    <StatChip label="ROWS" value={inventoryStats.total} />
+                    <StatChip label="TOTAL" value={inventoryStats.total} />
                     <StatChip label="LOW" value={inventoryStats.low} tone={inventoryStats.low ? "warn" : "neutral"} />
-                    <StatChip label="NOTIFIED" value={inventoryStats.notified} tone={inventoryStats.notified ? "warn" : "neutral"} />
+                    <StatChip label="NOTIFIED" value={inventoryStats.notified} tone={inventoryStats.notified ? "bad" : "neutral"} />
                   </>
                 ) : tab === "prefcards" ? (
                   <>
@@ -838,70 +876,257 @@ export default function AdminPage() {
 
       <div className="mx-auto w-full max-w-6xl px-4 py-6">
 
-        {/* ══ INVENTORY TAB — completely unchanged ══════════════════════════════ */}
+        {/* ══ INVENTORY TAB — upgraded ══════════════════════════════════════ */}
         {tab === "inventory" ? (
           <>
-            <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center">
-              <div className="relative w-full md:max-w-xl">
-                <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search item, area, barcode, vendor, category…" className="w-full rounded-2xl bg-white/5 px-4 py-3 text-sm text-white placeholder:text-white/40 ring-1 ring-white/10 outline-none focus:ring-white/30" />
-              </div>
-              <button type="button" onClick={() => setOnlyLow((v) => !v)} className={cn("rounded-2xl px-4 py-3 text-sm font-extrabold ring-1 transition", onlyLow ? "bg-amber-400/20 text-amber-100 ring-amber-300/30" : "bg-white/5 text-white/80 ring-white/10 hover:bg-white/10")}>
-                {onlyLow ? "Showing: LOW" : "Filter: LOW only"}
+            {/* Status summary cards */}
+            <div className="mb-4 grid grid-cols-2 gap-3 md:grid-cols-4">
+              <button
+                onClick={() => setStatusFilter("all")}
+                className={cn(
+                  "rounded-3xl p-4 text-left ring-1 transition",
+                  statusFilter === "all"
+                    ? "bg-white text-black ring-white/40"
+                    : "bg-white/[0.03] ring-white/10 hover:bg-white/[0.07]"
+                )}
+              >
+                <div className={cn("text-[10px] tracking-[0.2em]", statusFilter === "all" ? "text-black/50" : "text-white/40")}>ALL ITEMS</div>
+                <div className="mt-1 text-2xl font-extrabold tabular-nums">{inventoryStats.total}</div>
+                <div className={cn("mt-1 text-xs", statusFilter === "all" ? "text-black/40" : "text-white/30")}>in inventory</div>
               </button>
-              <button type="button" onClick={loadFirstPage} className="rounded-2xl bg-white/5 px-4 py-3 text-sm font-extrabold ring-1 ring-white/10 hover:bg-white/10">Refresh</button>
+
+              <button
+                onClick={() => setStatusFilter("low")}
+                className={cn(
+                  "rounded-3xl p-4 text-left ring-1 transition",
+                  statusFilter === "low"
+                    ? "bg-amber-300 text-black ring-amber-200"
+                    : "bg-amber-500/8 ring-amber-400/20 hover:bg-amber-500/14"
+                )}
+              >
+                <div className={cn("text-[10px] tracking-[0.2em]", statusFilter === "low" ? "text-black/50" : "text-amber-300/60")}>LOW STOCK</div>
+                <div className={cn("mt-1 text-2xl font-extrabold tabular-nums", statusFilter === "low" ? "text-black" : "text-amber-200")}>{inventoryStats.low}</div>
+                <div className={cn("mt-1 text-xs", statusFilter === "low" ? "text-black/40" : "text-amber-300/40")}>below par level</div>
+              </button>
+
+              <button
+                onClick={() => setStatusFilter("notified")}
+                className={cn(
+                  "rounded-3xl p-4 text-left ring-1 transition",
+                  statusFilter === "notified"
+                    ? "bg-rose-300 text-black ring-rose-200"
+                    : "bg-rose-500/8 ring-rose-400/20 hover:bg-rose-500/14"
+                )}
+              >
+                <div className={cn("text-[10px] tracking-[0.2em]", statusFilter === "notified" ? "text-black/50" : "text-rose-300/60")}>NOTIFIED</div>
+                <div className={cn("mt-1 text-2xl font-extrabold tabular-nums", statusFilter === "notified" ? "text-black" : "text-rose-200")}>{inventoryStats.notified}</div>
+                <div className={cn("mt-1 text-xs", statusFilter === "notified" ? "text-black/40" : "text-rose-300/40")}>alert sent</div>
+              </button>
+
+              <button
+                onClick={() => setStatusFilter("ok")}
+                className={cn(
+                  "rounded-3xl p-4 text-left ring-1 transition",
+                  statusFilter === "ok"
+                    ? "bg-emerald-300 text-black ring-emerald-200"
+                    : "bg-emerald-500/8 ring-emerald-400/20 hover:bg-emerald-500/14"
+                )}
+              >
+                <div className={cn("text-[10px] tracking-[0.2em]", statusFilter === "ok" ? "text-black/50" : "text-emerald-300/60")}>IN STOCK</div>
+                <div className={cn("mt-1 text-2xl font-extrabold tabular-nums", statusFilter === "ok" ? "text-black" : "text-emerald-200")}>{inventoryStats.ok}</div>
+                <div className={cn("mt-1 text-xs", statusFilter === "ok" ? "text-black/40" : "text-emerald-300/40")}>at or above par</div>
+              </button>
             </div>
 
+            {/* Search + actions */}
+            <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center">
+              <div className="relative w-full md:max-w-xl">
+                <input
+                  value={q}
+                  onChange={(e) => setQ(e.target.value)}
+                  placeholder="Search item name, area, barcode, vendor, category…"
+                  className="w-full rounded-2xl bg-white/5 px-4 py-3 text-sm text-white placeholder:text-white/35 ring-1 ring-white/10 outline-none focus:ring-white/30"
+                />
+                {q && (
+                  <button
+                    onClick={() => setQ("")}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-white/35 hover:text-white/70"
+                  >✕</button>
+                )}
+              </div>
+
+              <button
+                type="button"
+                onClick={loadInventory}
+                className="rounded-2xl bg-white/5 px-4 py-3 text-sm font-extrabold ring-1 ring-white/10 hover:bg-white/10"
+              >
+                ↺ Refresh
+              </button>
+
+              {filteredRows.length !== rows.length && (
+                <div className="text-sm text-white/40">
+                  Showing <span className="font-bold text-white/70">{filteredRows.length}</span> of {rows.length}
+                </div>
+              )}
+            </div>
+
+            {/* Table */}
             <div className="overflow-hidden rounded-3xl border border-white/10 bg-white/[0.03] ring-1 ring-white/5">
               <div className="overflow-x-auto">
-                <div className="min-w-[980px]">
-                  <div className="sticky top-0 z-20 grid grid-cols-12 gap-0 border-b border-white/10 bg-black/70 px-4 py-3 text-xs font-semibold tracking-wider text-white/55">
-                    <div className="col-span-3 sticky left-0 z-30 bg-black/70 pr-2">AREA</div>
-                    <div className="col-span-4 sticky left-[240px] z-30 bg-black/70 pr-2">ITEM</div>
-                    <div className="col-span-2">BARCODE</div>
+                <div className="min-w-[820px]">
+                  {/* Table header */}
+                  <div className="sticky top-0 z-20 grid grid-cols-12 gap-0 border-b border-white/10 bg-black/80 px-4 py-3 text-[10px] font-bold tracking-[0.18em] text-white/40">
+                    <div className="col-span-2">STATUS</div>
+                    <div className="col-span-3">AREA</div>
+                    <div className="col-span-3">ITEM</div>
                     <div className="col-span-1 text-center">ON HAND</div>
                     <div className="col-span-1 text-center">PAR</div>
-                    <div className="col-span-1 sticky right-0 z-30 bg-black/70 text-right pl-2">STATUS</div>
+                    <div className="col-span-2 text-right">DETAILS</div>
                   </div>
-                  {loading ? <div className="p-6 text-white/60">Loading…</div>
-                    : rows.length === 0 ? <div className="p-6 text-white/60">No results.</div>
-                    : (
-                      <div className="divide-y divide-white/10">
-                        {rows.map((r) => {
-                          const areaName = r.storage_areas?.name || "(unknown area)";
-                          const itemName = r.items?.name || "(unknown item)";
-                          const barcode = r.items?.barcode || "";
-                          const rowKey = `${r.storage_area_id}:${r.item_id}`;
-                          return (
-                            <div key={rowKey} className={cn("grid grid-cols-12 items-center gap-0 px-4 py-3 transition", r.low ? "bg-amber-500/8 hover:bg-amber-500/14" : "hover:bg-white/[0.04]")}>
-                              <div className="col-span-3 sticky left-0 z-10 bg-black/60 pr-2">
-                                <div className="text-sm font-extrabold text-white/90">{areaName}</div>
-                                <div className="mt-0.5 text-xs text-white/45">{r.items?.vendor ? r.items.vendor : r.items?.category ? r.items.category : ""}</div>
-                              </div>
-                              <div className="col-span-4 sticky left-[240px] z-10 bg-black/60 pr-2 min-w-0">
-                                <div className="text-sm font-extrabold truncate">{itemName}</div>
-                                <div className="mt-0.5 text-xs text-white/45">{r.items?.category ? `Category: ${r.items.category}` : ""}</div>
-                              </div>
-                              <div className="col-span-2"><div className="text-sm text-white/80 break-all">{barcode || "—"}</div></div>
-                              <div className="col-span-1 flex justify-center">
-                                <input defaultValue={String(r.on_hand ?? 0)} onFocus={(e) => e.currentTarget.select()} onBlur={(e) => saveCell(r, "on_hand", e.target.value)} className="w-20 rounded-2xl bg-white/5 px-3 py-2 text-center text-sm font-extrabold tabular-nums ring-1 ring-white/10 outline-none focus:ring-white/30" />
-                              </div>
-                              <div className="col-span-1 flex justify-center">
-                                <input defaultValue={String(r.par_level ?? 0)} onFocus={(e) => e.currentTarget.select()} onBlur={(e) => saveCell(r, "par_level", e.target.value)} className="w-20 rounded-2xl bg-white/5 px-3 py-2 text-center text-sm font-extrabold tabular-nums ring-1 ring-white/10 outline-none focus:ring-white/30" />
-                              </div>
-                              <div className="col-span-1 sticky right-0 z-10 bg-black/60 pl-2 flex justify-end">
-                                <div className="flex items-center gap-2">
-                                  {(savingKey === `${rowKey}:on_hand` || savingKey === `${rowKey}:par_level`) && <Pill tone="neutral">Saving…</Pill>}
-                                  <Pill tone={r.low ? "warn" : "good"}>{r.low ? "LOW" : "OK"}</Pill>
-                                </div>
+
+                  {loading ? (
+                    <div className="flex flex-col items-center justify-center gap-3 py-16">
+                      <div className="h-8 w-8 animate-spin rounded-full border-2 border-white/10 border-t-white/60" />
+                      <div className="text-sm text-white/40">Loading inventory…</div>
+                    </div>
+                  ) : filteredRows.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center gap-2 py-16">
+                      <div className="text-4xl opacity-10">📦</div>
+                      <div className="text-sm text-white/40">
+                        {rows.length === 0 ? "No inventory found." : "No items match your filter."}
+                      </div>
+                      {statusFilter !== "all" && (
+                        <button onClick={() => setStatusFilter("all")} className="mt-2 text-xs text-white/40 underline hover:text-white/60">
+                          Clear filter
+                        </button>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="divide-y divide-white/[0.06]">
+                      {filteredRows.map((r) => {
+                        const areaName = r.storage_areas?.name || "(unknown area)";
+                        const itemName = r.items?.name || "(unknown item)";
+                        const barcode = r.items?.barcode || "";
+                        const vendor = r.items?.vendor || "";
+                        const rowKey = `${r.storage_area_id}:${r.item_id}`;
+
+                        // Determine status
+                        const isNotified = !!r.low_notified;
+                        const isLow = !!r.low && !isNotified;
+                        const isOk = !r.low;
+
+                        // Status label + styling
+                        const statusLabel = isNotified ? "NOTIFIED" : isLow ? "LOW" : "OK";
+                        const statusBg = isNotified
+                          ? "bg-rose-500/12 text-rose-200 ring-rose-300/20"
+                          : isLow
+                          ? "bg-amber-500/12 text-amber-200 ring-amber-300/20"
+                          : "bg-emerald-500/10 text-emerald-300 ring-emerald-400/15";
+
+                        // Row accent
+                        const rowAccent = isNotified
+                          ? "bg-rose-500/5 hover:bg-rose-500/10 border-l-2 border-rose-400/40"
+                          : isLow
+                          ? "bg-amber-500/5 hover:bg-amber-500/10 border-l-2 border-amber-400/30"
+                          : "hover:bg-white/[0.03] border-l-2 border-transparent";
+
+                        // On-hand vs par ratio for visual indicator
+                        const onHand = r.on_hand ?? 0;
+                        const par = r.par_level ?? 0;
+                        const ratio = par > 0 ? Math.min(onHand / par, 1) : 1;
+                        const barColor = isNotified
+                          ? "bg-rose-400"
+                          : isLow
+                          ? "bg-amber-400"
+                          : "bg-emerald-400";
+
+                        return (
+                          <div
+                            key={rowKey}
+                            className={cn("grid grid-cols-12 items-center gap-0 px-4 py-3 transition", rowAccent)}
+                          >
+                            {/* Status */}
+                            <div className="col-span-2 flex flex-col gap-1.5">
+                              <span className={cn("inline-flex items-center self-start rounded-full px-2.5 py-1 text-[10px] font-bold ring-1", statusBg)}>
+                                {isNotified && <span className="mr-1.5 h-1.5 w-1.5 animate-pulse rounded-full bg-rose-400 inline-block" />}
+                                {statusLabel}
+                              </span>
+                              {/* Mini stock bar */}
+                              <div className="h-1 w-12 overflow-hidden rounded-full bg-white/10">
+                                <div className={cn("h-full rounded-full transition-all", barColor)} style={{ width: `${Math.round(ratio * 100)}%` }} />
                               </div>
                             </div>
-                          );
-                        })}
-                      </div>
-                    )
-                  }
-                  <div ref={sentinelRef} className="h-10" />
-                  {rows.length > 0 && <div className="px-4 py-4 text-sm text-white/55">{loadingMore ? "Loading more…" : hasMore ? "Scroll to load more…" : "End of results."}</div>}
+
+                            {/* Area */}
+                            <div className="col-span-3 pr-3 min-w-0">
+                              <div className="truncate text-sm font-bold text-white/90">{areaName}</div>
+                              {vendor && <div className="mt-0.5 truncate text-xs text-white/35">{vendor}</div>}
+                            </div>
+
+                            {/* Item */}
+                            <div className="col-span-3 pr-3 min-w-0">
+                              <div className="truncate text-sm font-bold">{itemName}</div>
+                              {r.items?.category && <div className="mt-0.5 truncate text-xs text-white/35">{r.items.category}</div>}
+                            </div>
+
+                            {/* On Hand */}
+                            <div className="col-span-1 flex flex-col items-center gap-1">
+                              <input
+                                key={`${rowKey}:on_hand:${r.on_hand}`}
+                                defaultValue={String(r.on_hand ?? 0)}
+                                onFocus={(e) => e.currentTarget.select()}
+                                onBlur={(e) => saveCell(r, "on_hand", e.target.value)}
+                                className={cn(
+                                  "w-16 rounded-xl px-2 py-2 text-center text-sm font-extrabold tabular-nums ring-1 outline-none transition focus:ring-white/40",
+                                  isNotified || isLow
+                                    ? "bg-amber-500/10 ring-amber-300/20 focus:bg-white/10"
+                                    : "bg-white/5 ring-white/10 focus:bg-white/10"
+                                )}
+                              />
+                              {savingKey === `${rowKey}:on_hand` && <div className="text-[9px] text-white/35">saving…</div>}
+                            </div>
+
+                            {/* Par */}
+                            <div className="col-span-1 flex flex-col items-center gap-1">
+                              <input
+                                key={`${rowKey}:par_level:${r.par_level}`}
+                                defaultValue={String(r.par_level ?? 0)}
+                                onFocus={(e) => e.currentTarget.select()}
+                                onBlur={(e) => saveCell(r, "par_level", e.target.value)}
+                                className="w-16 rounded-xl bg-white/5 px-2 py-2 text-center text-sm font-extrabold tabular-nums ring-1 ring-white/10 outline-none transition focus:bg-white/10 focus:ring-white/40"
+                              />
+                              {savingKey === `${rowKey}:par_level` && <div className="text-[9px] text-white/35">saving…</div>}
+                            </div>
+
+                            {/* Details */}
+                            <div className="col-span-2 flex flex-col items-end gap-1 pl-2">
+                              {barcode && <div className="font-mono text-[10px] text-white/25 truncate max-w-[100px]">{barcode}</div>}
+                              {r.updated_at && (
+                                <div className="text-[9px] text-white/20">
+                                  {new Date(r.updated_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                                </div>
+                              )}
+                              {par > 0 && (
+                                <div className={cn("text-[10px] font-bold", isLow || isNotified ? "text-amber-300/60" : "text-white/20")}>
+                                  {onHand}/{par}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  <div ref={sentinelRef} className="h-4" />
+
+                  {!loading && filteredRows.length > 0 && (
+                    <div className="border-t border-white/[0.06] px-4 py-3 text-xs text-white/30">
+                      {filteredRows.length} item{filteredRows.length !== 1 ? "s" : ""} shown
+                      {statusFilter !== "all" && ` · filter: ${statusFilter.toUpperCase()}`}
+                      {dq && ` · search: "${dq}"`}
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
