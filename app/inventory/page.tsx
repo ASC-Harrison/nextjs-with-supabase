@@ -1170,35 +1170,78 @@ export default function InventoryPage() {
 
                   {item && (
                     <div className="found-panel">
-                      <div className="f-name">{item.name}</div>
-                      <div className="f-meta">{item.reference_number?`Ref: ${item.reference_number}`:""}{item.reference_number&&item.barcode?" · ":""}{item.barcode?`Barcode: ${item.barcode}`:""}</div>
-                      <div className="c-panel mt3">
-                        <div className="s-title">Item status</div>
-                        <div className="field">
-                          <label className="f-lbl">Order status</label>
-                          <select value={itemStatusDraft.order_status} onChange={(e)=>setItemStatusDraft((prev)=>({...prev,order_status:e.target.value}))} className="inp inp-sel">
-                            {ITEM_STATUS_OPTIONS.map((opt)=><option key={opt} value={opt}>{opt}</option>)}
-                          </select>
+                      <div className="fxb" style={{marginBottom:10}}>
+                        <div style={{minWidth:0,flex:1}}>
+                          <div className="f-name">{item.name}</div>
+                          <div className="f-meta">{item.reference_number?`Ref: ${item.reference_number}`:""}{item.reference_number&&item.barcode?" · ":""}{item.barcode?`Barcode: ${item.barcode}`:""}</div>
                         </div>
-                        <label className="chk-row">
-                          <input type="checkbox" checked={itemStatusDraft.backordered} onChange={(e)=>setItemStatusDraft((prev)=>({...prev,backordered:e.target.checked}))} />
-                          <span>Backordered</span>
-                        </label>
-                        <button onClick={async()=>{await saveItemStatus(item.id,itemStatusDraft.order_status,itemStatusDraft.backordered,item.name);}} disabled={itemStatusSaving||staffMissing} className="btn btn-ac btn-full mt3" style={{fontSize:13}}>
-                          {itemStatusSaving?"Saving…":"Save Item Status"}
-                        </button>
-                        <div style={{fontSize:10,color:"var(--text4)",marginTop:6}}>This updates the item so app and admin both see it.</div>
+                        {/* Cancel / clear button */}
+                        <button
+                          onClick={()=>{setItem(null);setQuery("");setStatus("");setMatches([]);setOrderStatusRows([]);}}
+                          style={{flexShrink:0,background:"rgba(239,68,68,0.12)",border:"1px solid rgba(239,68,68,0.3)",borderRadius:"var(--r-md)",padding:"8px 14px",color:"#fca5a5",fontSize:12,fontWeight:800,cursor:"pointer",fontFamily:"inherit",marginLeft:10}}
+                        >✕ Cancel</button>
                       </div>
-                      <button onClick={openOrderStatus} className="btn btn-gh btn-full" style={{marginTop:12,fontSize:13}}>View Order History</button>
+
+                      {/* ── USE / RESTOCK qty + submit — right here in the panel ── */}
+                      <div style={{background:"rgba(59,130,246,0.08)",border:"1px solid rgba(59,130,246,0.2)",borderRadius:"var(--r-lg)",padding:"14px",marginBottom:12}}>
+                        <div style={{fontSize:11,fontWeight:800,color:"var(--ac-bright)",marginBottom:10,letterSpacing:"0.3px"}}>
+                          {mode==="USE"?"USE — removes from on-hand":"RESTOCK — adds to on-hand"}
+                        </div>
+                        <div className="qty-row" style={{marginTop:0}}>
+                          <QtyBtn onClick={()=>setQty((q)=>Math.max(1,q-1))}>−</QtyBtn>
+                          <div className="qty-disp">{qty}</div>
+                          <QtyBtn onClick={()=>setQty((q)=>q+1)}>+</QtyBtn>
+                        </div>
+                        <button
+                          className="btn btn-submit btn-full btn-lg"
+                          style={{marginTop:12}}
+                          disabled={locked||staffMissing}
+                          onClick={submit}
+                        >
+                          {mode==="USE"?`USE ${qty} — Submit`:`RESTOCK ${qty} — Submit`}
+                        </button>
+                        {(locked||staffMissing) && (
+                          <div style={{fontSize:11,color:"var(--text4)",marginTop:6,textAlign:"center"}}>
+                            {staffMissing?"Set staff name in Audit tab first.":"Unlock to submit."}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* ── Item status (collapsed by default, expandable) ── */}
+                      <details style={{marginBottom:8}}>
+                        <summary style={{fontSize:12,color:"var(--text3)",cursor:"pointer",padding:"6px 0",listStyle:"none",display:"flex",alignItems:"center",gap:6}}>
+                          <span style={{fontSize:10}}>▸</span> Item Status &amp; Order History
+                        </summary>
+                        <div style={{marginTop:10}}>
+                          <div className="c-panel">
+                            <div className="s-title">Item status</div>
+                            <div className="field">
+                              <label className="f-lbl">Order status</label>
+                              <select value={itemStatusDraft.order_status} onChange={(e)=>setItemStatusDraft((prev)=>({...prev,order_status:e.target.value}))} className="inp inp-sel">
+                                {ITEM_STATUS_OPTIONS.map((opt)=><option key={opt} value={opt}>{opt}</option>)}
+                              </select>
+                            </div>
+                            <label className="chk-row">
+                              <input type="checkbox" checked={itemStatusDraft.backordered} onChange={(e)=>setItemStatusDraft((prev)=>({...prev,backordered:e.target.checked}))} />
+                              <span>Backordered</span>
+                            </label>
+                            <button onClick={async()=>{await saveItemStatus(item.id,itemStatusDraft.order_status,itemStatusDraft.backordered,item.name);}} disabled={itemStatusSaving||staffMissing} className="btn btn-ac btn-full mt3" style={{fontSize:13}}>
+                              {itemStatusSaving?"Saving…":"Save Item Status"}
+                            </button>
+                            <div style={{fontSize:10,color:"var(--text4)",marginTop:6}}>This updates the item so app and admin both see it.</div>
+                          </div>
+                          <button onClick={openOrderStatus} className="btn btn-gh btn-full" style={{marginTop:10,fontSize:13}}>View Order History</button>
+                        </div>
+                      </details>
                     </div>
                   )}
 
-                  <div className="qty-row">
+                  <div className="qty-row" style={{opacity: item ? 0.3 : 1, pointerEvents: item ? "none" : "auto"}}>
                     <QtyBtn onClick={()=>setQty((q)=>Math.max(1,q-1))}>−</QtyBtn>
                     <div className="qty-disp">{qty}</div>
                     <QtyBtn onClick={()=>setQty((q)=>q+1)}>+</QtyBtn>
                   </div>
-                  <button className="btn btn-submit btn-full btn-lg mt3" disabled={!item||locked||staffMissing} onClick={submit}>Submit</button>
+                  <button className="btn btn-submit btn-full btn-lg mt3" disabled={!item||locked||staffMissing} onClick={submit} style={{opacity: item ? 0.3 : 1, pointerEvents: item ? "none" : "auto"}}>Submit</button>
                   <button className="btn btn-gh btn-full" style={{marginTop:10,fontSize:13}} disabled={!lastTx||locked||staffMissing||undoBusy} onClick={undoLast}>
                     {undoBusy?"Undoing…":"↩️ Undo last transaction"}
                   </button>
