@@ -248,6 +248,72 @@ function needsAttention(status?: string | null, backordered?: boolean | null) {
   );
 }
 
+// ── Order status helpers ──────────────────────────────────────────────────────
+
+type LineStatus = "ORDERED" | "BACKORDER" | "PARTIAL" | "RECEIVED" | "CANCELLED";
+
+function lineStatusTone(s: LineStatus): "neutral" | "good" | "warn" | "bad" {
+  if (s === "RECEIVED") return "good";
+  if (s === "BACKORDER") return "warn";
+  if (s === "CANCELLED") return "bad";
+  if (s === "PARTIAL") return "warn";
+  return "neutral";
+}
+
+function itemStatusTone(status?: string | null, backordered?: boolean | null) {
+  if (backordered) return "warn";
+  const s = normalizeOrderStatus(status);
+  if (s === "IN STOCK") return "good";
+  if (s === "BACKORDER" || s === "OUT OF STOCK") return "warn";
+  if (s === "CANCELLED") return "bad";
+  return "neutral";
+}
+
+function formatDate(d?: string | null) {
+  if (!d) return "—";
+  try {
+    return new Date(d).toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    });
+  } catch {
+    return d;
+  }
+}
+
+function daysAgo(d?: string | null) {
+  if (!d) return null;
+  try {
+    const diff = Date.now() - new Date(d).getTime();
+    const days = Math.floor(diff / 86400000);
+    if (days === 0) return "Today";
+    if (days === 1) return "Yesterday";
+    return `${days}d ago`;
+  } catch {
+    return null;
+  }
+}
+
+// ── Inline status badge for order lines ───────────────────────────────────────
+
+function StatusBadge({ status }: { status: LineStatus }) {
+  const map: Record<LineStatus, { bg: string; text: string; dot: string }> = {
+    ORDERED: { bg: "bg-blue-500/10 ring-blue-400/20", text: "text-blue-200", dot: "bg-blue-400" },
+    BACKORDER: { bg: "bg-amber-500/12 ring-amber-300/25", text: "text-amber-100", dot: "bg-amber-400" },
+    PARTIAL: { bg: "bg-orange-500/12 ring-orange-300/20", text: "text-orange-100", dot: "bg-orange-400" },
+    RECEIVED: { bg: "bg-emerald-500/10 ring-emerald-400/20", text: "text-emerald-200", dot: "bg-emerald-400" },
+    CANCELLED: { bg: "bg-rose-500/12 ring-rose-300/25", text: "text-rose-200", dot: "bg-rose-400" },
+  };
+  const { bg, text, dot } = map[status] ?? map.ORDERED;
+  return (
+    <span className={cn("inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold ring-1", bg, text)}>
+      <span className={cn("h-1.5 w-1.5 rounded-full", dot)} />
+      {status}
+    </span>
+  );
+}
+
 export default function AdminPage() {
   const [tab, setTab] = useState<AdminTab>("inventory");
 
@@ -318,6 +384,9 @@ export default function AdminPage() {
   const [savingOrderKey, setSavingOrderKey] = useState<string | null>(null);
   const [savingItemStatusKey, setSavingItemStatusKey] = useState<string | null>(null);
 
+  // New: order panel mode
+  const [orderPanel, setOrderPanel] = useState<"attention" | "search">("attention");
+
   useEffect(() => {
     setLocked(false);
     try {
@@ -349,7 +418,7 @@ export default function AdminPage() {
     setAreas((data || []) as Area[]);
   }
 
-  // ---------------- Inventory ----------------
+  // ── Inventory ────────────────────────────────────────────────────────────────
 
   async function loadFirstPage() {
     setLoading(true);
@@ -448,7 +517,7 @@ export default function AdminPage() {
       return;
     }
 
-    const rowKey = `${r.storage_area_id}:${r.item_id}:${field}`;
+    const rowKey = `${r.storage_area_id}:${r.item_id}`;
     setSavingKey(rowKey);
 
     const { error } = await supabase
@@ -475,7 +544,7 @@ export default function AdminPage() {
     setToast("Saved ✅");
   }
 
-  // ---------------- Pref Cards ----------------
+  // ── Pref Cards ───────────────────────────────────────────────────────────────
 
   async function loadPrefCards() {
     setPrefCardsLoading(true);
@@ -726,7 +795,7 @@ export default function AdminPage() {
     setToast("Item removed");
   }
 
-  // ---------------- Pull Sessions ----------------
+  // ── Pull Sessions ─────────────────────────────────────────────────────────────
 
   async function loadSessions(cardId: string) {
     if (!cardId) {
@@ -1002,7 +1071,7 @@ export default function AdminPage() {
     window.print();
   }
 
-  // ---------------- Orders / item lookup ----------------
+  // ── Orders / item lookup ──────────────────────────────────────────────────────
 
   useEffect(() => {
     if (tab !== "orders") return;
@@ -1357,6 +1426,10 @@ export default function AdminPage() {
     return { planned, pulled, used };
   }, [sessionItems]);
 
+  // ── Derived order lists for the left panel ────────────────────────────────────
+
+  const activeListItems = orderPanel === "attention" ? attentionItems : orderLookupResults;
+
   return (
     <div className="min-h-screen bg-black text-white overflow-x-hidden">
       <div className="pointer-events-none fixed inset-0 opacity-70">
@@ -1365,6 +1438,7 @@ export default function AdminPage() {
         <div className="absolute bottom-10 right-10 h-80 w-80 rounded-full bg-white/5 blur-3xl" />
       </div>
 
+      {/* ── Top nav ── */}
       <div className="sticky top-0 z-20 border-b border-white/10 bg-black/70">
         <div className="mx-auto w-full max-w-6xl px-4 py-4">
           <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
@@ -1415,9 +1489,9 @@ export default function AdminPage() {
                   </>
                 ) : (
                   <>
-                    <StatChip label="RESULTS" value={orderStats.results} />
-                    <StatChip label="LINES" value={orderStats.lines} />
-                    <StatChip label="PENDING" value={orderStats.pending} tone={orderStats.pending ? "warn" : "neutral"} />
+                    <StatChip label="FLAGGED" value={attentionItems.length} tone={attentionItems.length ? "warn" : "neutral"} />
+                    <StatChip label="PO LINES" value={orderStats.lines} />
+                    <StatChip label="PENDING QTY" value={orderStats.pending} tone={orderStats.pending ? "warn" : "neutral"} />
                   </>
                 )}
               </div>
@@ -1433,7 +1507,7 @@ export default function AdminPage() {
                 Pref Cards + Pulls
               </IconButton>
               <IconButton onClick={() => setTab("orders")} active={tab === "orders"}>
-                Item Order Lookup
+                Order Status
               </IconButton>
             </div>
 
@@ -1447,6 +1521,10 @@ export default function AdminPage() {
       </div>
 
       <div className="mx-auto w-full max-w-6xl px-4 py-6">
+
+        {/* ══════════════════════════════════════════════════════════════════════ */}
+        {/* INVENTORY TAB — completely untouched */}
+        {/* ══════════════════════════════════════════════════════════════════════ */}
         {tab === "inventory" ? (
           <>
             <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
@@ -1578,7 +1656,11 @@ export default function AdminPage() {
               </div>
             </div>
           </>
+
         ) : tab === "prefcards" ? (
+          /* ════════════════════════════════════════════════════════════════════ */
+          /* PREF CARDS TAB — completely untouched */
+          /* ════════════════════════════════════════════════════════════════════ */
           <div className="grid gap-4 lg:grid-cols-[320px_minmax(0,1fr)]">
             <div className="space-y-4">
               <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-4 ring-1 ring-white/5">
@@ -2121,189 +2203,308 @@ export default function AdminPage() {
               </div>
             </div>
           </div>
+
         ) : (
-          <div className="grid gap-4 lg:grid-cols-[340px_340px_minmax(0,1fr)]">
-            <div className="space-y-4">
-              <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-4 ring-1 ring-white/5">
-                <div className="text-lg font-extrabold">Needs Attention</div>
-                <div className="mt-1 text-sm text-white/60">
-                  Items marked backordered or not currently in stock.
-                </div>
+          /* ════════════════════════════════════════════════════════════════════ */
+          /* ORDER STATUS TAB — rebuilt */
+          /* ════════════════════════════════════════════════════════════════════ */
+          <div className="grid gap-4 lg:grid-cols-[360px_minmax(0,1fr)]">
 
-                <div className="mt-3 space-y-2">
-                  <input
-                    value={attentionSearch}
-                    onChange={(e) => setAttentionSearch(e.target.value)}
-                    placeholder="Search flagged items..."
-                    className="w-full rounded-2xl bg-white/5 px-4 py-3 text-sm ring-1 ring-white/10 outline-none focus:ring-white/30"
-                  />
-                  <button
-                    onClick={() => {
-                      setAttentionSearch("");
-                    }}
-                    className="w-full rounded-2xl bg-white/10 px-4 py-3 text-sm font-extrabold ring-1 ring-white/10"
-                  >
-                    Clear
-                  </button>
-                </div>
+            {/* ── Left panel: toggle between flagged list + search ── */}
+            <div className="space-y-3">
 
-                <div className="mt-4 max-h-[620px] space-y-2 overflow-y-auto pr-1">
-                  {attentionLoading ? (
-                    <div className="text-sm text-white/60">Loading…</div>
-                  ) : attentionItems.length === 0 ? (
-                    <div className="text-sm text-white/60">Nothing needs status review right now.</div>
-                  ) : (
-                    attentionItems.map((itemRow) => (
+              {/* Toggle */}
+              <div className="flex rounded-2xl bg-white/5 p-1 ring-1 ring-white/10">
+                <button
+                  onClick={() => setOrderPanel("attention")}
+                  className={cn(
+                    "flex-1 rounded-xl px-3 py-2.5 text-sm font-extrabold transition",
+                    orderPanel === "attention"
+                      ? "bg-white text-black shadow"
+                      : "text-white/60 hover:text-white"
+                  )}
+                >
+                  Needs Attention
+                  {attentionItems.length > 0 && (
+                    <span className={cn(
+                      "ml-2 inline-flex h-5 min-w-5 items-center justify-center rounded-full text-[10px] font-black px-1",
+                      orderPanel === "attention" ? "bg-amber-500 text-black" : "bg-amber-500/20 text-amber-300"
+                    )}>
+                      {attentionItems.length}
+                    </span>
+                  )}
+                </button>
+                <button
+                  onClick={() => setOrderPanel("search")}
+                  className={cn(
+                    "flex-1 rounded-xl px-3 py-2.5 text-sm font-extrabold transition",
+                    orderPanel === "search"
+                      ? "bg-white text-black shadow"
+                      : "text-white/60 hover:text-white"
+                  )}
+                >
+                  Search Items
+                </button>
+              </div>
+
+              {/* Attention panel */}
+              {orderPanel === "attention" && (
+                <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-4 ring-1 ring-white/5">
+                  <div className="flex items-center justify-between gap-2">
+                    <div>
+                      <div className="text-base font-extrabold">Flagged Items</div>
+                      <div className="mt-0.5 text-xs text-white/50">
+                        Ordered, backordered, or out of stock
+                      </div>
+                    </div>
+                    {attentionItems.length > 0 && (
+                      <span className="inline-flex h-6 min-w-6 items-center justify-center rounded-full bg-amber-500/20 px-1.5 text-xs font-black text-amber-300 ring-1 ring-amber-400/25">
+                        {attentionItems.length}
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="mt-3 flex gap-2">
+                    <input
+                      value={attentionSearch}
+                      onChange={(e) => setAttentionSearch(e.target.value)}
+                      placeholder="Filter flagged items…"
+                      className="flex-1 rounded-2xl bg-white/5 px-4 py-2.5 text-sm ring-1 ring-white/10 outline-none focus:ring-white/30"
+                    />
+                    {attentionSearch && (
                       <button
-                        key={itemRow.id}
-                        onClick={() => openOrderItem(itemRow)}
-                        className={cn(
-                          "w-full rounded-2xl p-3 text-left ring-1 transition",
-                          selectedOrderItem?.id === itemRow.id
-                            ? "bg-white text-black ring-white/40"
-                            : "bg-white/5 text-white ring-white/10 hover:bg-white/10"
-                        )}
+                        onClick={() => setAttentionSearch("")}
+                        className="rounded-2xl bg-white/5 px-3 text-sm font-extrabold ring-1 ring-white/10 hover:bg-white/10"
                       >
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="min-w-0">
-                            <div className="text-sm font-extrabold">{itemRow.name || "—"}</div>
-                            <div className="mt-1 text-xs opacity-75 break-words">
-                              {itemRow.vendor || "—"} • {itemRow.category || "—"}
-                              {itemRow.reference_number ? ` • ${itemRow.reference_number}` : ""}
+                        ✕
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="mt-3 max-h-[640px] space-y-2 overflow-y-auto pr-1">
+                    {attentionLoading ? (
+                      <div className="py-6 text-center text-sm text-white/50">Loading…</div>
+                    ) : attentionItems.length === 0 ? (
+                      <div className="py-8 text-center">
+                        <div className="text-2xl">✓</div>
+                        <div className="mt-2 text-sm font-semibold text-emerald-300">All clear</div>
+                        <div className="mt-1 text-xs text-white/45">No items need attention right now.</div>
+                      </div>
+                    ) : (
+                      attentionItems.map((itemRow) => {
+                        const isSelected = selectedOrderItem?.id === itemRow.id;
+                        const tone = itemStatusTone(itemRow.order_status, itemRow.backordered);
+                        const status = normalizeOrderStatus(itemRow.order_status);
+                        return (
+                          <button
+                            key={itemRow.id}
+                            onClick={() => openOrderItem(itemRow)}
+                            className={cn(
+                              "w-full rounded-2xl p-3 text-left ring-1 transition",
+                              isSelected
+                                ? "bg-white text-black ring-white/40"
+                                : "bg-white/5 text-white ring-white/10 hover:bg-white/10"
+                            )}
+                          >
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="min-w-0 flex-1">
+                                <div className="truncate text-sm font-extrabold">
+                                  {itemRow.name || "—"}
+                                </div>
+                                <div className={cn("mt-0.5 text-xs truncate", isSelected ? "text-black/60" : "text-white/50")}>
+                                  {itemRow.vendor || "—"}
+                                  {itemRow.reference_number ? ` · ${itemRow.reference_number}` : ""}
+                                </div>
+                              </div>
+                              <div className="flex shrink-0 flex-col items-end gap-1">
+                                {/* Status dot + label */}
+                                <span className={cn(
+                                  "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-black ring-1",
+                                  isSelected
+                                    ? "bg-black/10 text-black ring-black/20"
+                                    : tone === "warn"
+                                    ? "bg-amber-500/15 text-amber-200 ring-amber-400/20"
+                                    : tone === "bad"
+                                    ? "bg-rose-500/15 text-rose-200 ring-rose-400/20"
+                                    : "bg-blue-500/15 text-blue-200 ring-blue-400/20"
+                                )}>
+                                  <span className={cn(
+                                    "h-1.5 w-1.5 rounded-full",
+                                    isSelected ? "bg-black/40"
+                                    : tone === "warn" ? "bg-amber-400"
+                                    : tone === "bad" ? "bg-rose-400"
+                                    : "bg-blue-400"
+                                  )} />
+                                  {status}
+                                </span>
+                                {itemRow.backordered && (
+                                  <span className={cn(
+                                    "text-[10px] font-black",
+                                    isSelected ? "text-black/50" : "text-amber-300/80"
+                                  )}>
+                                    BACKORDER
+                                  </span>
+                                )}
+                              </div>
                             </div>
-                          </div>
-                          <div className="flex flex-col items-end gap-1">
-                            <Pill
-                              tone={
-                                itemRow.backordered
-                                  ? "warn"
-                                  : normalizeOrderStatus(itemRow.order_status) === "IN STOCK"
-                                  ? "good"
-                                  : "neutral"
-                              }
-                            >
-                              {normalizeOrderStatus(itemRow.order_status)}
-                            </Pill>
-                            {itemRow.backordered && <Pill tone="warn">BACKORDERED</Pill>}
-                          </div>
-                        </div>
-                      </button>
-                    ))
-                  )}
-                </div>
-              </div>
-            </div>
-
-            <div className="space-y-4">
-              <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-4 ring-1 ring-white/5">
-                <div className="text-lg font-extrabold">Find Item Orders</div>
-                <div className="mt-1 text-sm text-white/60">
-                  Search by name, barcode, ref number, or vendor.
-                </div>
-
-                <div className="mt-3 space-y-2">
-                  <input
-                    value={orderLookupQuery}
-                    onChange={(e) => setOrderLookupQuery(e.target.value)}
-                    placeholder="Search item..."
-                    className="w-full rounded-2xl bg-white/5 px-4 py-3 text-sm ring-1 ring-white/10 outline-none focus:ring-white/30"
-                  />
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => {
-                        if (selectedOrderItem) loadOrderLinesForItem(selectedOrderItem.id);
-                      }}
-                      className="flex-1 rounded-2xl bg-white/10 px-4 py-3 text-sm font-extrabold ring-1 ring-white/10"
-                    >
-                      Refresh
-                    </button>
-                    <button
-                      onClick={clearOrderLookup}
-                      className="rounded-2xl bg-white/10 px-4 py-3 text-sm font-extrabold ring-1 ring-white/10"
-                    >
-                      Clear
-                    </button>
+                          </button>
+                        );
+                      })
+                    )}
                   </div>
                 </div>
+              )}
 
-                <div className="mt-4 max-h-[620px] space-y-2 overflow-y-auto pr-1">
-                  {orderLookupLoading ? (
-                    <div className="text-sm text-white/60">Searching…</div>
-                  ) : orderLookupQuery.trim().length < 2 ? (
-                    <div className="text-sm text-white/50">Type at least 2 characters.</div>
-                  ) : orderLookupResults.length === 0 ? (
-                    <div className="text-sm text-white/60">No matching items.</div>
-                  ) : (
-                    orderLookupResults.map((itemRow) => (
+              {/* Search panel */}
+              {orderPanel === "search" && (
+                <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-4 ring-1 ring-white/5">
+                  <div className="text-base font-extrabold">Find Item</div>
+                  <div className="mt-0.5 text-xs text-white/50">
+                    Search by name, barcode, ref number, or vendor
+                  </div>
+
+                  <div className="mt-3 flex gap-2">
+                    <input
+                      value={orderLookupQuery}
+                      onChange={(e) => setOrderLookupQuery(e.target.value)}
+                      placeholder="Search item…"
+                      className="flex-1 rounded-2xl bg-white/5 px-4 py-2.5 text-sm ring-1 ring-white/10 outline-none focus:ring-white/30"
+                    />
+                    {orderLookupQuery && (
                       <button
-                        key={itemRow.id}
-                        onClick={() => openOrderItem(itemRow)}
-                        className={cn(
-                          "w-full rounded-2xl p-3 text-left ring-1 transition",
-                          selectedOrderItem?.id === itemRow.id
-                            ? "bg-white text-black ring-white/40"
-                            : "bg-white/5 text-white ring-white/10 hover:bg-white/10"
-                        )}
+                        onClick={clearOrderLookup}
+                        className="rounded-2xl bg-white/5 px-3 text-sm font-extrabold ring-1 ring-white/10 hover:bg-white/10"
                       >
-                        <div className="text-sm font-extrabold">{itemRow.name || "—"}</div>
-                        <div className="mt-1 text-xs opacity-75 break-words">
-                          {itemRow.vendor || "—"} • {itemRow.category || "—"}
-                          {itemRow.reference_number ? ` • ${itemRow.reference_number}` : ""}
-                        </div>
-                        <div className="mt-1 text-xs opacity-60 break-all">
-                          {itemRow.barcode || "No barcode"}
-                        </div>
-                        <div className="mt-2 flex flex-wrap gap-2">
-                          <Pill tone="neutral">{normalizeOrderStatus(itemRow.order_status)}</Pill>
-                          {itemRow.backordered && <Pill tone="warn">BACKORDERED</Pill>}
-                        </div>
+                        ✕
                       </button>
-                    ))
-                  )}
+                    )}
+                  </div>
+
+                  <div className="mt-3 max-h-[640px] space-y-2 overflow-y-auto pr-1">
+                    {orderLookupLoading ? (
+                      <div className="py-4 text-center text-sm text-white/50">Searching…</div>
+                    ) : orderLookupQuery.trim().length < 2 ? (
+                      <div className="py-4 text-center text-sm text-white/40">Type 2+ characters</div>
+                    ) : orderLookupResults.length === 0 ? (
+                      <div className="py-4 text-center text-sm text-white/50">No matching items.</div>
+                    ) : (
+                      orderLookupResults.map((itemRow) => {
+                        const isSelected = selectedOrderItem?.id === itemRow.id;
+                        const status = normalizeOrderStatus(itemRow.order_status);
+                        return (
+                          <button
+                            key={itemRow.id}
+                            onClick={() => openOrderItem(itemRow)}
+                            className={cn(
+                              "w-full rounded-2xl p-3 text-left ring-1 transition",
+                              isSelected
+                                ? "bg-white text-black ring-white/40"
+                                : "bg-white/5 text-white ring-white/10 hover:bg-white/10"
+                            )}
+                          >
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="min-w-0 flex-1">
+                                <div className="truncate text-sm font-extrabold">{itemRow.name || "—"}</div>
+                                <div className={cn("mt-0.5 text-xs truncate", isSelected ? "text-black/60" : "text-white/50")}>
+                                  {itemRow.vendor || "—"}
+                                  {itemRow.reference_number ? ` · ${itemRow.reference_number}` : ""}
+                                </div>
+                                <div className={cn("mt-0.5 text-[10px] font-mono", isSelected ? "text-black/40" : "text-white/30")}>
+                                  {itemRow.barcode || "—"}
+                                </div>
+                              </div>
+                              <div className="shrink-0">
+                                <span className={cn(
+                                  "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-black ring-1",
+                                  isSelected
+                                    ? "bg-black/10 text-black ring-black/20"
+                                    : status === "IN STOCK"
+                                    ? "bg-emerald-500/15 text-emerald-300 ring-emerald-400/20"
+                                    : "bg-white/8 text-white/70 ring-white/15"
+                                )}>
+                                  {status}
+                                </span>
+                              </div>
+                            </div>
+                          </button>
+                        );
+                      })
+                    )}
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
 
+            {/* ── Right panel: item detail + order lines ── */}
             <div className="space-y-4">
-              <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-4 ring-1 ring-white/5">
-                <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                  <div>
-                    <div className="text-lg font-extrabold">Item Order Editor</div>
-                    <div className="mt-1 text-sm text-white/60">
-                      See every purchase order line tied to the selected item and update status/quantities.
+              {!selectedOrderItem ? (
+                <div className="flex h-64 items-center justify-center rounded-3xl border border-white/10 bg-white/[0.03] ring-1 ring-white/5">
+                  <div className="text-center">
+                    <div className="text-3xl opacity-30">📦</div>
+                    <div className="mt-3 text-sm font-semibold text-white/40">
+                      Select an item to see order status
+                    </div>
+                    <div className="mt-1 text-xs text-white/25">
+                      Choose from the left panel
                     </div>
                   </div>
-                  {selectedOrderItem && (
-                    <Pill tone="good">{selectedOrderItem.name || "Selected item"}</Pill>
-                  )}
                 </div>
+              ) : (
+                <>
+                  {/* Item header card */}
+                  <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-5 ring-1 ring-white/5">
+                    <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+                      <div className="min-w-0">
+                        <div className="text-[10px] tracking-[0.2em] text-white/40">SELECTED ITEM</div>
+                        <div className="mt-1 text-xl font-extrabold leading-tight">
+                          {selectedOrderItem.name || "Unknown item"}
+                        </div>
+                        <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1 text-xs text-white/55">
+                          {selectedOrderItem.vendor && <span>{selectedOrderItem.vendor}</span>}
+                          {selectedOrderItem.category && <span>· {selectedOrderItem.category}</span>}
+                          {selectedOrderItem.reference_number && (
+                            <span className="font-mono">· {selectedOrderItem.reference_number}</span>
+                          )}
+                          {selectedOrderItem.barcode && (
+                            <span className="font-mono opacity-60">· {selectedOrderItem.barcode}</span>
+                          )}
+                        </div>
+                      </div>
 
-                {!selectedOrderItem ? (
-                  <div className="mt-4 rounded-2xl bg-white/5 p-4 text-sm text-white/60 ring-1 ring-white/10">
-                    Select an item from the left to edit its status and review order lines.
-                  </div>
-                ) : (
-                  <>
-                    <div className="mt-4 rounded-2xl bg-black/30 p-4 ring-1 ring-white/10">
-                      <div className="text-sm font-extrabold">
-                        {selectedOrderItem.name || "Unknown item"}
-                      </div>
-                      <div className="mt-2 text-xs text-white/55 break-words">
-                        {selectedOrderItem.vendor || "—"} • {selectedOrderItem.category || "—"}
-                        {selectedOrderItem.reference_number
-                          ? ` • ${selectedOrderItem.reference_number}`
-                          : ""}
-                      </div>
-                      <div className="mt-1 text-xs text-white/45 break-all">
-                        Barcode: {selectedOrderItem.barcode || "—"}
+                      {/* Current status badges */}
+                      <div className="flex shrink-0 flex-col items-start gap-2 md:items-end">
+                        <span className={cn(
+                          "inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-black ring-1",
+                          selectedOrderItem.backordered
+                            ? "bg-amber-500/15 text-amber-100 ring-amber-400/25"
+                            : normalizeOrderStatus(selectedOrderItem.order_status) === "IN STOCK"
+                            ? "bg-emerald-500/15 text-emerald-200 ring-emerald-400/25"
+                            : "bg-blue-500/12 text-blue-200 ring-blue-400/20"
+                        )}>
+                          <span className={cn(
+                            "h-2 w-2 rounded-full",
+                            selectedOrderItem.backordered ? "bg-amber-400"
+                            : normalizeOrderStatus(selectedOrderItem.order_status) === "IN STOCK" ? "bg-emerald-400"
+                            : "bg-blue-400"
+                          )} />
+                          {normalizeOrderStatus(selectedOrderItem.order_status)}
+                        </span>
+                        {selectedOrderItem.backordered && (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-2.5 py-1 text-[10px] font-black text-amber-300 ring-1 ring-amber-400/20">
+                            ⚠ BACKORDERED
+                          </span>
+                        )}
                       </div>
                     </div>
 
-                    <div className="mt-4 rounded-2xl bg-black/30 p-4 ring-1 ring-white/10">
-                      <div className="text-sm font-extrabold">Quick Item Status</div>
-                      <div className="mt-3 grid gap-3 md:grid-cols-2">
-                        <div>
-                          <div className="mb-1 text-xs text-white/55">Order status</div>
+                    {/* Quick status editor */}
+                    <div className="mt-4 border-t border-white/8 pt-4">
+                      <div className="text-xs font-semibold tracking-widest text-white/35 mb-3">
+                        UPDATE ITEM STATUS
+                      </div>
+                      <div className="flex flex-wrap items-end gap-3">
+                        <div className="flex-1 min-w-[160px]">
+                          <div className="mb-1.5 text-xs text-white/50">Order status</div>
                           <select
                             value={normalizeOrderStatus(selectedOrderItem.order_status)}
                             onChange={(e) =>
@@ -2323,23 +2524,20 @@ export default function AdminPage() {
                           </select>
                         </div>
 
-                        <div className="flex items-end">
-                          <label className="flex w-full items-center gap-3 rounded-2xl bg-white/5 px-4 py-3 ring-1 ring-white/10">
-                            <input
-                              type="checkbox"
-                              checked={!!selectedOrderItem.backordered}
-                              onChange={(e) =>
-                                setSelectedOrderItem((prev) =>
-                                  prev ? { ...prev, backordered: e.target.checked } : prev
-                                )
-                              }
-                            />
-                            <span className="text-sm font-extrabold">Backordered</span>
-                          </label>
-                        </div>
-                      </div>
+                        <label className="flex cursor-pointer items-center gap-2.5 rounded-2xl bg-white/5 px-4 py-3 ring-1 ring-white/10 hover:bg-white/8">
+                          <input
+                            type="checkbox"
+                            checked={!!selectedOrderItem.backordered}
+                            onChange={(e) =>
+                              setSelectedOrderItem((prev) =>
+                                prev ? { ...prev, backordered: e.target.checked } : prev
+                              )
+                            }
+                            className="h-4 w-4 rounded"
+                          />
+                          <span className="text-sm font-extrabold">Backordered</span>
+                        </label>
 
-                      <div className="mt-3 flex flex-wrap gap-2">
                         <button
                           onClick={async () => {
                             if (!selectedOrderItem) return;
@@ -2348,18 +2546,6 @@ export default function AdminPage() {
                               "order_status",
                               normalizeOrderStatus(selectedOrderItem.order_status)
                             );
-                          }}
-                          disabled={!selectedOrderItem}
-                          className="rounded-2xl bg-white px-4 py-3 text-sm font-extrabold text-black disabled:opacity-50"
-                        >
-                          {savingItemStatusKey === `${selectedOrderItem.id}:order_status`
-                            ? "Saving..."
-                            : "Save Status"}
-                        </button>
-
-                        <button
-                          onClick={async () => {
-                            if (!selectedOrderItem) return;
                             await saveItemHeaderStatus(
                               selectedOrderItem,
                               "backordered",
@@ -2367,20 +2553,39 @@ export default function AdminPage() {
                             );
                           }}
                           disabled={!selectedOrderItem}
-                          className="rounded-2xl bg-white/10 px-4 py-3 text-sm font-extrabold ring-1 ring-white/10 disabled:opacity-50"
+                          className="rounded-2xl bg-white px-5 py-3 text-sm font-extrabold text-black hover:bg-white/90 disabled:opacity-50"
                         >
-                          {savingItemStatusKey === `${selectedOrderItem.id}:backordered`
-                            ? "Saving..."
-                            : "Save Backordered"}
+                          {savingItemStatusKey ? "Saving…" : "Save Status"}
                         </button>
                       </div>
                     </div>
+                  </div>
+
+                  {/* Purchase order lines */}
+                  <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-5 ring-1 ring-white/5">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <div className="text-base font-extrabold">Purchase Orders</div>
+                        <div className="mt-0.5 text-xs text-white/50">
+                          Every PO line tied to this item — order date, expected date, backorder status
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => loadOrderLinesForItem(selectedOrderItem.id)}
+                        className="rounded-2xl bg-white/5 px-3 py-2 text-xs font-extrabold ring-1 ring-white/10 hover:bg-white/10"
+                      >
+                        Refresh
+                      </button>
+                    </div>
 
                     {orderLinesLoading ? (
-                      <div className="mt-4 text-sm text-white/60">Loading order lines…</div>
+                      <div className="mt-6 text-center text-sm text-white/50">Loading order lines…</div>
                     ) : orderLines.length === 0 ? (
-                      <div className="mt-4 rounded-2xl bg-white/5 p-4 text-sm text-white/60 ring-1 ring-white/10">
-                        No purchase order lines found for this item.
+                      <div className="mt-6 rounded-2xl bg-white/5 p-5 text-center ring-1 ring-white/10">
+                        <div className="text-xl opacity-30">🗒</div>
+                        <div className="mt-2 text-sm text-white/50">
+                          No purchase order lines found for this item.
+                        </div>
                       </div>
                     ) : (
                       <div className="mt-4 space-y-3">
@@ -2389,57 +2594,90 @@ export default function AdminPage() {
                             (row.qty_ordered ?? 0) - (row.qty_received ?? 0),
                             0
                           );
+                          const ordered = formatDate(row.purchase_orders?.order_date);
+                          const expected = formatDate(row.purchase_orders?.expected_date);
+                          const orderedAgo = daysAgo(row.purchase_orders?.order_date);
 
                           return (
                             <div
                               key={row.id}
-                              className="rounded-2xl bg-black/30 p-4 ring-1 ring-white/10"
+                              className={cn(
+                                "rounded-2xl p-4 ring-1 transition",
+                                row.status === "BACKORDER"
+                                  ? "bg-amber-500/6 ring-amber-400/20"
+                                  : row.status === "RECEIVED"
+                                  ? "bg-emerald-500/5 ring-emerald-400/15"
+                                  : row.status === "CANCELLED"
+                                  ? "bg-rose-500/5 ring-rose-400/15"
+                                  : "bg-white/[0.03] ring-white/8"
+                              )}
                             >
-                              <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                                <div className="min-w-0">
-                                  <div className="text-sm font-extrabold break-words">
-                                    PO {row.purchase_orders?.po_number || "—"}
+                              {/* PO header row */}
+                              <div className="flex flex-wrap items-start justify-between gap-3">
+                                <div>
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-sm font-extrabold">
+                                      PO #{row.purchase_orders?.po_number || "—"}
+                                    </span>
+                                    <StatusBadge status={row.status} />
+                                    {row.status === "BACKORDER" && (
+                                      <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-black text-amber-300 ring-1 ring-amber-400/20">
+                                        ⚠ BACKORDERED
+                                      </span>
+                                    )}
                                   </div>
-                                  <div className="mt-1 text-xs text-white/55 break-words">
-                                    {row.purchase_orders?.vendor || "—"} • PO status:{" "}
-                                    {row.purchase_orders?.status || "—"}
-                                  </div>
-                                  <div className="mt-1 text-xs text-white/45">
-                                    Expected: {row.purchase_orders?.expected_date || "—"}
-                                  </div>
-                                  <div className="mt-1 text-xs text-white/45">
-                                    Pending on this line: {pending}
+                                  <div className="mt-1 text-xs text-white/50">
+                                    {row.purchase_orders?.vendor || "—"}
                                   </div>
                                 </div>
 
-                                <div className="flex items-center gap-2">
-                                  {savingOrderKey?.startsWith(row.id) ? (
-                                    <Pill tone="neutral">Saving…</Pill>
-                                  ) : (
-                                    <Pill
-                                      tone={
-                                        row.status === "BACKORDER"
-                                          ? "warn"
-                                          : row.status === "CANCELLED"
-                                          ? "bad"
-                                          : row.status === "RECEIVED"
-                                          ? "good"
-                                          : "neutral"
-                                      }
-                                    >
-                                      {row.status}
-                                    </Pill>
+                                {savingOrderKey?.startsWith(row.id) && (
+                                  <Pill tone="neutral">Saving…</Pill>
+                                )}
+                              </div>
+
+                              {/* Date track */}
+                              <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
+                                <div className="rounded-xl bg-black/25 px-3 py-2.5 ring-1 ring-white/8">
+                                  <div className="text-[10px] tracking-widest text-white/35">ORDERED</div>
+                                  <div className="mt-0.5 text-sm font-extrabold">{ordered}</div>
+                                  {orderedAgo && (
+                                    <div className="mt-0.5 text-[10px] text-white/40">{orderedAgo}</div>
                                   )}
+                                </div>
+                                <div className="rounded-xl bg-black/25 px-3 py-2.5 ring-1 ring-white/8">
+                                  <div className="text-[10px] tracking-widest text-white/35">EXPECTED</div>
+                                  <div className={cn(
+                                    "mt-0.5 text-sm font-extrabold",
+                                    expected === "—" ? "text-white/40" : ""
+                                  )}>
+                                    {expected}
+                                  </div>
+                                </div>
+                                <div className={cn(
+                                  "rounded-xl px-3 py-2.5 ring-1",
+                                  pending > 0
+                                    ? "bg-amber-500/8 ring-amber-400/20"
+                                    : "bg-emerald-500/6 ring-emerald-400/15"
+                                )}>
+                                  <div className="text-[10px] tracking-widest text-white/35">PENDING QTY</div>
+                                  <div className={cn(
+                                    "mt-0.5 text-sm font-extrabold tabular-nums",
+                                    pending > 0 ? "text-amber-200" : "text-emerald-300"
+                                  )}>
+                                    {pending} {pending === 0 && "✓"}
+                                  </div>
                                 </div>
                               </div>
 
-                              <div className="mt-4 grid gap-2 md:grid-cols-4">
+                              {/* Editable fields */}
+                              <div className="mt-3 grid gap-2 sm:grid-cols-3">
                                 <div>
-                                  <div className="mb-1 text-xs text-white/55">Line status</div>
+                                  <div className="mb-1.5 text-xs text-white/45">Line status</div>
                                   <select
                                     value={row.status}
                                     onChange={(e) => saveOrderLine(row, "status", e.target.value)}
-                                    className="w-full rounded-2xl bg-white/5 px-3 py-3 text-sm font-extrabold ring-1 ring-white/10 outline-none focus:ring-white/30"
+                                    className="w-full rounded-xl bg-black/30 px-3 py-2.5 text-sm font-extrabold ring-1 ring-white/10 outline-none focus:ring-white/30"
                                   >
                                     <option value="ORDERED">ORDERED</option>
                                     <option value="BACKORDER">BACKORDER</option>
@@ -2450,45 +2688,40 @@ export default function AdminPage() {
                                 </div>
 
                                 <div>
-                                  <div className="mb-1 text-xs text-white/55">Qty ordered</div>
+                                  <div className="mb-1.5 text-xs text-white/45">Qty ordered</div>
                                   <input
                                     defaultValue={String(row.qty_ordered ?? 0)}
                                     onFocus={(e) => e.currentTarget.select()}
                                     onBlur={(e) => saveOrderLine(row, "qty_ordered", e.target.value)}
-                                    className="w-full rounded-2xl bg-white/5 px-3 py-3 text-sm font-extrabold ring-1 ring-white/10 outline-none focus:ring-white/30"
+                                    className="w-full rounded-xl bg-black/30 px-3 py-2.5 text-sm font-extrabold ring-1 ring-white/10 outline-none focus:ring-white/30"
                                   />
                                 </div>
 
                                 <div>
-                                  <div className="mb-1 text-xs text-white/55">Qty received</div>
+                                  <div className="mb-1.5 text-xs text-white/45">Qty received</div>
                                   <input
                                     defaultValue={String(row.qty_received ?? 0)}
                                     onFocus={(e) => e.currentTarget.select()}
                                     onBlur={(e) => saveOrderLine(row, "qty_received", e.target.value)}
-                                    className="w-full rounded-2xl bg-white/5 px-3 py-3 text-sm font-extrabold ring-1 ring-white/10 outline-none focus:ring-white/30"
+                                    className="w-full rounded-xl bg-black/30 px-3 py-2.5 text-sm font-extrabold ring-1 ring-white/10 outline-none focus:ring-white/30"
                                   />
-                                </div>
-
-                                <div className="flex items-end">
-                                  <div className="w-full rounded-2xl bg-white/5 px-3 py-3 text-sm font-extrabold ring-1 ring-white/10">
-                                    Pending: {pending}
-                                  </div>
                                 </div>
                               </div>
 
-                              <div className="mt-3">
-                                <div className="mb-1 text-xs text-white/55">Line notes</div>
+                              <div className="mt-2">
+                                <div className="mb-1.5 text-xs text-white/45">Notes</div>
                                 <input
                                   defaultValue={row.notes || ""}
                                   onBlur={(e) => saveOrderLine(row, "notes", e.target.value)}
-                                  className="w-full rounded-2xl bg-white/5 px-3 py-3 text-sm ring-1 ring-white/10 outline-none focus:ring-white/30"
-                                  placeholder="Backorder note / vendor note / etc."
+                                  className="w-full rounded-xl bg-black/30 px-3 py-2.5 text-sm ring-1 ring-white/10 outline-none focus:ring-white/30"
+                                  placeholder="Backorder note / vendor note…"
                                 />
                               </div>
 
                               {row.purchase_orders?.notes && (
-                                <div className="mt-3 rounded-2xl bg-white/5 p-3 text-xs text-white/55 ring-1 ring-white/10">
-                                  PO Notes: {row.purchase_orders.notes}
+                                <div className="mt-3 rounded-xl bg-white/5 px-3 py-2.5 text-xs text-white/50 ring-1 ring-white/8">
+                                  <span className="font-semibold text-white/60">PO Note:</span>{" "}
+                                  {row.purchase_orders.notes}
                                 </div>
                               )}
                             </div>
@@ -2496,9 +2729,9 @@ export default function AdminPage() {
                         })}
                       </div>
                     )}
-                  </>
-                )}
-              </div>
+                  </div>
+                </>
+              )}
             </div>
           </div>
         )}
