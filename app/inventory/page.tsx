@@ -1,15 +1,27 @@
 "use client";
 
+// ════════════════════════════════════════════════════════════════════════════
+//  BAXTER HEALTH ASC — INVENTORY MANAGEMENT SYSTEM
+//  Premium UI Rewrite v3.0 — All original logic preserved
+//  Design: Modern Blue/Slate — Mobile-first — AAHC Compliant
+//  Part 1 of 3: Types · Constants · CSS · Utilities · Sub-Components
+// ════════════════════════════════════════════════════════════════════════════
+
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { BrowserMultiFormatReader } from "@zxing/browser";
 import { createClient } from "@supabase/supabase-js";
 
-type Tab = "Transaction" | "Totals" | "Audit" | "Settings";
-type Mode = "USE" | "RESTOCK";
-type LookupMode = "BARCODE" | "REF" | "NAME";
+// ─────────────────────────────────────────────────────────────────────────────
+// TYPE DEFINITIONS  (identical to original)
+// ─────────────────────────────────────────────────────────────────────────────
+
+type Tab         = "Transaction" | "Totals" | "Audit" | "Settings";
+type Mode        = "USE" | "RESTOCK";
+type LookupMode  = "BARCODE" | "REF" | "NAME";
 
 type Area = { id: string; name: string };
+
 type Item = {
   id: string;
   name: string;
@@ -110,6 +122,10 @@ type OrderStatusRow = {
   } | null;
 };
 
+// ─────────────────────────────────────────────────────────────────────────────
+// CONSTANTS  (identical to original)
+// ─────────────────────────────────────────────────────────────────────────────
+
 const ITEM_STATUS_OPTIONS = [
   "IN STOCK",
   "ORDERED",
@@ -121,65 +137,694 @@ const ITEM_STATUS_OPTIONS = [
 ] as const;
 
 const LS = {
-  PIN: "asc_pin_v1",
-  AREA: "asc_area_id_v1",
-  STAFF: "asc_staff_name_v1",
-  AUDIT: "asc_audit_events_v1",
+  PIN:     "asc_pin_v1",
+  AREA:    "asc_area_id_v1",
+  STAFF:   "asc_staff_name_v1",
+  AUDIT:   "asc_audit_events_v1",
   LAST_TX: "asc_last_tx_v1",
 };
 
-const SS = {
-  UNLOCKED: "asc_edit_unlocked_session_v1",
-};
+const SS = { UNLOCKED: "asc_edit_unlocked_session_v1" };
 
-function nowIso() {
+const MAIN_SUPPLY_ID = "a09eb27b-e4a1-449a-8d2e-c45b24d6514f";
+
+// ─────────────────────────────────────────────────────────────────────────────
+// UTILITY FUNCTIONS  (identical to original)
+// ─────────────────────────────────────────────────────────────────────────────
+
+function nowIso(): string {
   return new Date().toISOString();
 }
 
-function uid() {
+function uid(): string {
   return `${Date.now()}_${Math.random().toString(16).slice(2)}`;
 }
 
 function safeJsonParse<T>(raw: string | null, fallback: T): T {
   if (!raw) return fallback;
-  try {
-    return JSON.parse(raw) as T;
-  } catch {
-    return fallback;
-  }
+  try { return JSON.parse(raw) as T; } catch { return fallback; }
 }
 
-function getSessionUnlocked() {
+function getSessionUnlocked(): boolean {
   if (typeof window === "undefined") return false;
   return sessionStorage.getItem(SS.UNLOCKED) === "1";
 }
 
-function setSessionUnlocked(value: boolean) {
+function setSessionUnlocked(value: boolean): void {
   if (typeof window === "undefined") return;
-  if (value) {
-    sessionStorage.setItem(SS.UNLOCKED, "1");
-  } else {
-    sessionStorage.removeItem(SS.UNLOCKED);
-  }
+  if (value) sessionStorage.setItem(SS.UNLOCKED, "1");
+  else       sessionStorage.removeItem(SS.UNLOCKED);
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SUPABASE CLIENT  (identical to original)
+// ─────────────────────────────────────────────────────────────────────────────
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 );
 
-const MAIN_SUPPLY_ID = "a09eb27b-e4a1-449a-8d2e-c45b24d6514f";
+// ─────────────────────────────────────────────────────────────────────────────
+// PREMIUM DESIGN SYSTEM  — injected CSS
+// ─────────────────────────────────────────────────────────────────────────────
+
+const PREMIUM_CSS = `
+  :root {
+    --bg:          #0a0f1e;
+    --bg2:         #111827;
+    --card:        #162032;
+    --card2:       #1a2840;
+    --surface:     #1e2d42;
+    --input-bg:    #111827;
+    --border:      #1e3a5f;
+    --border2:     #162032;
+    --border-ac:   rgba(59,130,246,0.4);
+    --border-ac2:  rgba(59,130,246,0.7);
+    --ac:          #3b82f6;
+    --ac-bright:   #60a5fa;
+    --ac-dim:      rgba(59,130,246,0.12);
+    --ac-hover:    #2563eb;
+    --ok:          #10b981;
+    --ok-dim:      rgba(16,185,129,0.1);
+    --ok-border:   rgba(16,185,129,0.3);
+    --warn:        #f59e0b;
+    --warn-dim:    rgba(245,158,11,0.1);
+    --warn-border: rgba(245,158,11,0.3);
+    --danger:      #ef4444;
+    --danger-dim:  rgba(239,68,68,0.1);
+    --danger-border: rgba(239,68,68,0.3);
+    --text:        #f0f6ff;
+    --text2:       #94a3b8;
+    --text3:       #64748b;
+    --text4:       #334155;
+    --r-sm: 8px; --r-md: 12px; --r-lg: 16px; --r-xl: 20px; --r-full: 9999px;
+    --shadow-sm: 0 1px 3px rgba(0,0,0,0.4);
+    --shadow-md: 0 4px 12px rgba(0,0,0,0.4);
+    --shadow-lg: 0 10px 30px rgba(0,0,0,0.5);
+    --shadow-xl: 0 20px 60px rgba(0,0,0,0.6);
+    --t: all 0.18s cubic-bezier(0.4,0,0.2,1);
+  }
+
+  *, *::before, *::after {
+    box-sizing: border-box;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /* ── Page ─────────────────── */
+  .p-root {
+    min-height: 100vh; width: 100%;
+    background: var(--bg); color: var(--text);
+    overflow-x: hidden; display: flex; justify-content: center;
+    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  .p-wrap {
+    width: 100%; max-width: 480px;
+    padding: 0 14px 48px;
+    padding-top: env(safe-area-inset-top, 0px);
+    overflow-x: hidden;
+  }
+
+  /* ── Back Button ──────────── */
+  .back-btn {
+    display: inline-flex; align-items: center; gap: 6px;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--r-md); padding: 8px 16px;
+    font-size: 13px; font-weight: 600; color: var(--text2);
+    cursor: pointer; margin-top: 12px; margin-bottom: 14px;
+    transition: var(--t); font-family: inherit;
+  }
+  .back-btn:hover { color: var(--text); border-color: var(--border-ac); background: var(--card2); }
+
+  /* ── Header Card ──────────── */
+  .hdr-card {
+    background: linear-gradient(135deg, var(--card) 0%, var(--bg2) 100%);
+    border-radius: var(--r-xl); border: 1px solid var(--border);
+    padding: 18px; box-shadow: var(--shadow-md);
+    position: relative; overflow: hidden;
+  }
+  .hdr-card::before {
+    content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px;
+    background: linear-gradient(90deg, var(--ac), #8b5cf6, var(--ok));
+    border-radius: var(--r-xl) var(--r-xl) 0 0;
+  }
+  .hdr-logo {
+    width: 36px; height: 36px;
+    background: linear-gradient(135deg, var(--ac), #1d4ed8);
+    border-radius: 10px; display: flex; align-items: center;
+    justify-content: center; font-size: 18px; flex-shrink: 0;
+    box-shadow: 0 0 20px rgba(59,130,246,0.3);
+  }
+  .hdr-title {
+    font-size: 22px; font-weight: 900; color: var(--text);
+    letter-spacing: -0.8px; line-height: 1;
+  }
+  .hdr-title span { color: var(--ac-bright); }
+  .hdr-sub { font-size: 11px; color: var(--text3); margin-top: 3px; }
+
+  /* ── Location Badge ───────── */
+  .loc-badge {
+    background: var(--ac-dim); border: 1px solid var(--border-ac);
+    border-radius: var(--r-md); padding: 8px 12px;
+    text-align: right; flex-shrink: 0; min-width: 140px; max-width: 160px;
+  }
+  .loc-lbl { font-size: 9px; color: var(--text3); text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 2px; }
+  .loc-name { font-size: 12px; font-weight: 800; color: var(--ac-bright); word-break: break-word; line-height: 1.3; }
+
+  /* ── Lock Button ──────────── */
+  .lock-btn {
+    width: 100%; margin-top: 10px; border-radius: var(--r-md);
+    padding: 9px 14px; font-size: 12px; font-weight: 800;
+    cursor: pointer; border: 1px solid; display: flex; align-items: center;
+    justify-content: center; gap: 7px; transition: var(--t);
+    letter-spacing: 0.3px; font-family: inherit;
+  }
+  .lock-btn.locked  { background: var(--danger-dim); color: #fca5a5; border-color: var(--danger-border); }
+  .lock-btn.locked:hover  { background: rgba(239,68,68,0.18); }
+  .lock-btn.unlocked { background: var(--ok-dim); color: #6ee7b7; border-color: var(--ok-border); }
+  .lock-btn.unlocked:hover { background: rgba(16,185,129,0.18); }
+
+  /* ── Tab Bar ──────────────── */
+  .tab-bar {
+    display: grid; grid-template-columns: repeat(4,1fr); gap: 6px;
+    margin-top: 14px; background: var(--bg); border-radius: var(--r-md);
+    padding: 4px; border: 1px solid var(--border2);
+  }
+  .tab-btn {
+    border-radius: 9px; padding: 9px 4px; font-size: 12px; font-weight: 800;
+    cursor: pointer; border: 1px solid transparent; transition: var(--t);
+    text-align: center; letter-spacing: 0.2px; font-family: inherit;
+  }
+  .tab-btn.on  { background: var(--ac); color: #fff; border-color: var(--ac); box-shadow: 0 2px 10px rgba(59,130,246,0.35); }
+  .tab-btn.off { background: transparent; color: var(--text3); }
+  .tab-btn.off:hover { color: var(--text); background: var(--surface); }
+
+  /* ── Content Card ─────────── */
+  .c-card  { background: var(--card); border-radius: var(--r-xl); border: 1px solid var(--border); padding: 18px; margin-top: 12px; box-shadow: var(--shadow-sm); }
+  .c-inner { background: var(--surface); border-radius: var(--r-lg); border: 1px solid var(--border); padding: 14px; }
+  .c-sm    { background: var(--surface); border-radius: var(--r-md); border: 1px solid var(--border); padding: 12px; }
+  .c-deep  { background: rgba(0,0,0,0.3); border-radius: var(--r-md); border: 1px solid var(--border2); padding: 12px; }
+  .c-panel { background: rgba(0,0,0,0.25); border-radius: var(--r-md); border: 1px solid var(--border2); padding: 12px; }
+
+  /* ── Section Label ────────── */
+  .s-lbl { font-size: 10px; font-weight: 800; color: var(--text3); text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 8px; }
+  .s-title { font-size: 14px; font-weight: 800; color: var(--text); margin-bottom: 4px; letter-spacing: -0.2px; }
+  .s-desc  { font-size: 12px; color: var(--text2); margin-bottom: 12px; line-height: 1.5; }
+
+  /* ── Alert Banners ────────── */
+  .alert-danger  { background: var(--danger-dim); border: 1px solid var(--danger-border); border-radius: var(--r-lg); padding: 14px; margin-bottom: 14px; }
+  .alert-warn    { background: var(--warn-dim);   border: 1px solid var(--warn-border);   border-radius: var(--r-lg); padding: 14px; }
+  .alert-danger .t { font-size: 13px; font-weight: 800; color: #fca5a5; }
+  .alert-warn   .t { font-size: 13px; font-weight: 800; color: #fcd34d; }
+  .alert-danger .b { font-size: 12px; color: rgba(252,165,165,0.8); margin-top: 3px; line-height: 1.5; }
+  .alert-warn   .b { font-size: 12px; color: rgba(252,211,77,0.8);  margin-top: 3px; line-height: 1.5; }
+
+  /* ── Toggle Buttons ───────── */
+  .tog-wrap-2 { display: grid; grid-template-columns: 1fr 1fr;   gap: 8px; margin-top: 12px; }
+  .tog-wrap-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-top: 12px; }
+  .tog {
+    border-radius: var(--r-md); padding: 11px 8px; font-size: 12px; font-weight: 800;
+    cursor: pointer; border: 1.5px solid; transition: var(--t);
+    text-align: center; letter-spacing: 0.3px; font-family: inherit;
+  }
+  .tog.on     { background: var(--ac);         color: #fff;     border-color: var(--ac);           box-shadow: 0 2px 8px rgba(59,130,246,0.3); }
+  .tog.off    { background: var(--surface);     color: var(--text3); border-color: var(--border); }
+  .tog.off:hover { color: var(--text); border-color: var(--border-ac); }
+  .tog.on-red { background: var(--danger-dim);  color: #fca5a5;  border-color: var(--danger-border); }
+  .tog.on-yel { background: var(--warn-dim);    color: #fcd34d;  border-color: var(--warn-border);   }
+
+  /* ── Mode Buttons ─────────── */
+  .mode-row { display: flex; gap: 8px; margin-top: 10px; }
+  .mode-btn {
+    flex: 1; border-radius: var(--r-md); padding: 12px; font-size: 14px; font-weight: 900;
+    cursor: pointer; border: 1.5px solid; transition: var(--t); letter-spacing: 0.5px; font-family: inherit;
+  }
+  .mode-use.on     { background: rgba(239,68,68,0.12); color: #fca5a5; border-color: rgba(239,68,68,0.5); box-shadow: 0 0 15px rgba(239,68,68,0.1); }
+  .mode-rst.on     { background: rgba(16,185,129,0.12); color: #6ee7b7; border-color: rgba(16,185,129,0.5); box-shadow: 0 0 15px rgba(16,185,129,0.1); }
+  .mode-btn.off    { background: var(--surface); color: var(--text4); border-color: var(--border); }
+
+  /* ── Lookup Tabs ──────────── */
+  .lk-row { display: grid; grid-template-columns: repeat(3,1fr); gap: 6px; margin-top: 12px; }
+  .lk-tab {
+    border-radius: var(--r-md); padding: 10px 4px; font-size: 11px; font-weight: 800;
+    cursor: pointer; border: 1px solid; transition: var(--t); text-align: center; letter-spacing: 0.3px; font-family: inherit;
+  }
+  .lk-tab.on  { background: var(--ac-dim); color: var(--ac-bright); border-color: var(--border-ac); }
+  .lk-tab.off { background: var(--surface); color: var(--text3); border-color: var(--border); }
+  .lk-tab.off:hover { color: var(--text); border-color: var(--border-ac); }
+
+  /* ── Search Row ───────────── */
+  .srch-row  { display: flex; gap: 8px; margin-top: 10px; align-items: stretch; }
+  .srch-wrap { flex: 1; position: relative; display: flex; align-items: center; }
+  .srch-inp  {
+    width: 100%; border-radius: var(--r-md); border: 1.5px solid var(--border);
+    background: var(--input-bg); color: var(--text); padding: 12px 50px 12px 14px;
+    font-size: 14px; font-family: inherit; outline: none; transition: var(--t);
+  }
+  .srch-inp:focus { border-color: var(--ac); box-shadow: 0 0 0 3px rgba(59,130,246,0.1); }
+  .srch-inp::placeholder { color: var(--text4); }
+  .cam-btn {
+    position: absolute; right: 8px; top: 50%; transform: translateY(-50%);
+    background: var(--ac-dim); border: 1px solid var(--border-ac);
+    border-radius: var(--r-sm); padding: 6px 10px; cursor: pointer; font-size: 16px;
+    transition: var(--t); line-height: 1;
+  }
+  .cam-btn:hover { background: rgba(59,130,246,0.2); }
+
+  /* ── Input / Select ───────── */
+  .inp {
+    width: 100%; border-radius: var(--r-md); border: 1px solid var(--border);
+    background: var(--input-bg); color: var(--text); padding: 11px 14px;
+    font-size: 13px; font-family: inherit; outline: none; transition: var(--t);
+  }
+  .inp:focus { border-color: var(--ac); box-shadow: 0 0 0 3px rgba(59,130,246,0.1); }
+  .inp::placeholder { color: var(--text4); }
+  .inp-ta  { min-height: 80px; resize: vertical; line-height: 1.5; }
+  .inp-sel {
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+    background-repeat: no-repeat; background-position: right 12px center; padding-right: 36px;
+  }
+  .f-lbl { font-size: 10px; font-weight: 700; color: var(--text3); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 5px; display: block; }
+  .field  { margin-bottom: 10px; }
+  .field:last-child { margin-bottom: 0; }
+  .pin-inp {
+    width: 100%; border-radius: var(--r-md); border: 1.5px solid var(--border);
+    background: var(--input-bg); color: var(--text); padding: 14px;
+    font-size: 18px; font-family: inherit; outline: none; text-align: center;
+    letter-spacing: 6px; transition: var(--t); margin-top: 10px;
+  }
+  .pin-inp:focus { border-color: var(--ac); box-shadow: 0 0 0 3px rgba(59,130,246,0.12); }
+
+  /* ── Buttons ──────────────── */
+  .btn {
+    border-radius: var(--r-md); padding: 11px 18px; font-size: 13px; font-weight: 800;
+    cursor: pointer; border: none; transition: var(--t); display: inline-flex;
+    align-items: center; justify-content: center; gap: 6px;
+    letter-spacing: 0.2px; font-family: inherit; white-space: nowrap;
+  }
+  .btn:disabled { opacity: 0.35; cursor: not-allowed; pointer-events: none; }
+  .btn-ac  { background: var(--ac); color: #fff; box-shadow: 0 2px 8px rgba(59,130,246,0.25); }
+  .btn-ac:hover:not(:disabled)  { background: var(--ac-hover); box-shadow: 0 4px 16px rgba(59,130,246,0.35); transform: translateY(-1px); }
+  .btn-ok  { background: var(--ok); color: #fff; }
+  .btn-ok:hover:not(:disabled)  { background: #059669; }
+  .btn-err { background: var(--danger); color: #fff; }
+  .btn-err:hover:not(:disabled) { background: #dc2626; }
+  .btn-gh  { background: var(--surface); color: var(--text2); border: 1px solid var(--border); }
+  .btn-gh:hover:not(:disabled)  { color: var(--text); border-color: var(--border-ac); background: var(--card2); }
+  .btn-warn { background: var(--warn-dim); color: #fcd34d; border: 1px solid var(--warn-border); }
+  .btn-warn:hover:not(:disabled) { background: rgba(245,158,11,0.18); }
+  .btn-submit {
+    background: linear-gradient(135deg, var(--ac) 0%, #1d4ed8 100%);
+    color: #fff; box-shadow: 0 4px 20px rgba(59,130,246,0.3);
+    font-size: 16px; font-weight: 900; letter-spacing: 0.5px;
+  }
+  .btn-submit:hover:not(:disabled) { box-shadow: 0 6px 28px rgba(59,130,246,0.45); transform: translateY(-1px); }
+  .btn-full { width: 100%; }
+  .btn-sm   { padding: 7px 13px; font-size: 11px; border-radius: var(--r-sm); }
+  .btn-lg   { padding: 14px 22px; font-size: 15px; border-radius: var(--r-lg); letter-spacing: 0.4px; }
+
+  /* ── Qty Row ──────────────── */
+  .qty-row { display: flex; align-items: center; gap: 10px; margin-top: 14px; }
+  .qty-btn {
+    width: 46px; height: 46px; border-radius: var(--r-md);
+    background: var(--surface); border: 1px solid var(--border);
+    color: var(--text); font-size: 22px; font-weight: 600;
+    cursor: pointer; display: flex; align-items: center; justify-content: center;
+    transition: var(--t); flex-shrink: 0; font-family: inherit;
+  }
+  .qty-btn:hover { border-color: var(--ac); color: var(--ac-bright); background: var(--ac-dim); }
+  .qty-disp {
+    flex: 1; border-radius: var(--r-md); background: var(--surface);
+    border: 1px solid var(--border); padding: 12px 8px;
+    text-align: center; font-size: 20px; font-weight: 800; color: var(--text); letter-spacing: -0.5px;
+  }
+
+  /* ── Item Card ────────────── */
+  .item-card {
+    border-radius: var(--r-lg); border: 1px solid var(--border);
+    padding: 14px; cursor: pointer; transition: var(--t);
+    background: var(--card); text-align: left; width: 100%;
+    position: relative; overflow: hidden;
+  }
+  .item-card::before {
+    content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
+    border-radius: var(--r-lg) 0 0 var(--r-lg);
+  }
+  .item-card.low::before  { background: var(--danger); }
+  .item-card.warn::before { background: var(--warn);   }
+  .item-card.ok::before   { background: var(--ok);     }
+  .item-card:hover { border-color: var(--border-ac); background: var(--card2); transform: translateY(-1px); box-shadow: var(--shadow-md); }
+  .item-card:active { transform: translateY(0); }
+  .i-name   { font-size: 14px; font-weight: 700; color: var(--text); word-break: break-word; line-height: 1.4; }
+  .i-meta   { font-size: 11px; color: var(--text2); margin-top: 3px; line-height: 1.4; }
+  .i-status { font-size: 10px; color: var(--text3); margin-top: 2px; }
+
+  /* ── On-Hand Badge ────────── */
+  .oh-badge { border-radius: var(--r-md); padding: 10px 14px; text-align: center; flex-shrink: 0; margin-left: 12px; }
+  .oh-badge.low { background: var(--danger-dim); border: 1px solid var(--danger-border); }
+  .oh-badge.ok  { background: var(--surface);    border: 1px solid var(--border); }
+  .oh-num       { font-size: 22px; font-weight: 900; letter-spacing: -1px; line-height: 1; }
+  .oh-num.low   { color: var(--danger); }
+  .oh-num.ok    { color: var(--text); }
+  .oh-unit      { font-size: 9px; font-weight: 600; color: var(--text3); text-transform: uppercase; letter-spacing: 0.4px; margin-top: 2px; }
+
+  /* ── Stat Pills ───────────── */
+  .stats-row  { display: grid; grid-template-columns: repeat(3,1fr); gap: 6px; margin-top: 10px; }
+  .stat-pill  { background: var(--surface); border-radius: var(--r-sm); padding: 8px 6px; border: 1px solid var(--border); text-align: center; }
+  .stat-pill.wb { background: rgba(245,158,11,0.06); border-color: rgba(245,158,11,0.3); }
+  .stat-lbl   { font-size: 9px; font-weight: 700; color: var(--text3); text-transform: uppercase; letter-spacing: 0.4px; }
+  .stat-val   { font-size: 14px; font-weight: 800; color: var(--text); margin-top: 2px; letter-spacing: -0.3px; }
+  .stat-val.w { color: #fcd34d; }
+
+  /* ── Status Bar ───────────── */
+  .s-bar {
+    border-radius: var(--r-md); padding: 11px 14px; font-size: 13px; font-weight: 600;
+    margin-top: 10px; display: flex; align-items: center; justify-content: space-between; gap: 10px; line-height: 1.4;
+  }
+  .s-bar.ok      { background: var(--ok-dim);     border: 1px solid var(--ok-border);     color: #6ee7b7; }
+  .s-bar.err     { background: var(--danger-dim);  border: 1px solid var(--danger-border); color: #fca5a5; }
+  .s-bar.info    { background: var(--ac-dim);      border: 1px solid var(--border-ac);     color: #93c5fd; }
+  .s-bar.neutral { background: var(--surface);     border: 1px solid var(--border);        color: var(--text2); }
+
+  /* ── Found Panel ──────────── */
+  .found-panel {
+    background: var(--surface); border-radius: var(--r-lg);
+    border: 1px solid var(--border-ac); padding: 14px; margin-top: 12px;
+    position: relative; overflow: hidden;
+  }
+  .found-panel::before {
+    content: ''; position: absolute; top: 0; left: 0; right: 0; height: 1px;
+    background: linear-gradient(90deg, var(--ac), transparent);
+  }
+  .f-name { font-size: 15px; font-weight: 800; color: var(--text); word-break: break-word; line-height: 1.4; }
+  .f-meta { font-size: 11px; color: var(--text2); margin-top: 3px; line-height: 1.5; }
+
+  /* ── Override Button ──────── */
+  .ov-btn {
+    flex-shrink: 0; border-radius: var(--r-md); padding: 12px 16px;
+    background: var(--surface); border: 1.5px solid var(--border);
+    cursor: pointer; text-align: center; transition: var(--t); min-width: 90px; font-family: inherit;
+  }
+  .ov-btn.on   { background: var(--warn-dim); border-color: var(--warn-border); box-shadow: 0 0 15px rgba(245,158,11,0.1); }
+  .ov-btn:hover { border-color: var(--warn-border); }
+  .ov-icon     { font-size: 18px; line-height: 1; }
+  .ov-lbl      { font-size: 11px; font-weight: 800; letter-spacing: 0.3px; }
+  .ov-lbl.on   { color: #fcd34d; }
+  .ov-lbl.off  { color: var(--text3); }
+
+  /* ── Suggestion Item ──────── */
+  .sug-item {
+    background: var(--card); border-radius: var(--r-md); border: 1px solid var(--border);
+    padding: 12px 14px; cursor: pointer; width: 100%; text-align: left;
+    transition: var(--t); font-family: inherit; display: block;
+  }
+  .sug-item:hover { border-color: var(--border-ac); background: var(--card2); }
+  .sug-name   { font-size: 13px; font-weight: 700; color: var(--text); word-break: break-word; }
+  .sug-meta   { font-size: 11px; color: var(--text2); margin-top: 3px; }
+  .sug-status { font-size: 10px; color: var(--text3); margin-top: 2px; }
+
+  /* ── Badge ────────────────── */
+  .badge { display: inline-flex; align-items: center; padding: 3px 9px; border-radius: var(--r-full); font-size: 10px; font-weight: 800; letter-spacing: 0.3px; }
+  .b-ac  { background: var(--ac-dim);    color: var(--ac-bright); border: 1px solid var(--border-ac); }
+  .b-ok  { background: var(--ok-dim);    color: #6ee7b7;          border: 1px solid var(--ok-border); }
+  .b-w   { background: var(--warn-dim);  color: #fcd34d;          border: 1px solid var(--warn-border); }
+  .b-err { background: var(--danger-dim);color: #fca5a5;          border: 1px solid var(--danger-border); }
+  .b-n   { background: var(--surface);   color: var(--text3);     border: 1px solid var(--border); }
+
+  /* ── Notes / Hints ────────── */
+  .notes-txt  { font-size: 10px; color: var(--text3); margin-top: 6px; line-height: 1.5; word-break: break-word; }
+  .edit-hint  { font-size: 10px; color: var(--text3); margin-top: 5px; opacity: 0.7; }
+  .zero-warn  { font-size: 11px; font-weight: 800; color: #fcd34d; margin-top: 7px; display: flex; align-items: center; gap: 4px; }
+  .pin-hint   { font-size: 11px; color: var(--text4); margin-top: 8px; line-height: 1.5; }
+
+  /* ── Divider ──────────────── */
+  .divider { height: 1px; background: var(--border); margin: 14px 0; }
+
+  /* ── Audit Card ───────────── */
+  .audit-card { background: var(--card); border-radius: var(--r-md); border: 1px solid var(--border); padding: 12px; }
+  .audit-hdr  { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 6px; }
+  .audit-act  { display: inline-flex; align-items: center; padding: 2px 9px; border-radius: var(--r-full); font-size: 10px; font-weight: 800; letter-spacing: 0.3px; }
+  .audit-time { font-size: 10px; color: var(--text4); flex-shrink: 0; }
+  .audit-stf  { font-size: 12px; color: var(--text2); }
+  .audit-stf strong { color: var(--text); font-weight: 700; }
+  .audit-det  { font-size: 11px; color: var(--text4); margin-top: 3px; word-break: break-word; line-height: 1.5; }
+
+  /* ── Order Card ───────────── */
+  .ord-card  { background: var(--card); border-radius: var(--r-md); border: 1px solid var(--border); padding: 12px; }
+  .ord-vend  { font-size: 14px; font-weight: 700; color: var(--text); word-break: break-word; }
+  .ord-po    { font-size: 11px; color: var(--text2); margin-top: 2px; }
+  .ord-exp   { font-size: 11px; color: var(--text2); margin-top: 8px; }
+  .ord-notes { font-size: 11px; color: var(--text4); margin-top: 4px; word-break: break-word; }
+
+  /* ── Modal ────────────────── */
+  .modal-ov {
+    position: fixed; inset: 0; z-index: 100;
+    background: rgba(0,0,0,0.8); backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+    display: flex; align-items: center; justify-content: center; padding: 16px;
+  }
+  .modal {
+    width: 100%; max-width: 460px; max-height: 92vh; overflow-y: auto;
+    background: var(--card); border-radius: var(--r-xl); border: 1px solid var(--border);
+    padding: 22px; box-shadow: var(--shadow-xl); position: relative;
+  }
+  .modal::before {
+    content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px;
+    background: linear-gradient(90deg, var(--ac), #8b5cf6);
+    border-radius: var(--r-xl) var(--r-xl) 0 0;
+  }
+  .modal-title  { font-size: 17px; font-weight: 900; color: var(--text); margin-bottom: 16px; letter-spacing: -0.3px; }
+  .modal-footer {
+    display: flex; gap: 10px; position: sticky; bottom: 0;
+    background: var(--card); padding-top: 14px; margin-top: 18px;
+    border-top: 1px solid var(--border);
+  }
+
+  /* ── Scanner Overlay ──────── */
+  .scan-ov     { position: fixed; inset: 0; z-index: 200; background: #000; display: flex; flex-direction: column; }
+  .scan-hdr    { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px; padding-top: calc(env(safe-area-inset-top,0px) + 14px); background: rgba(0,0,0,0.6); border-bottom: 1px solid rgba(255,255,255,0.1); }
+  .scan-title  { font-size: 17px; font-weight: 800; color: #fff; letter-spacing: -0.3px; }
+  .scan-close  { background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); border-radius: var(--r-md); padding: 8px 16px; color: #fff; font-size: 13px; font-weight: 700; cursor: pointer; font-family: inherit; transition: var(--t); }
+  .scan-close:hover { background: rgba(255,255,255,0.18); }
+  .scan-vp     { flex: 1; position: relative; overflow: hidden; }
+  .scan-vid    { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+  .scan-frame  { pointer-events: none; position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; }
+  .scan-box    { width: 300px; height: 190px; border-radius: 18px; border: 2px solid rgba(59,130,246,0.85); box-shadow: 0 0 0 9999px rgba(0,0,0,0.5), 0 0 30px rgba(59,130,246,0.3); position: relative; }
+  .scan-box::before, .scan-box::after { content: ''; position: absolute; width: 24px; height: 24px; border-color: var(--ac); border-style: solid; }
+  .scan-box::before { top: -2px; left: -2px; border-width: 3px 0 0 3px; border-radius: 18px 0 0 0; }
+  .scan-box::after  { bottom: -2px; right: -2px; border-width: 0 3px 3px 0; border-radius: 0 0 18px 0; }
+  .scan-hint   { padding: 12px 16px; padding-bottom: calc(env(safe-area-inset-bottom,0px) + 16px); font-size: 12px; color: rgba(255,255,255,0.6); background: rgba(0,0,0,0.6); text-align: center; }
+
+  /* ── Area / Totals Headers ── */
+  .area-hdr    { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 12px; }
+  .area-title  { font-size: 15px; font-weight: 800; color: var(--text); letter-spacing: -0.3px; }
+  .area-count  { font-size: 11px; color: var(--text4); background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-full); padding: 2px 9px; font-weight: 600; }
+  .tot-hdr     { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 14px; }
+  .tot-title   { font-size: 17px; font-weight: 900; color: var(--text); letter-spacing: -0.5px; }
+  .tot-count   { font-size: 12px; color: var(--text4); font-weight: 600; }
+
+  /* ── Checkbox ─────────────── */
+  .chk-row { display: flex; align-items: center; gap: 9px; font-size: 13px; color: var(--text); cursor: pointer; padding: 6px 0; }
+  .chk-row input[type="checkbox"] { width: 16px; height: 16px; cursor: pointer; accent-color: var(--ac); }
+
+  /* ── Utilities ────────────── */
+  .mt2{margin-top:8px} .mt3{margin-top:12px} .mt4{margin-top:16px} .mt5{margin-top:20px}
+  .mb2{margin-bottom:8px} .mb3{margin-bottom:12px}
+  .g2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .g3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}
+  .fx{display:flex;align-items:center;gap:10px}
+  .fxb{display:flex;align-items:center;justify-content:space-between;gap:10px}
+  .sp>*+*{margin-top:10px}
+  .w100{width:100%} .s0{flex-shrink:0} .brk{word-break:break-word}
+
+  /* ── Scrollbar ────────────── */
+  ::-webkit-scrollbar{width:4px;height:4px}
+  ::-webkit-scrollbar-track{background:transparent}
+  ::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px}
+
+  /* ── Animations ───────────── */
+  @keyframes fadeUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+  .anim{animation:fadeUp 0.22s cubic-bezier(0.4,0,0.2,1) both}
+`;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// HELPER: audit action badge style
+// ─────────────────────────────────────────────────────────────────────────────
+
+function auditStyle(action: string): React.CSSProperties {
+  const m: Record<string, React.CSSProperties> = {
+    SUBMIT_TX:          { background:"rgba(59,130,246,0.15)",  color:"#93c5fd",  border:"1px solid rgba(59,130,246,0.3)"  },
+    UNDO_TX:            { background:"rgba(245,158,11,0.15)",  color:"#fcd34d",  border:"1px solid rgba(245,158,11,0.3)"  },
+    TOTALS_SET:         { background:"rgba(16,185,129,0.15)",  color:"#6ee7b7",  border:"1px solid rgba(16,185,129,0.3)"  },
+    TOTALS_ADJUST:      { background:"rgba(245,158,11,0.15)",  color:"#fcd34d",  border:"1px solid rgba(245,158,11,0.3)"  },
+    UNLOCK:             { background:"rgba(16,185,129,0.15)",  color:"#6ee7b7",  border:"1px solid rgba(16,185,129,0.3)"  },
+    LOCK:               { background:"rgba(239,68,68,0.15)",   color:"#fca5a5",  border:"1px solid rgba(239,68,68,0.3)"   },
+    ADD_ITEM:           { background:"rgba(59,130,246,0.15)",  color:"#93c5fd",  border:"1px solid rgba(59,130,246,0.3)"  },
+    ITEM_INACTIVE:      { background:"rgba(245,158,11,0.15)",  color:"#fcd34d",  border:"1px solid rgba(245,158,11,0.3)"  },
+    ITEM_RESTORED:      { background:"rgba(16,185,129,0.15)",  color:"#6ee7b7",  border:"1px solid rgba(16,185,129,0.3)"  },
+    ITEM_STATUS_SAVE:   { background:"rgba(59,130,246,0.15)",  color:"#93c5fd",  border:"1px solid rgba(59,130,246,0.3)"  },
+    AREA_ROW_EDIT_SAVE: { background:"rgba(16,185,129,0.15)",  color:"#6ee7b7",  border:"1px solid rgba(16,185,129,0.3)"  },
+    SCAN:               { background:"rgba(139,92,246,0.15)",  color:"#c4b5fd",  border:"1px solid rgba(139,92,246,0.3)"  },
+    LOOKUP_FOUND:       { background:"rgba(16,185,129,0.15)",  color:"#6ee7b7",  border:"1px solid rgba(16,185,129,0.3)"  },
+    LOOKUP_NOT_FOUND:   { background:"rgba(239,68,68,0.15)",   color:"#fca5a5",  border:"1px solid rgba(239,68,68,0.3)"   },
+    CHANGE_LOCATION:    { background:"rgba(59,130,246,0.15)",  color:"#93c5fd",  border:"1px solid rgba(59,130,246,0.3)"  },
+    MAIN_OVERRIDE_ON:   { background:"rgba(245,158,11,0.15)",  color:"#fcd34d",  border:"1px solid rgba(245,158,11,0.3)"  },
+    MAIN_OVERRIDE_OFF:  { background:"rgba(100,116,139,0.15)", color:"#94a3b8",  border:"1px solid rgba(100,116,139,0.3)" },
+  };
+  return m[action] ?? { background:"rgba(100,116,139,0.15)", color:"#94a3b8", border:"1px solid rgba(100,116,139,0.3)" };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// HELPER: status bar class
+// ─────────────────────────────────────────────────────────────────────────────
+
+function statusClass(s: string): string {
+  if (!s || s === "Ready." || s === "Stopped.") return "neutral";
+  if (s.startsWith("✅") || s.startsWith("↩️") || s.startsWith("Found:") || s.startsWith("Added:") || s.startsWith("Selected:") || s.startsWith("Saved")) return "ok";
+  if (s.startsWith("NOT FOUND") || s.toLowerCase().includes("failed") || s.toLowerCase().includes("error") || s === "Camera blocked.") return "err";
+  if (s.startsWith("Multiple") || s.startsWith("Looking") || s.startsWith("Starting") || s.startsWith("Scanning")) return "info";
+  return "neutral";
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ORDER STATUS ROW — sub-component
+// ─────────────────────────────────────────────────────────────────────────────
+
+function OrderStatusRow_({ row }: { row: OrderStatusRow }) {
+  const pending = Math.max((row.qty_ordered ?? 0) - (row.qty_received ?? 0), 0);
+  const bs: React.CSSProperties =
+    row.status === "RECEIVED"
+      ? { background:"rgba(16,185,129,0.15)",  color:"#6ee7b7", border:"1px solid rgba(16,185,129,0.3)"  }
+      : row.status === "BACKORDER" || row.status === "CANCELLED"
+      ? { background:"rgba(239,68,68,0.15)",   color:"#fca5a5", border:"1px solid rgba(239,68,68,0.3)"   }
+      : row.status === "PARTIAL"
+      ? { background:"rgba(245,158,11,0.15)",  color:"#fcd34d", border:"1px solid rgba(245,158,11,0.3)"  }
+      : { background:"rgba(59,130,246,0.15)",  color:"#93c5fd", border:"1px solid rgba(59,130,246,0.3)"  };
+
+  return (
+    <div className="ord-card" style={{ marginTop: 10 }}>
+      <div className="fxb" style={{ marginBottom: 10 }}>
+        <div style={{ minWidth: 0 }}>
+          <div className="ord-vend">{row.purchase_orders?.vendor || "Unknown vendor"}</div>
+          <div className="ord-po">PO: {row.purchase_orders?.po_number || "—"}</div>
+        </div>
+        <span className="badge" style={{ ...bs, flexShrink: 0 }}>{row.status}</span>
+      </div>
+      <div className="stats-row">
+        {[["Ordered", row.qty_ordered ?? 0], ["Received", row.qty_received ?? 0], ["Pending", pending]].map(([l, v]) => (
+          <div key={String(l)} className="stat-pill">
+            <div className="stat-lbl">{l}</div>
+            <div className="stat-val">{v}</div>
+          </div>
+        ))}
+      </div>
+      <div className="ord-exp">Expected: {row.purchase_orders?.expected_date || "—"}</div>
+      {(row.notes || row.purchase_orders?.notes) && (
+        <div className="ord-notes">Notes: {row.notes || row.purchase_orders?.notes}</div>
+      )}
+    </div>
+  );
+}
+
+function OrderStatusList({ rows }: { rows: OrderStatusRow[] }) {
+  return <div className="sp">{rows.map(r => <OrderStatusRow_ key={r.id} row={r} />)}</div>;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MODAL — sub-component
+// ─────────────────────────────────────────────────────────────────────────────
+
+function AscModal({ title, children, okText, onOk, onCancel }: {
+  title: string; children: React.ReactNode; okText: string; onOk: () => void; onCancel: () => void;
+}) {
+  return (
+    <div className="modal-ov">
+      <div className="modal anim">
+        <div className="modal-title">{title}</div>
+        <div>{children}</div>
+        <div className="modal-footer">
+          <button onClick={onCancel} className="btn btn-gh" style={{ flex: 1 }}>Cancel</button>
+          <button onClick={onOk}     className="btn btn-ac" style={{ flex: 1 }}>{okText}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PIN SETTER — sub-component (Settings tab)
+// ─────────────────────────────────────────────────────────────────────────────
+
+function PinSetter({ onSave }: { onSave: (pin: string) => void }) {
+  const [pin, setPin] = useState("");
+  return (
+    <div>
+      <input
+        value={pin}
+        onChange={(e) => setPin(e.target.value.replace(/\D/g, "").slice(0, 6))}
+        className="pin-inp"
+        placeholder="New password"
+        inputMode="numeric"
+        type="password"
+      />
+      <button onClick={() => onSave(pin)} className="btn btn-submit btn-full btn-lg" style={{ marginTop: 14 }}>
+        Save Password
+      </button>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TAB BUTTON — sub-component
+// ─────────────────────────────────────────────────────────────────────────────
+
+function TabBtn({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
+  return <button onClick={onClick} className={`tab-btn ${active ? "on" : "off"}`}>{children}</button>;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MODE BUTTON — sub-component
+// ─────────────────────────────────────────────────────────────────────────────
+
+function ModeBtn({ active, danger, onClick, children }: { active: boolean; danger?: boolean; onClick: () => void; children: React.ReactNode }) {
+  const cls = danger ? "mode-use" : "mode-rst";
+  return (
+    <button onClick={onClick} className={`mode-btn ${cls} ${active ? "on" : "off"}`}>
+      {children}
+    </button>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// QTY BUTTON — sub-component
+// ─────────────────────────────────────────────────────────────────────────────
+
+function QtyBtn({ onClick, children }: { onClick: () => void; children: React.ReactNode }) {
+  return <button onClick={onClick} className="qty-btn">{children}</button>;
+}
+
+// ─── END OF PART 1 ───────────────────────────────────────────────────────────
+// Paste Part 2 immediately after this line — do NOT add anything between them.
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MAIN PAGE COMPONENT — Part 2 of 3
+// Contains: all state, all logic functions, Transaction tab render
+// ─────────────────────────────────────────────────────────────────────────────
 
 export default function InventoryPage() {
   const router = useRouter();
 
-  const [tab, setTab] = useState<Tab>("Transaction");
-  const [mode, setMode] = useState<Mode>("USE");
-  const [qty, setQty] = useState(1);
+  // ── Tab / UI state ───────────────────────────────────────────────────────
+  const [tab,          setTab]          = useState<Tab>("Transaction");
+  const [mode,         setMode]         = useState<Mode>("USE");
+  const [qty,          setQty]          = useState(1);
   const [mainOverride, setMainOverride] = useState(false);
 
-  const [areas, setAreas] = useState<Area[]>([]);
-  const [areaId, setAreaId] = useState("");
+  // ── Areas / Locations ────────────────────────────────────────────────────
+  const [areas,        setAreas]        = useState<Area[]>([]);
+  const [areaId,       setAreaId]       = useState("");
   const [areasLoading, setAreasLoading] = useState(true);
 
   const selectedAreaName = useMemo(
@@ -187,2971 +832,1374 @@ export default function InventoryPage() {
     [areas, areaId]
   );
 
-  const [locked, setLocked] = useState(true);
-  const [pinOpen, setPinOpen] = useState(false);
-  const [pinPurpose, setPinPurpose] = useState<
-    "unlock" | "lock" | "changeLocation" | "addItem" | "totalsEdit" | "areaRowEdit" | "itemStatusEdit"
+  // ── PIN / Lock ───────────────────────────────────────────────────────────
+  const [locked,      setLocked]      = useState(true);
+  const [pinOpen,     setPinOpen]     = useState(false);
+  const [pinPurpose,  setPinPurpose]  = useState<
+    | "unlock" | "lock" | "changeLocation" | "addItem"
+    | "totalsEdit" | "areaRowEdit" | "itemStatusEdit"
   >("unlock");
-  const [pinInput, setPinInput] = useState("");
+  const [pinInput,    setPinInput]    = useState("");
   const [pendingArea, setPendingArea] = useState("");
 
-  const [query, setQuery] = useState("");
-  const [item, setItem] = useState<Item | null>(null);
-  const [status, setStatus] = useState("");
-
-  const [addOpen, setAddOpen] = useState(false);
-  const [addName, setAddName] = useState("");
-  const [addPar, setAddPar] = useState<number>(0);
-
-  const [lookupMode, setLookupMode] = useState<LookupMode>("BARCODE");
-  const [matches, setMatches] = useState<Item[]>([]);
+  // ── Item Lookup ──────────────────────────────────────────────────────────
+  const [query,          setQuery]          = useState("");
+  const [item,           setItem]           = useState<Item | null>(null);
+  const [status,         setStatus]         = useState("");
+  const [addOpen,        setAddOpen]        = useState(false);
+  const [addName,        setAddName]        = useState("");
+  const [addPar,         setAddPar]         = useState<number>(0);
+  const [lookupMode,     setLookupMode]     = useState<LookupMode>("BARCODE");
+  const [matches,        setMatches]        = useState<Item[]>([]);
   const [suggestLoading, setSuggestLoading] = useState(false);
 
+  // ── Staff / Audit ────────────────────────────────────────────────────────
   const [staffName, setStaffName] = useState("");
-  const [audit, setAudit] = useState<AuditEvent[]>([]);
+  const [audit,     setAudit]     = useState<AuditEvent[]>([]);
 
+  // ── Scanner ──────────────────────────────────────────────────────────────
   const [scannerOpen, setScannerOpen] = useState(false);
 
-  const [totals, setTotals] = useState<BuildingTotalRow[]>([]);
-  const [totalsLoading, setTotalsLoading] = useState(false);
-  const [totalsError, setTotalsError] = useState("");
-  const [totalsSearch, setTotalsSearch] = useState("");
-  const [totalsLowOnly, setTotalsLowOnly] = useState(false);
-  const [totalsZeroOnly, setTotalsZeroOnly] = useState(false);
+  // ── Building Totals ──────────────────────────────────────────────────────
+  const [totals,             setTotals]             = useState<BuildingTotalRow[]>([]);
+  const [totalsLoading,      setTotalsLoading]      = useState(false);
+  const [totalsError,        setTotalsError]        = useState("");
+  const [totalsSearch,       setTotalsSearch]       = useState("");
+  const [totalsLowOnly,      setTotalsLowOnly]      = useState(false);
+  const [totalsZeroOnly,     setTotalsZeroOnly]     = useState(false);
   const [totalsShowInactive, setTotalsShowInactive] = useState(false);
 
-  const [totalsEditOpen, setTotalsEditOpen] = useState(false);
-  const [totalsEditRow, setTotalsEditRow] = useState<BuildingTotalRow | null>(null);
-  const [setOnHandInput, setSetOnHandInput] = useState<string>("");
-  const [deltaInput, setDeltaInput] = useState<string>("");
-  const [parInput, setParInput] = useState<string>("");
-  const [vendorInput, setVendorInput] = useState<string>("");
-  const [categoryInput, setCategoryInput] = useState<string>("");
-  const [unitInput, setUnitInput] = useState<string>("");
-  const [notesInput, setNotesInput] = useState<string>("");
-  const [totalsLowInput, setTotalsLowInput] = useState<string>("");
-  const [refInput, setRefInput] = useState<string>("");
+  // ── Totals Editor ────────────────────────────────────────────────────────
+  const [totalsEditOpen,         setTotalsEditOpen]         = useState(false);
+  const [totalsEditRow,          setTotalsEditRow]          = useState<BuildingTotalRow | null>(null);
+  const [setOnHandInput,         setSetOnHandInput]         = useState<string>("");
+  const [deltaInput,             setDeltaInput]             = useState<string>("");
+  const [parInput,               setParInput]               = useState<string>("");
+  const [vendorInput,            setVendorInput]            = useState<string>("");
+  const [categoryInput,          setCategoryInput]          = useState<string>("");
+  const [unitInput,              setUnitInput]              = useState<string>("");
+  const [notesInput,             setNotesInput]             = useState<string>("");
+  const [totalsLowInput,         setTotalsLowInput]         = useState<string>("");
+  const [refInput,               setRefInput]               = useState<string>("");
   const [totalsOrderStatusInput, setTotalsOrderStatusInput] = useState<string>("IN STOCK");
   const [totalsBackorderedInput, setTotalsBackorderedInput] = useState<boolean>(false);
 
   const [pendingTotalsAction, setPendingTotalsAction] = useState<
     | null
-    | { kind: "SET"; value: number }
-    | { kind: "ADJUST"; delta: number }
+    | { kind: "SET";        value: number }
+    | { kind: "ADJUST";     delta: number }
     | { kind: "SET_ACTIVE"; is_active: boolean }
   >(null);
 
-  const [areaListOpen, setAreaListOpen] = useState(false);
-  const [areaInv, setAreaInv] = useState<AreaInvRow[]>([]);
+  // ── Area List ────────────────────────────────────────────────────────────
+  const [areaListOpen,   setAreaListOpen]   = useState(false);
+  const [areaInv,        setAreaInv]        = useState<AreaInvRow[]>([]);
   const [areaInvLoading, setAreaInvLoading] = useState(false);
-  const [areaInvError, setAreaInvError] = useState("");
-  const [areaInvSearch, setAreaInvSearch] = useState("");
-  const [areaParOnly, setAreaParOnly] = useState(false);
-  const [areaLowOnly, setAreaLowOnly] = useState(false);
+  const [areaInvError,   setAreaInvError]   = useState("");
+  const [areaInvSearch,  setAreaInvSearch]  = useState("");
+  const [areaParOnly,    setAreaParOnly]    = useState(false);
+  const [areaLowOnly,    setAreaLowOnly]    = useState(false);
 
-  const [areaEditOpen, setAreaEditOpen] = useState(false);
-  const [areaEditRow, setAreaEditRow] = useState<AreaInvRow | null>(null);
+  // ── Area Row Editor ──────────────────────────────────────────────────────
+  const [areaEditOpen,   setAreaEditOpen]   = useState(false);
+  const [areaEditRow,    setAreaEditRow]    = useState<AreaInvRow | null>(null);
   const [areaEditOnHand, setAreaEditOnHand] = useState<string>("");
-  const [areaEditPar, setAreaEditPar] = useState<string>("");
-  const [areaEditLow, setAreaEditLow] = useState<string>("");
+  const [areaEditPar,    setAreaEditPar]    = useState<string>("");
+  const [areaEditLow,    setAreaEditLow]    = useState<string>("");
 
   const [pendingAreaRowSave, setPendingAreaRowSave] = useState<null | {
-    storage_area_id: string;
-    item_id: string;
-    on_hand: number | null;
-    par_level: number | null;
-    low_level: number | null;
+    storage_area_id: string; item_id: string;
+    on_hand: number | null; par_level: number | null; low_level: number | null;
   }>(null);
 
-  const [lastTx, setLastTx] = useState<LastTx | null>(null);
+  // ── Last Transaction ─────────────────────────────────────────────────────
+  const [lastTx,   setLastTx]   = useState<LastTx | null>(null);
   const [undoBusy, setUndoBusy] = useState(false);
 
-  const [orderStatusOpen, setOrderStatusOpen] = useState(false);
+  // ── Order Status ─────────────────────────────────────────────────────────
+  const [orderStatusOpen,    setOrderStatusOpen]    = useState(false);
   const [orderStatusLoading, setOrderStatusLoading] = useState(false);
-  const [orderStatusRows, setOrderStatusRows] = useState<OrderStatusRow[]>([]);
-
+  const [orderStatusRows,    setOrderStatusRows]    = useState<OrderStatusRow[]>([]);
   const [totalsOrderLoading, setTotalsOrderLoading] = useState(false);
-  const [totalsOrderRows, setTotalsOrderRows] = useState<OrderStatusRow[]>([]);
+  const [totalsOrderRows,    setTotalsOrderRows]    = useState<OrderStatusRow[]>([]);
 
+  // ── Item Status ──────────────────────────────────────────────────────────
   const [itemStatusSaving, setItemStatusSaving] = useState(false);
-  const [itemStatusDraft, setItemStatusDraft] = useState<{
-    order_status: string;
-    backordered: boolean;
-  }>({
-    order_status: "IN STOCK",
-    backordered: false,
-  });
+  const [itemStatusDraft,  setItemStatusDraft]  = useState<{
+    order_status: string; backordered: boolean;
+  }>({ order_status: "IN STOCK", backordered: false });
 
   const [pendingItemStatusSave, setPendingItemStatusSave] = useState<null | {
-    item_id: string;
-    order_status: string;
-    backordered: boolean;
-    item_name?: string;
+    item_id: string; order_status: string; backordered: boolean; item_name?: string;
   }>(null);
 
+  // ── Scanner Refs ─────────────────────────────────────────────────────────
+  const videoRef        = useRef<HTMLVideoElement | null>(null);
+  const readerRef       = useRef<BrowserMultiFormatReader | null>(null);
+  const lastScanRef     = useRef<string>("");
+  const scanCooldownRef = useRef<number>(0);
+
+  // ── Filtered Totals ──────────────────────────────────────────────────────
   const filteredTotals = useMemo(() => {
     const q = totalsSearch.trim().toLowerCase();
-    let list = totals.filter((r) =>
-      totalsShowInactive ? !r.is_active : !!r.is_active
-    );
-
+    let list = totals.filter((r) => totalsShowInactive ? !r.is_active : !!r.is_active);
     if (q) {
-      list = list.filter((r) => {
-        return (
-          (r.name || "").toLowerCase().includes(q) ||
-          (r.vendor || "").toLowerCase().includes(q) ||
-          (r.category || "").toLowerCase().includes(q) ||
-          (r.reference_number || "").toLowerCase().includes(q) ||
-          (r.order_status || "").toLowerCase().includes(q)
-        );
-      });
+      list = list.filter((r) =>
+        (r.name             || "").toLowerCase().includes(q) ||
+        (r.vendor           || "").toLowerCase().includes(q) ||
+        (r.category         || "").toLowerCase().includes(q) ||
+        (r.reference_number || "").toLowerCase().includes(q) ||
+        (r.order_status     || "").toLowerCase().includes(q)
+      );
     }
-
     if (totalsLowOnly) {
       list = list.filter((r) => {
-        const onHand = r.total_on_hand ?? 0;
-        const low = r.low_level ?? 0;
-        return low > 0 && onHand <= low;
+        const oh = r.total_on_hand ?? 0; const low = r.low_level ?? 0;
+        return low > 0 && oh <= low;
       });
     }
-
     if (totalsZeroOnly) {
-      list = list.filter((r) => {
-        const par = r.par_level ?? 0;
-        const low = r.low_level ?? 0;
-        return par === 0 || low === 0;
-      });
+      list = list.filter((r) => (r.par_level ?? 0) === 0 || (r.low_level ?? 0) === 0);
     }
-
     return list;
   }, [totals, totalsSearch, totalsLowOnly, totalsZeroOnly, totalsShowInactive]);
 
+  // ── Filtered Area Inventory ───────────────────────────────────────────────
   const filteredAreaInv = useMemo(() => {
     const q = areaInvSearch.trim().toLowerCase();
     let list = areaInv;
-
     if (q) {
-      list = list.filter((r) => {
-        return (
-          (r.item_name || "").toLowerCase().includes(q) ||
-          (r.vendor || "").toLowerCase().includes(q) ||
-          (r.category || "").toLowerCase().includes(q) ||
-          (r.reference_number || "").toLowerCase().includes(q) ||
-          (r.order_status || "").toLowerCase().includes(q)
-        );
-      });
+      list = list.filter((r) =>
+        (r.item_name        || "").toLowerCase().includes(q) ||
+        (r.vendor           || "").toLowerCase().includes(q) ||
+        (r.category         || "").toLowerCase().includes(q) ||
+        (r.reference_number || "").toLowerCase().includes(q) ||
+        (r.order_status     || "").toLowerCase().includes(q)
+      );
     }
-
-    if (areaParOnly) {
-      list = list.filter((r) => (r.par_level ?? 0) > 0);
-    }
-
-    if (areaLowOnly) {
-      list = list.filter((r) => {
-        const onHand = r.on_hand ?? 0;
-        const low = r.low_level ?? 0;
-        return low > 0 && onHand <= low;
-      });
-    }
-
+    if (areaParOnly) list = list.filter((r) => (r.par_level ?? 0) > 0);
+    if (areaLowOnly) list = list.filter((r) => {
+      const oh = r.on_hand ?? 0; const low = r.low_level ?? 0;
+      return low > 0 && oh <= low;
+    });
     return list;
   }, [areaInv, areaInvSearch, areaParOnly, areaLowOnly]);
 
-  const videoRef = useRef<HTMLVideoElement | null>(null);
-  const readerRef = useRef<BrowserMultiFormatReader | null>(null);
-  const lastScanRef = useRef<string>("");
-  const scanCooldownRef = useRef<number>(0);
-
+  // ── Effects: init from localStorage ──────────────────────────────────────
   useEffect(() => {
     try {
       setLocked(!getSessionUnlocked());
-
-      const savedArea = localStorage.getItem(LS.AREA);
+      const savedArea  = localStorage.getItem(LS.AREA);
       if (savedArea) setAreaId(savedArea);
-
       const savedStaff = localStorage.getItem(LS.STAFF) || "";
       setStaffName(savedStaff);
-
-      const savedAudit = safeJsonParse<AuditEvent[]>(
-        localStorage.getItem(LS.AUDIT),
-        []
-      );
+      const savedAudit = safeJsonParse<AuditEvent[]>(localStorage.getItem(LS.AUDIT), []);
       setAudit(savedAudit);
-
-      const savedLastTx = safeJsonParse<LastTx | null>(
-        localStorage.getItem(LS.LAST_TX),
-        null
-      );
+      const savedLastTx = safeJsonParse<LastTx | null>(localStorage.getItem(LS.LAST_TX), null);
       setLastTx(savedLastTx);
     } catch {}
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  useEffect(() => {
-    try {
-      if (areaId) localStorage.setItem(LS.AREA, areaId);
-    } catch {}
-  }, [areaId]);
+  // ── Effects: persist to localStorage ─────────────────────────────────────
+  useEffect(() => { try { if (areaId) localStorage.setItem(LS.AREA,    areaId);  } catch {} }, [areaId]);
+  useEffect(() => { try { localStorage.setItem(LS.STAFF,  staffName); } catch {} }, [staffName]);
+  useEffect(() => { try { localStorage.setItem(LS.AUDIT,  JSON.stringify(audit.slice(0, 500))); } catch {} }, [audit]);
+  useEffect(() => { try { localStorage.setItem(LS.LAST_TX, JSON.stringify(lastTx)); } catch {} }, [lastTx]);
 
-  useEffect(() => {
-    try {
-      localStorage.setItem(LS.STAFF, staffName);
-    } catch {}
-  }, [staffName]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(LS.AUDIT, JSON.stringify(audit.slice(0, 500)));
-    } catch {}
-  }, [audit]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(LS.LAST_TX, JSON.stringify(lastTx));
-    } catch {}
-  }, [lastTx]);
-
+  // ── Push Audit ────────────────────────────────────────────────────────────
   function pushAudit(ev: Omit<AuditEvent, "id" | "ts" | "staff">) {
     const staff = (staffName || "").trim() || "Unknown";
-    const entry: AuditEvent = {
-      id: uid(),
-      ts: nowIso(),
-      staff,
-      action: ev.action,
-      details: ev.details,
-    };
+    const entry: AuditEvent = { id: uid(), ts: nowIso(), staff, action: ev.action, details: ev.details };
     setAudit((prev) => [entry, ...prev].slice(0, 500));
   }
 
+  // ── Load Locations ────────────────────────────────────────────────────────
   async function loadLocations() {
     setAreasLoading(true);
     try {
-      const res = await fetch("/api/locations", {
-        method: "GET",
-        cache: "no-store",
-        headers: { "Cache-Control": "no-cache" },
-      });
-
+      const res  = await fetch("/api/locations", { method: "GET", cache: "no-store", headers: { "Cache-Control": "no-cache" } });
       const json = await res.json();
-
-      if (!json.ok) {
-        setStatus(`Locations error: ${json.error}`);
-        setAreas([]);
-        setAreaId("");
-        return;
-      }
-
+      if (!json.ok) { setStatus(`Locations error: ${json.error}`); setAreas([]); setAreaId(""); return; }
       const list: Area[] = json.locations ?? [];
       setAreas(list);
-
-      setAreaId((prev) => {
-        if (!list.length) return "";
-        return list.some((a) => a.id === prev) ? prev : list[0].id;
-      });
-
+      setAreaId((prev) => { if (!list.length) return ""; return list.some((a) => a.id === prev) ? prev : list[0].id; });
       setStatus("");
-    } catch (e: any) {
-      setStatus(`Locations fetch failed: ${e?.message ?? "unknown"}`);
-      setAreas([]);
-      setAreaId("");
-    } finally {
-      setAreasLoading(false);
-    }
+    } catch (e: any) { setStatus(`Locations fetch failed: ${e?.message ?? "unknown"}`); setAreas([]); setAreaId(""); }
+    finally { setAreasLoading(false); }
   }
 
-  useEffect(() => {
-    loadLocations();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  useEffect(() => { loadLocations(); }, []); // eslint-disable-line
+  useEffect(() => { if (tab === "Transaction") loadLocations(); }, [tab]); // eslint-disable-line
 
-  useEffect(() => {
-    if (tab === "Transaction") loadLocations();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab]);
-
+  // ── Load Totals ───────────────────────────────────────────────────────────
   async function loadTotals() {
-    setTotalsLoading(true);
-    setTotalsError("");
-
+    setTotalsLoading(true); setTotalsError("");
     try {
       const { data, error } = await supabase
         .from("building_inventory_sheet_view")
-        .select(
-          "item_id,name,reference_number,vendor,category,total_on_hand,par_level,low_level,unit,notes,is_active,order_status,backordered"
-        )
+        .select("item_id,name,reference_number,vendor,category,total_on_hand,par_level,low_level,unit,notes,is_active,order_status,backordered")
         .order("name", { ascending: true });
-
       if (error) throw error;
-
       setTotals((data as BuildingTotalRow[]) ?? []);
-    } catch (e: any) {
-      setTotals([]);
-      setTotalsError(e?.message ?? "Failed to load totals");
-    } finally {
-      setTotalsLoading(false);
-    }
+    } catch (e: any) { setTotals([]); setTotalsError(e?.message ?? "Failed to load totals"); }
+    finally { setTotalsLoading(false); }
   }
 
-  useEffect(() => {
-    if (tab !== "Totals") return;
-    loadTotals();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab]);
+  useEffect(() => { if (tab !== "Totals") return; loadTotals(); }, [tab]); // eslint-disable-line
 
+  // ── Load Area Inventory ───────────────────────────────────────────────────
   async function loadAreaInventory() {
     if (!areaId) return;
-
-    setAreaInvLoading(true);
-    setAreaInvError("");
-
+    setAreaInvLoading(true); setAreaInvError("");
     try {
       const { data, error } = await supabase
         .from("storage_inventory_area_view")
-        .select(
-          "storage_area_id,storage_area_name,item_id,item_name,on_hand,par_level,low_level,unit,vendor,category,reference_number,notes,order_status,backordered"
-        )
+        .select("storage_area_id,storage_area_name,item_id,item_name,on_hand,par_level,low_level,unit,vendor,category,reference_number,notes,order_status,backordered")
         .eq("storage_area_id", areaId)
         .order("item_name", { ascending: true });
-
       if (error) throw error;
-
       setAreaInv((data as AreaInvRow[]) ?? []);
-      pushAudit({
-        action: "AREA_LIST_LOAD",
-        details: `Area=${selectedAreaName} Rows=${(data as any[])?.length ?? 0}`,
-      });
-    } catch (e: any) {
-      setAreaInv([]);
-      setAreaInvError(e?.message ?? "Failed to load area list");
-    } finally {
-      setAreaInvLoading(false);
-    }
+      pushAudit({ action: "AREA_LIST_LOAD", details: `Area=${selectedAreaName} Rows=${(data as any[])?.length ?? 0}` });
+    } catch (e: any) { setAreaInv([]); setAreaInvError(e?.message ?? "Failed to load area list"); }
+    finally { setAreaInvLoading(false); }
   }
 
+  useEffect(() => { if (!scannerOpen) stopScanner(); }, [scannerOpen]); // eslint-disable-line
+  useEffect(() => {
+    if (tab !== "Transaction") { stopScanner(); setScannerOpen(false); }
+    return () => stopScanner();
+  }, [tab]); // eslint-disable-line
   useEffect(() => {
     if (tab !== "Transaction") return;
     if (!areaListOpen) return;
     if (!areaId) return;
     loadAreaInventory();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab, areaListOpen, areaId]);
+  }, [tab, areaListOpen, areaId]); // eslint-disable-line
 
-  useEffect(() => {
-    if (!scannerOpen) stopScanner();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scannerOpen]);
-
-  useEffect(() => {
-    if (tab !== "Transaction") {
-      stopScanner();
-      setScannerOpen(false);
-    }
-    return () => stopScanner();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab]);
-
+  // ── Scanner: Start ────────────────────────────────────────────────────────
   async function startScanner() {
-    if (!staffName.trim()) {
-      setTab("Audit");
-      setStatus("Set staff name first (Audit tab).");
-      return;
-    }
-
+    if (!staffName.trim()) { setTab("Audit"); setStatus("Set staff name first (Audit tab)."); return; }
     setScannerOpen(true);
     pushAudit({ action: "SCANNER_OPEN", details: `Area=${selectedAreaName}` });
     setStatus("Starting camera…");
-
     await new Promise((r) => setTimeout(r, 80));
-
-    if (!videoRef.current) {
-      setStatus("Camera view not ready.");
-      return;
-    }
-
+    if (!videoRef.current) { setStatus("Camera view not ready."); return; }
     stopScanner();
-
     try {
-      const mod = await import("@zxing/browser");
+      const mod    = await import("@zxing/browser");
       const Reader = mod.BrowserMultiFormatReader;
       const reader = new Reader();
       readerRef.current = reader;
-
       setStatus("Scanning…");
       pushAudit({ action: "SCAN", details: `Area=${selectedAreaName}` });
-
       const constraints: MediaStreamConstraints = {
-        video: {
-          facingMode: { ideal: "environment" },
-          width: { ideal: 1920 },
-          height: { ideal: 1080 },
-        },
+        video: { facingMode: { ideal: "environment" }, width: { ideal: 1920 }, height: { ideal: 1080 } },
         audio: false,
       };
-
       const stream = await navigator.mediaDevices.getUserMedia(constraints);
-
       const v: any = videoRef.current;
-      v.srcObject = stream;
+      v.srcObject  = stream;
       await v.play();
-
-      const decodeFromVideoElement = (reader as any).decodeFromVideoElement?.bind(
-        reader
-      );
-
+      const decodeFromVideoElement = (reader as any).decodeFromVideoElement?.bind(reader);
       const handleText = async (text: string) => {
         if (!text) return;
         const now = Date.now();
         if (now < scanCooldownRef.current) return;
         scanCooldownRef.current = now + 900;
-
         if (text === lastScanRef.current) return;
         lastScanRef.current = text;
-
         setQuery(text);
-
-        stopScanner();
-        setScannerOpen(false);
-
+        stopScanner(); setScannerOpen(false);
         setLookupMode("BARCODE");
         await lookup(text);
       };
-
       if (decodeFromVideoElement) {
         await decodeFromVideoElement(videoRef.current, async (result: any) => {
-          if (!result) return;
-          const text = result.getText?.() ?? "";
-          await handleText(text);
+          if (!result) return; const text = result.getText?.() ?? ""; await handleText(text);
         });
       } else {
-        await reader.decodeFromVideoDevice(
-          undefined,
-          videoRef.current,
-          async (result) => {
-            if (!result) return;
-            const text = result.getText?.() ?? "";
-            await handleText(text);
-          }
-        );
+        await reader.decodeFromVideoDevice(undefined, videoRef.current, async (result) => {
+          if (!result) return; const text = result.getText?.() ?? ""; await handleText(text);
+        });
       }
     } catch {
-      setScannerOpen(false);
-      setStatus("Camera blocked.");
-      alert(
-        "Camera blocked.\n\nOn iPhone:\nSettings → Safari → Camera → Allow\nThen refresh and try again."
-      );
+      setScannerOpen(false); setStatus("Camera blocked.");
+      alert("Camera blocked.\n\nOn iPhone:\nSettings → Safari → Camera → Allow\nThen refresh and try again.");
     }
   }
 
+  // ── Scanner: Stop ─────────────────────────────────────────────────────────
   function stopScanner() {
-    try {
-      (readerRef.current as any)?.reset?.();
-    } catch {}
-    readerRef.current = null;
-    lastScanRef.current = "";
-    scanCooldownRef.current = 0;
-
+    try { (readerRef.current as any)?.reset?.(); } catch {}
+    readerRef.current = null; lastScanRef.current = ""; scanCooldownRef.current = 0;
     try {
       const v = videoRef.current as any;
       const stream = v?.srcObject as MediaStream | null;
-      if (stream) {
-        stream.getTracks().forEach((t) => t.stop());
-        v.srcObject = null;
-      }
+      if (stream) { stream.getTracks().forEach((t) => t.stop()); v.srcObject = null; }
     } catch {}
   }
 
   function closeScanner() {
-    stopScanner();
-    setScannerOpen(false);
-    pushAudit({ action: "SCANNER_CLOSE" });
-    setStatus("Stopped.");
+    stopScanner(); setScannerOpen(false);
+    pushAudit({ action: "SCANNER_CLOSE" }); setStatus("Stopped.");
   }
 
+  // ── Map Item Row ──────────────────────────────────────────────────────────
   function mapItemRow(r: any): Item {
     const itemObj = Array.isArray(r.items) ? r.items[0] : r.items;
     return {
-      id: r.id,
-      name: r.name,
-      barcode: r.barcode ?? "",
+      id: r.id, name: r.name, barcode: r.barcode ?? "",
       reference_number: r.reference_number ?? null,
-      order_status:
-        r.order_status ??
-        itemObj?.order_status ??
-        "IN STOCK",
-      backordered:
-        r.backordered ??
-        itemObj?.backordered ??
-        false,
+      order_status: r.order_status ?? itemObj?.order_status ?? "IN STOCK",
+      backordered:  r.backordered  ?? itemObj?.backordered  ?? false,
     };
   }
 
+  // ── Lookup ────────────────────────────────────────────────────────────────
   async function lookup(queryRaw: string) {
     const q = queryRaw.trim();
     if (!q) return;
-
-    setItem(null);
-    setOrderStatusRows([]);
-    setMatches([]);
-    setStatus("Looking up…");
-
-    const res = await fetch("/api/items/lookup", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      cache: "no-store",
+    setItem(null); setOrderStatusRows([]); setMatches([]); setStatus("Looking up…");
+    const res  = await fetch("/api/items/lookup", {
+      method: "POST", headers: { "Content-Type": "application/json" }, cache: "no-store",
       body: JSON.stringify({ query: q, mode: lookupMode }),
     });
-
     const json = await res.json();
-
-    if (!json.ok) {
-      setStatus(`Lookup failed: ${json.error}`);
-      return;
-    }
-
+    if (!json.ok) { setStatus(`Lookup failed: ${json.error}`); return; }
     if (json.item) {
       const it = mapItemRow(json.item);
-      setItem(it);
-      setItemStatusDraft({
-        order_status: it.order_status || "IN STOCK",
-        backordered: !!it.backordered,
-      });
+      setItem(it); setItemStatusDraft({ order_status: it.order_status || "IN STOCK", backordered: !!it.backordered });
       setStatus(`Found: ${it.name}`);
-      pushAudit({
-        action: "LOOKUP_FOUND",
-        details: `Item=${it.name} Mode=${lookupMode} Query=${q}`,
-      });
+      pushAudit({ action: "LOOKUP_FOUND", details: `Item=${it.name} Mode=${lookupMode} Query=${q}` });
       return;
     }
-
-    const list = (json.matches ?? []) as any[];
+    const list   = (json.matches ?? []) as any[];
     const mapped = list.map(mapItemRow);
-
-    if (mapped.length) {
-      setMatches(mapped);
-      setStatus("Multiple matches — tap one.");
-      return;
-    }
-
+    if (mapped.length) { setMatches(mapped); setStatus("Multiple matches — tap one."); return; }
     setStatus("NOT FOUND — Add Item");
-    pushAudit({
-      action: "LOOKUP_NOT_FOUND",
-      details: `Mode=${lookupMode} Query=${q}`,
-    });
-    setAddOpen(true);
-    setAddName("");
+    pushAudit({ action: "LOOKUP_NOT_FOUND", details: `Mode=${lookupMode} Query=${q}` });
+    setAddOpen(true); setAddName("");
   }
 
+  // ── Suggest ───────────────────────────────────────────────────────────────
   async function suggest(queryRaw: string) {
     const q = queryRaw.trim();
-    if (!q) {
-      setMatches([]);
-      setSuggestLoading(false);
-      return;
-    }
-
-    if (lookupMode === "BARCODE") {
-      setMatches([]);
-      setSuggestLoading(false);
-      return;
-    }
-
-    if (q.length < 2) {
-      setMatches([]);
-      setSuggestLoading(false);
-      return;
-    }
-
+    if (!q || lookupMode === "BARCODE" || q.length < 2) { setMatches([]); setSuggestLoading(false); return; }
     setSuggestLoading(true);
-
     try {
-      const res = await fetch("/api/items/lookup", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        cache: "no-store",
+      const res  = await fetch("/api/items/lookup", {
+        method: "POST", headers: { "Content-Type": "application/json" }, cache: "no-store",
         body: JSON.stringify({ query: q, mode: lookupMode, suggest: true }),
       });
-
       const json = await res.json();
-
-      if (!json.ok) {
-        setMatches([]);
-        setSuggestLoading(false);
-        return;
-      }
-
-      if (json.item) {
-        const it = mapItemRow(json.item);
-        setMatches([it]);
-        setSuggestLoading(false);
-        return;
-      }
-
-      const list = (json.matches ?? []) as any[];
-      const mapped = list.map(mapItemRow);
-      setMatches(mapped.slice(0, 8));
-    } catch {
-      setMatches([]);
-    } finally {
-      setSuggestLoading(false);
-    }
+      if (!json.ok) { setMatches([]); setSuggestLoading(false); return; }
+      if (json.item) { setMatches([mapItemRow(json.item)]); setSuggestLoading(false); return; }
+      setMatches(((json.matches ?? []) as any[]).map(mapItemRow).slice(0, 8));
+    } catch { setMatches([]); } finally { setSuggestLoading(false); }
   }
 
   useEffect(() => {
-    if (tab !== "Transaction") return;
-    if (areaListOpen) return;
-    if (scannerOpen) return;
-    if (addOpen) return;
-
-    if (lookupMode === "BARCODE") {
-      setSuggestLoading(false);
-      return;
+    if (tab !== "Transaction" || areaListOpen || scannerOpen || addOpen || lookupMode === "BARCODE") {
+      setSuggestLoading(false); return;
     }
-
-    const q = query.trim();
-
-    const t = window.setTimeout(() => {
-      suggest(q);
-    }, 250);
-
+    const t = window.setTimeout(() => suggest(query), 250);
     return () => window.clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [query, lookupMode, tab, areaListOpen, scannerOpen, addOpen]);
+  }, [query, lookupMode, tab, areaListOpen, scannerOpen, addOpen]); // eslint-disable-line
 
-  function openPin(purpose: typeof pinPurpose) {
-    setPinPurpose(purpose);
-    setPinInput("");
-    setPinOpen(true);
-  }
-
-  function checkPin(): boolean {
-    const real = localStorage.getItem(LS.PIN) || "1234";
-    return pinInput.trim() === real;
-  }
+  // ── PIN helpers ───────────────────────────────────────────────────────────
+  function openPin(purpose: typeof pinPurpose) { setPinPurpose(purpose); setPinInput(""); setPinOpen(true); }
+  function checkPin(): boolean { const real = localStorage.getItem(LS.PIN) || "1234"; return pinInput.trim() === real; }
 
   async function onPinConfirm() {
     if (!checkPin()) return alert("Wrong PIN");
     setPinOpen(false);
-
-    if (pinPurpose === "unlock") {
-      setSessionUnlocked(true);
-      setLocked(false);
-      pushAudit({ action: "UNLOCK", details: `Area=${selectedAreaName}` });
-      return;
-    }
-
-    if (pinPurpose === "lock") {
-      setSessionUnlocked(false);
-      setLocked(true);
-      pushAudit({ action: "LOCK", details: `Area=${selectedAreaName}` });
-      return;
-    }
-
+    if (pinPurpose === "unlock") { setSessionUnlocked(true); setLocked(false); pushAudit({ action: "UNLOCK", details: `Area=${selectedAreaName}` }); return; }
+    if (pinPurpose === "lock")   { setSessionUnlocked(false); setLocked(true); pushAudit({ action: "LOCK",   details: `Area=${selectedAreaName}` }); return; }
     if (pinPurpose === "changeLocation") {
-      if (pendingArea) {
-        const nextName =
-          areas.find((a) => a.id === pendingArea)?.name ?? pendingArea;
-        setAreaId(pendingArea);
-        pushAudit({ action: "CHANGE_LOCATION", details: `To=${nextName}` });
-      }
-      setPendingArea("");
-      return;
+      if (pendingArea) { const nextName = areas.find((a) => a.id === pendingArea)?.name ?? pendingArea; setAreaId(pendingArea); pushAudit({ action: "CHANGE_LOCATION", details: `To=${nextName}` }); }
+      setPendingArea(""); return;
     }
-
-    if (pinPurpose === "addItem") {
-      await addItemNow(true);
-      return;
-    }
-
+    if (pinPurpose === "addItem") { await addItemNow(true); return; }
     if (pinPurpose === "totalsEdit") {
-      const action = pendingTotalsAction;
-      setPendingTotalsAction(null);
+      const action = pendingTotalsAction; setPendingTotalsAction(null);
       if (!action || !totalsEditRow) return;
-
-      if (action.kind === "SET") {
-        await doTotalsSet(totalsEditRow, action.value, true);
-      } else if (action.kind === "ADJUST") {
-        await doTotalsAdjust(totalsEditRow, action.delta, true);
-      } else if (action.kind === "SET_ACTIVE") {
-        await doTotalsSetActive(totalsEditRow, action.is_active, true);
-      }
+      if (action.kind === "SET")        await doTotalsSet(totalsEditRow, action.value,    true);
+      else if (action.kind === "ADJUST") await doTotalsAdjust(totalsEditRow, action.delta, true);
+      else if (action.kind === "SET_ACTIVE") await doTotalsSetActive(totalsEditRow, action.is_active, true);
       return;
     }
-
     if (pinPurpose === "areaRowEdit") {
-      const payload = pendingAreaRowSave;
-      setPendingAreaRowSave(null);
-      if (!payload) return;
-      await saveAreaRow(payload, true);
-      return;
+      const payload = pendingAreaRowSave; setPendingAreaRowSave(null);
+      if (!payload) return; await saveAreaRow(payload, true); return;
     }
-
     if (pinPurpose === "itemStatusEdit") {
-      const payload = pendingItemStatusSave;
-      setPendingItemStatusSave(null);
+      const payload = pendingItemStatusSave; setPendingItemStatusSave(null);
       if (!payload) return;
-      await doSaveItemStatus(
-        payload.item_id,
-        payload.order_status,
-        payload.backordered,
-        payload.item_name
-      );
-      return;
+      await doSaveItemStatus(payload.item_id, payload.order_status, payload.backordered, payload.item_name); return;
     }
   }
 
   function requestLocationChange(newId: string) {
-    if (!locked) {
-      const nextName = areas.find((a) => a.id === newId)?.name ?? newId;
-      setAreaId(newId);
-      pushAudit({ action: "CHANGE_LOCATION", details: `To=${nextName}` });
-      return;
-    }
-    setPendingArea(newId);
-    openPin("changeLocation");
+    if (!locked) { const nextName = areas.find((a) => a.id === newId)?.name ?? newId; setAreaId(newId); pushAudit({ action: "CHANGE_LOCATION", details: `To=${nextName}` }); return; }
+    setPendingArea(newId); openPin("changeLocation");
   }
 
+  // ── Add Item ──────────────────────────────────────────────────────────────
   async function addItemNow(pinAlreadyPassed = false) {
-    if (locked && !pinAlreadyPassed) {
-      openPin("addItem");
-      return;
-    }
-
+    if (locked && !pinAlreadyPassed) { openPin("addItem"); return; }
     const barcode = query.trim();
-    if (!barcode) return alert("No barcode/value entered.");
+    if (!barcode)        return alert("No barcode/value entered.");
     if (!addName.trim()) return alert("Enter item name.");
-    if (!areaId) return alert("Select a location.");
-
-    const res = await fetch("/api/items/create", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      cache: "no-store",
-      body: JSON.stringify({
-        name: addName.trim(),
-        barcode,
-        storage_area_id: areaId,
-        par_level: addPar,
-      }),
+    if (!areaId)         return alert("Select a location.");
+    const res  = await fetch("/api/items/create", {
+      method: "POST", headers: { "Content-Type": "application/json" }, cache: "no-store",
+      body: JSON.stringify({ name: addName.trim(), barcode, storage_area_id: areaId, par_level: addPar }),
     });
-
     const json = await res.json();
     if (!json.ok) return alert(`Add failed: ${json.error}`);
-
     const nextItem = mapItemRow(json.item);
-    setItem(nextItem);
-    setItemStatusDraft({
-      order_status: nextItem.order_status || "IN STOCK",
-      backordered: !!nextItem.backordered,
-    });
-    setMatches([]);
-    setAddOpen(false);
-    setStatus(`Added: ${json.item.name}`);
-
-    pushAudit({
-      action: "ADD_ITEM",
-      details: `Item=${json.item.name} Barcode=${barcode} Area=${selectedAreaName} Par=${addPar}`,
-    });
+    setItem(nextItem); setItemStatusDraft({ order_status: nextItem.order_status || "IN STOCK", backordered: !!nextItem.backordered });
+    setMatches([]); setAddOpen(false); setStatus(`Added: ${json.item.name}`);
+    pushAudit({ action: "ADD_ITEM", details: `Item=${json.item.name} Barcode=${barcode} Area=${selectedAreaName} Par=${addPar}` });
   }
 
-  async function fetchOnHand(area: string, itemId: string) {
-    const { data, error } = await supabase
-      .from("storage_inventory")
-      .select("on_hand")
-      .eq("storage_area_id", area)
-      .eq("item_id", itemId)
-      .maybeSingle();
-
+  // ── Fetch On-Hand ─────────────────────────────────────────────────────────
+  async function fetchOnHand(area: string, itemId: string): Promise<number> {
+    const { data, error } = await supabase.from("storage_inventory").select("on_hand").eq("storage_area_id", area).eq("item_id", itemId).maybeSingle();
     if (error) throw error;
     return (data?.on_hand ?? 0) as number;
   }
 
+  // ── Submit Transaction ────────────────────────────────────────────────────
   async function submit() {
-    if (locked) return alert("Locked. Unlock first.");
-    if (!staffName.trim()) {
-      setTab("Audit");
-      return alert("Enter staff name in Audit tab first.");
-    }
-    if (!item?.id) return alert("Find or scan an item first.");
-    if (!areaId) return alert("Select a location.");
-
+    if (locked)             return alert("Locked. Unlock first.");
+    if (!staffName.trim())  { setTab("Audit"); return alert("Enter staff name in Audit tab first."); }
+    if (!item?.id)          return alert("Find or scan an item first.");
+    if (!areaId)            return alert("Select a location.");
     try {
       if (mode === "USE") {
         const useArea = mainOverride ? MAIN_SUPPLY_ID : areaId;
-
-        const { error } = await supabase.rpc("use_stock", {
-          p_item_id: item.id,
-          p_area_id: useArea,
-          p_qty: qty,
-        });
+        const { error } = await supabase.rpc("use_stock", { p_item_id: item.id, p_area_id: useArea, p_qty: qty });
         if (error) throw error;
-
         const newOnHand = await fetchOnHand(useArea, item.id);
-
-        const tx: LastTx = {
-          storage_area_id: useArea,
-          mode,
-          item_id: item.id,
-          qty,
-          mainOverride,
-          item_name: item.name,
-          area_name: useArea === MAIN_SUPPLY_ID ? "MAIN SUPPLY" : selectedAreaName,
-          ts: nowIso(),
-        };
-        setLastTx(tx);
-
-        setMainOverride(false);
-        setQty(1);
-        setStatus(`✅ Updated on-hand to ${newOnHand}`);
-
+        setLastTx({ storage_area_id: useArea, mode, item_id: item.id, qty, mainOverride, item_name: item.name, area_name: useArea === MAIN_SUPPLY_ID ? "MAIN SUPPLY" : selectedAreaName, ts: nowIso() });
+        setMainOverride(false); setQty(1); setStatus(`✅ Updated on-hand to ${newOnHand}`);
         if (tab === "Totals") await loadTotals();
         if (tab === "Transaction" && areaListOpen) await loadAreaInventory();
-
-        pushAudit({
-          action: "SUBMIT_TX",
-          details: `Mode=USE Qty=${qty} Item=${item.name} Area=${
-            useArea === MAIN_SUPPLY_ID ? "MAIN SUPPLY" : selectedAreaName
-          } Override=${mainOverride ? "MAIN" : "NO"}`,
-        });
-
+        pushAudit({ action: "SUBMIT_TX", details: `Mode=USE Qty=${qty} Item=${item.name} Area=${useArea === MAIN_SUPPLY_ID ? "MAIN SUPPLY" : selectedAreaName} Override=${mainOverride ? "MAIN" : "NO"}` });
         return;
       }
-
       if (mode === "RESTOCK") {
-        const { error } = await supabase.rpc("move_stock", {
-          p_item_id: item.id,
-          p_from_area: MAIN_SUPPLY_ID,
-          p_to_area: areaId,
-          p_qty: qty,
-        });
+        const { error } = await supabase.rpc("move_stock", { p_item_id: item.id, p_from_area: MAIN_SUPPLY_ID, p_to_area: areaId, p_qty: qty });
         if (error) throw error;
-
         const newOnHand = await fetchOnHand(areaId, item.id);
-
-        const tx: LastTx = {
-          storage_area_id: areaId,
-          mode,
-          item_id: item.id,
-          qty,
-          mainOverride: false,
-          item_name: item.name,
-          area_name: selectedAreaName,
-          ts: nowIso(),
-        };
-        setLastTx(tx);
-
-        setMainOverride(false);
-        setQty(1);
-        setStatus(`✅ Restocked. On-hand now ${newOnHand}`);
-
+        setLastTx({ storage_area_id: areaId, mode, item_id: item.id, qty, mainOverride: false, item_name: item.name, area_name: selectedAreaName, ts: nowIso() });
+        setMainOverride(false); setQty(1); setStatus(`✅ Restocked. On-hand now ${newOnHand}`);
         if (tab === "Totals") await loadTotals();
         if (tab === "Transaction" && areaListOpen) await loadAreaInventory();
-
-        pushAudit({
-          action: "SUBMIT_TX",
-          details: `Mode=RESTOCK Qty=${qty} Item=${item.name} From=MAIN SUPPLY To=${selectedAreaName}`,
-        });
-
+        pushAudit({ action: "SUBMIT_TX", details: `Mode=RESTOCK Qty=${qty} Item=${item.name} From=MAIN SUPPLY To=${selectedAreaName}` });
         return;
       }
-    } catch (e: any) {
-      alert(`Transaction failed: ${e?.message ?? "unknown error"}`);
-    }
+    } catch (e: any) { alert(`Transaction failed: ${e?.message ?? "unknown error"}`); }
   }
 
+  // ── Undo Last Transaction ─────────────────────────────────────────────────
   async function undoLast() {
-    if (!lastTx) return;
-    if (undoBusy) return;
-    if (locked) return alert("Locked. Unlock first.");
-    if (!staffName.trim()) {
-      setTab("Audit");
-      return alert("Enter staff name in Audit tab first.");
-    }
-
-    const ok = confirm(
-      `UNDO last transaction?\n\n${lastTx.mode} x${lastTx.qty}\n${
-        lastTx.item_name ?? lastTx.item_id
-      }\nArea: ${lastTx.area_name ?? lastTx.storage_area_id}\nMAIN override: ${
-        lastTx.mainOverride ? "YES" : "NO"
-      }`
-    );
+    if (!lastTx || undoBusy || locked) return;
+    if (!staffName.trim()) { setTab("Audit"); return alert("Enter staff name in Audit tab first."); }
+    const ok = confirm(`UNDO last transaction?\n\n${lastTx.mode} x${lastTx.qty}\n${lastTx.item_name ?? lastTx.item_id}\nArea: ${lastTx.area_name ?? lastTx.storage_area_id}\nMAIN override: ${lastTx.mainOverride ? "YES" : "NO"}`);
     if (!ok) return;
-
     setUndoBusy(true);
     try {
       if (lastTx.mode === "USE") {
-        const { error } = await supabase.rpc("add_stock", {
-          p_item_id: lastTx.item_id,
-          p_area_id: lastTx.storage_area_id,
-          p_qty: lastTx.qty,
-        });
+        const { error } = await supabase.rpc("add_stock", { p_item_id: lastTx.item_id, p_area_id: lastTx.storage_area_id, p_qty: lastTx.qty });
         if (error) throw error;
-
-        const newOnHand = await fetchOnHand(
-          lastTx.storage_area_id,
-          lastTx.item_id
-        );
+        const newOnHand = await fetchOnHand(lastTx.storage_area_id, lastTx.item_id);
         setStatus(`↩️ UNDONE. On-hand now ${newOnHand}`);
-
-        pushAudit({
-          action: "UNDO_TX",
-          details: `Reversed=USE Qty=${lastTx.qty} Item=${
-            lastTx.item_name ?? lastTx.item_id
-          } Area=${lastTx.area_name ?? lastTx.storage_area_id}`,
-        });
-
+        pushAudit({ action: "UNDO_TX", details: `Reversed=USE Qty=${lastTx.qty} Item=${lastTx.item_name ?? lastTx.item_id} Area=${lastTx.area_name ?? lastTx.storage_area_id}` });
         setLastTx(null);
-
         if (tab === "Totals") await loadTotals();
         if (tab === "Transaction" && areaListOpen) await loadAreaInventory();
         return;
       }
-
       if (lastTx.mode === "RESTOCK") {
-        const { error } = await supabase.rpc("move_stock", {
-          p_item_id: lastTx.item_id,
-          p_from_area: lastTx.storage_area_id,
-          p_to_area: MAIN_SUPPLY_ID,
-          p_qty: lastTx.qty,
-        });
+        const { error } = await supabase.rpc("move_stock", { p_item_id: lastTx.item_id, p_from_area: lastTx.storage_area_id, p_to_area: MAIN_SUPPLY_ID, p_qty: lastTx.qty });
         if (error) throw error;
-
-        const newOnHand = await fetchOnHand(
-          lastTx.storage_area_id,
-          lastTx.item_id
-        );
+        const newOnHand = await fetchOnHand(lastTx.storage_area_id, lastTx.item_id);
         setStatus(`↩️ UNDONE. On-hand now ${newOnHand}`);
-
-        pushAudit({
-          action: "UNDO_TX",
-          details: `Reversed=RESTOCK Qty=${lastTx.qty} Item=${
-            lastTx.item_name ?? lastTx.item_id
-          } Area=${lastTx.area_name ?? lastTx.storage_area_id} (moved back to MAIN)`,
-        });
-
+        pushAudit({ action: "UNDO_TX", details: `Reversed=RESTOCK Qty=${lastTx.qty} Item=${lastTx.item_name ?? lastTx.item_id} Area=${lastTx.area_name ?? lastTx.storage_area_id} (moved back to MAIN)` });
         setLastTx(null);
-
         if (tab === "Totals") await loadTotals();
         if (tab === "Transaction" && areaListOpen) await loadAreaInventory();
         return;
       }
-    } catch (e: any) {
-      alert(`Undo failed: ${e?.message ?? "unknown error"}`);
-    } finally {
-      setUndoBusy(false);
-    }
+    } catch (e: any) { alert(`Undo failed: ${e?.message ?? "unknown error"}`); }
+    finally { setUndoBusy(false); }
   }
 
+  // ── Save PIN ──────────────────────────────────────────────────────────────
   function savePin(newPin: string) {
     const cleaned = newPin.replace(/\D/g, "").slice(0, 6);
     if (cleaned.length < 4) return alert("PIN must be at least 4 digits.");
-    localStorage.setItem(LS.PIN, cleaned);
-    alert("PIN saved ✅");
+    localStorage.setItem(LS.PIN, cleaned); alert("PIN saved ✅");
   }
 
+  // ── Toggle Override ───────────────────────────────────────────────────────
   function onToggleOverride() {
     setMainOverride((v) => {
       const next = !v;
-      pushAudit({
-        action: next ? "MAIN_OVERRIDE_ON" : "MAIN_OVERRIDE_OFF",
-        details: `Area=${selectedAreaName}`,
-      });
+      pushAudit({ action: next ? "MAIN_OVERRIDE_ON" : "MAIN_OVERRIDE_OFF", details: `Area=${selectedAreaName}` });
       return next;
     });
   }
 
-  async function loadOrderRowsForItem(itemId: string, mode: "modal" | "totals" = "modal") {
-    if (mode === "modal") {
-      setOrderStatusLoading(true);
-      setOrderStatusRows([]);
-    } else {
-      setTotalsOrderLoading(true);
-      setTotalsOrderRows([]);
-    }
-
+  // ── Load Order Rows ───────────────────────────────────────────────────────
+  async function loadOrderRowsForItem(itemId: string, mode2: "modal" | "totals" = "modal") {
+    if (mode2 === "modal") { setOrderStatusLoading(true); setOrderStatusRows([]); }
+    else                   { setTotalsOrderLoading(true); setTotalsOrderRows([]);  }
     try {
       const { data, error } = await supabase
         .from("purchase_order_items")
-        .select(
-          "id,qty_ordered,qty_received,status,notes,purchase_orders(id,po_number,vendor,status,expected_date,order_date,notes)"
-        )
+        .select("id,qty_ordered,qty_received,status,notes,purchase_orders(id,po_number,vendor,status,expected_date,order_date,notes)")
         .eq("item_id", itemId)
         .order("created_at", { ascending: false });
-
       if (error) throw error;
-
-      if (mode === "modal") {
-        setOrderStatusRows((data as OrderStatusRow[]) ?? []);
-      } else {
-        setTotalsOrderRows((data as OrderStatusRow[]) ?? []);
-      }
+      if (mode2 === "modal") setOrderStatusRows((data as OrderStatusRow[]) ?? []);
+      else                   setTotalsOrderRows((data as OrderStatusRow[])  ?? []);
     } catch (e: any) {
-      if (mode === "modal") {
-        alert(`Order status failed: ${e?.message ?? "unknown error"}`);
-        setOrderStatusOpen(false);
-      } else {
-        setTotalsOrderRows([]);
-      }
+      if (mode2 === "modal") { alert(`Order status failed: ${e?.message ?? "unknown error"}`); setOrderStatusOpen(false); }
+      else setTotalsOrderRows([]);
     } finally {
-      if (mode === "modal") {
-        setOrderStatusLoading(false);
-      } else {
-        setTotalsOrderLoading(false);
-      }
+      if (mode2 === "modal") setOrderStatusLoading(false); else setTotalsOrderLoading(false);
     }
   }
 
   async function openOrderStatus() {
-    if (!item?.id) return;
-    setOrderStatusOpen(true);
-    await loadOrderRowsForItem(item.id, "modal");
+    if (!item?.id) return; setOrderStatusOpen(true); await loadOrderRowsForItem(item.id, "modal");
   }
 
+  // ── Open Totals Editor ────────────────────────────────────────────────────
   async function openTotalsEditor(row: BuildingTotalRow) {
     setTotalsEditRow(row);
-    setSetOnHandInput(String(row.total_on_hand ?? 0));
-    setDeltaInput("");
-    setParInput(String(row.par_level ?? 0));
-    setVendorInput(row.vendor ?? "");
-    setCategoryInput(row.category ?? "");
-    setUnitInput(row.unit ?? "");
-    setNotesInput(row.notes ?? "");
-    setTotalsLowInput(String(row.low_level ?? 0));
-    setRefInput(row.reference_number ?? "");
-    setTotalsOrderStatusInput(row.order_status || "IN STOCK");
-    setTotalsBackorderedInput(!!row.backordered);
-    setTotalsEditOpen(true);
+    setSetOnHandInput(String(row.total_on_hand ?? 0)); setDeltaInput("");
+    setParInput(String(row.par_level ?? 0)); setVendorInput(row.vendor ?? "");
+    setCategoryInput(row.category ?? ""); setUnitInput(row.unit ?? "");
+    setNotesInput(row.notes ?? ""); setTotalsLowInput(String(row.low_level ?? 0));
+    setRefInput(row.reference_number ?? ""); setTotalsOrderStatusInput(row.order_status || "IN STOCK");
+    setTotalsBackorderedInput(!!row.backordered); setTotalsEditOpen(true);
     await loadOrderRowsForItem(row.item_id, "totals");
   }
 
+  // ── Parse Int Safe ────────────────────────────────────────────────────────
   function parseIntSafe(raw: string): number | null {
     const cleaned = raw.trim();
-    if (!cleaned) return null;
-    if (!/^-?\d+$/.test(cleaned)) return null;
+    if (!cleaned || !/^-?\d+$/.test(cleaned)) return null;
     const n = Number(cleaned);
-    if (!Number.isFinite(n)) return null;
-    return n;
+    return Number.isFinite(n) ? n : null;
   }
 
-  async function doTotalsSet(
-    row: BuildingTotalRow,
-    value: number,
-    pinAlreadyPassed = false
-  ) {
-    if (!staffName.trim()) {
-      setTab("Audit");
-      alert("Enter staff name in Audit tab first.");
-      return;
-    }
-
-    if (locked && !pinAlreadyPassed) {
-      setPendingTotalsAction({ kind: "SET", value });
-      openPin("totalsEdit");
-      return;
-    }
-
-    const res = await fetch("/api/building-inventory/update", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      cache: "no-store",
-      body: JSON.stringify({
-        item_id: row.item_id,
-        action: "SET",
-        value,
-      }),
-    });
-
+  // ── Totals: Set ───────────────────────────────────────────────────────────
+  async function doTotalsSet(row: BuildingTotalRow, value: number, pinAlreadyPassed = false) {
+    if (!staffName.trim()) { setTab("Audit"); alert("Enter staff name in Audit tab first."); return; }
+    if (locked && !pinAlreadyPassed) { setPendingTotalsAction({ kind: "SET", value }); openPin("totalsEdit"); return; }
+    const res  = await fetch("/api/building-inventory/update", { method: "POST", headers: { "Content-Type": "application/json" }, cache: "no-store", body: JSON.stringify({ item_id: row.item_id, action: "SET", value }) });
     const json = await res.json();
-    if (!json.ok) {
-      alert(`Update failed: ${json.error}`);
-      return;
-    }
-
-    pushAudit({
-      action: "TOTALS_SET",
-      details: `Item=${row.name} Set=${value}`,
-    });
-
-    setTotalsEditOpen(false);
-    await loadTotals();
+    if (!json.ok) { alert(`Update failed: ${json.error}`); return; }
+    pushAudit({ action: "TOTALS_SET", details: `Item=${row.name} Set=${value}` });
+    setTotalsEditOpen(false); await loadTotals();
   }
 
-  async function doTotalsAdjust(
-    row: BuildingTotalRow,
-    delta: number,
-    pinAlreadyPassed = false
-  ) {
-    if (!staffName.trim()) {
-      setTab("Audit");
-      alert("Enter staff name in Audit tab first.");
-      return;
-    }
-
-    if (delta === 0) {
-      alert("Delta cannot be 0.");
-      return;
-    }
-
-    if (locked && !pinAlreadyPassed) {
-      setPendingTotalsAction({ kind: "ADJUST", delta });
-      openPin("totalsEdit");
-      return;
-    }
-
-    const res = await fetch("/api/building-inventory/update", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      cache: "no-store",
-      body: JSON.stringify({
-        item_id: row.item_id,
-        action: "ADJUST",
-        delta,
-      }),
-    });
-
+  // ── Totals: Adjust ────────────────────────────────────────────────────────
+  async function doTotalsAdjust(row: BuildingTotalRow, delta: number, pinAlreadyPassed = false) {
+    if (!staffName.trim()) { setTab("Audit"); alert("Enter staff name in Audit tab first."); return; }
+    if (delta === 0) { alert("Delta cannot be 0."); return; }
+    if (locked && !pinAlreadyPassed) { setPendingTotalsAction({ kind: "ADJUST", delta }); openPin("totalsEdit"); return; }
+    const res  = await fetch("/api/building-inventory/update", { method: "POST", headers: { "Content-Type": "application/json" }, cache: "no-store", body: JSON.stringify({ item_id: row.item_id, action: "ADJUST", delta }) });
     const json = await res.json();
-    if (!json.ok) {
-      alert(`Update failed: ${json.error}`);
-      return;
-    }
-
-    pushAudit({
-      action: "TOTALS_ADJUST",
-      details: `Item=${row.name} Delta=${delta > 0 ? "+" : ""}${delta}`,
-    });
-
-    setTotalsEditOpen(false);
-    await loadTotals();
+    if (!json.ok) { alert(`Update failed: ${json.error}`); return; }
+    pushAudit({ action: "TOTALS_ADJUST", details: `Item=${row.name} Delta=${delta > 0 ? "+" : ""}${delta}` });
+    setTotalsEditOpen(false); await loadTotals();
   }
 
-  async function doTotalsSetActive(
-    row: BuildingTotalRow,
-    is_active: boolean,
-    pinAlreadyPassed = false
-  ) {
-    if (!staffName.trim()) {
-      setTab("Audit");
-      alert("Enter staff name in Audit tab first.");
-      return;
-    }
-
-    if (locked && !pinAlreadyPassed) {
-      setPendingTotalsAction({ kind: "SET_ACTIVE", is_active });
-      openPin("totalsEdit");
-      return;
-    }
-
-    const confirmText = is_active
-      ? `Restore "${row.name}" to active items?`
-      : `Move "${row.name}" to inactive items?`;
-
+  // ── Totals: Set Active ────────────────────────────────────────────────────
+  async function doTotalsSetActive(row: BuildingTotalRow, is_active: boolean, pinAlreadyPassed = false) {
+    if (!staffName.trim()) { setTab("Audit"); alert("Enter staff name in Audit tab first."); return; }
+    if (locked && !pinAlreadyPassed) { setPendingTotalsAction({ kind: "SET_ACTIVE", is_active }); openPin("totalsEdit"); return; }
+    const confirmText = is_active ? `Restore "${row.name}" to active items?` : `Move "${row.name}" to inactive items?`;
     if (!confirm(confirmText)) return;
-
-    const res = await fetch("/api/building-inventory/update", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      cache: "no-store",
-      body: JSON.stringify({
-        item_id: row.item_id,
-        action: "SET_ACTIVE",
-        is_active,
-      }),
-    });
-
+    const res  = await fetch("/api/building-inventory/update", { method: "POST", headers: { "Content-Type": "application/json" }, cache: "no-store", body: JSON.stringify({ item_id: row.item_id, action: "SET_ACTIVE", is_active }) });
     const json = await res.json();
-    if (!json.ok) {
-      alert(`Update failed: ${json.error}`);
-      return;
-    }
-
-    pushAudit({
-      action: is_active ? "ITEM_RESTORED" : "ITEM_INACTIVE",
-      details: `Item=${row.name}`,
-    });
-
-    setTotalsEditOpen(false);
-    await loadTotals();
+    if (!json.ok) { alert(`Update failed: ${json.error}`); return; }
+    pushAudit({ action: is_active ? "ITEM_RESTORED" : "ITEM_INACTIVE", details: `Item=${row.name}` });
+    setTotalsEditOpen(false); await loadTotals();
   }
 
-  async function doSaveItemStatus(
-    itemId: string,
-    order_status: string,
-    backordered: boolean,
-    itemName?: string
-  ) {
+  // ── Save Item Status ──────────────────────────────────────────────────────
+  async function doSaveItemStatus(itemId: string, order_status: string, backordered: boolean, itemName?: string) {
     setItemStatusSaving(true);
     try {
       const cleanStatus = (order_status || "IN STOCK").trim().toUpperCase();
-
-      const { error } = await supabase
-        .from("items")
-        .update({
-          order_status: cleanStatus,
-          backordered: !!backordered,
-        })
-        .eq("id", itemId);
-
+      const { error } = await supabase.from("items").update({ order_status: cleanStatus, backordered: !!backordered }).eq("id", itemId);
       if (error) throw error;
-
-      if (item && item.id === itemId) {
-        setItem({
-          ...item,
-          order_status: cleanStatus,
-          backordered: !!backordered,
-        });
-      }
-
-      setMatches((prev) =>
-        prev.map((m) =>
-          m.id === itemId
-            ? { ...m, order_status: cleanStatus, backordered: !!backordered }
-            : m
-        )
-      );
-
-      setTotals((prev) =>
-        prev.map((r) =>
-          r.item_id === itemId
-            ? { ...r, order_status: cleanStatus, backordered: !!backordered }
-            : r
-        )
-      );
-
-      setAreaInv((prev) =>
-        prev.map((r) =>
-          r.item_id === itemId
-            ? { ...r, order_status: cleanStatus, backordered: !!backordered }
-            : r
-        )
-      );
-
-      if (totalsEditRow?.item_id === itemId) {
-        setTotalsEditRow({
-          ...totalsEditRow,
-          order_status: cleanStatus,
-          backordered: !!backordered,
-        });
-        setTotalsOrderStatusInput(cleanStatus);
-        setTotalsBackorderedInput(!!backordered);
-      }
-
-      if (areaEditRow?.item_id === itemId) {
-        setAreaEditRow({
-          ...areaEditRow,
-          order_status: cleanStatus,
-          backordered: !!backordered,
-        });
-      }
-
+      if (item && item.id === itemId) setItem({ ...item, order_status: cleanStatus, backordered: !!backordered });
+      setMatches((prev) => prev.map((m) => m.id === itemId ? { ...m, order_status: cleanStatus, backordered: !!backordered } : m));
+      setTotals((prev)  => prev.map((r) => r.item_id === itemId ? { ...r, order_status: cleanStatus, backordered: !!backordered } : r));
+      setAreaInv((prev) => prev.map((r) => r.item_id === itemId ? { ...r, order_status: cleanStatus, backordered: !!backordered } : r));
+      if (totalsEditRow?.item_id === itemId) { setTotalsEditRow({ ...totalsEditRow, order_status: cleanStatus, backordered: !!backordered }); setTotalsOrderStatusInput(cleanStatus); setTotalsBackorderedInput(!!backordered); }
+      if (areaEditRow?.item_id   === itemId)  setAreaEditRow({ ...areaEditRow, order_status: cleanStatus, backordered: !!backordered });
       setStatus(`Saved item status for ${itemName || item?.name || "item"}`);
-      pushAudit({
-        action: "ITEM_STATUS_SAVE",
-        details: `Item=${itemName || item?.name || itemId} Status=${cleanStatus} Backordered=${backordered ? "YES" : "NO"}`,
-      });
-    } catch (e: any) {
-      alert(`Status save failed: ${e?.message ?? "unknown error"}`);
-    } finally {
-      setItemStatusSaving(false);
-    }
+      pushAudit({ action: "ITEM_STATUS_SAVE", details: `Item=${itemName || item?.name || itemId} Status=${cleanStatus} Backordered=${backordered ? "YES" : "NO"}` });
+    } catch (e: any) { alert(`Status save failed: ${e?.message ?? "unknown error"}`); }
+    finally { setItemStatusSaving(false); }
   }
 
-  async function saveItemStatus(
-    itemId: string,
-    order_status: string,
-    backordered: boolean,
-    itemName?: string
-  ) {
-    if (!staffName.trim()) {
-      setTab("Audit");
-      alert("Enter staff name in Audit tab first.");
-      return;
-    }
-
-    if (locked) {
-      setPendingItemStatusSave({
-        item_id: itemId,
-        order_status,
-        backordered,
-        item_name: itemName,
-      });
-      openPin("itemStatusEdit");
-      return;
-    }
-
+  async function saveItemStatus(itemId: string, order_status: string, backordered: boolean, itemName?: string) {
+    if (!staffName.trim()) { setTab("Audit"); alert("Enter staff name in Audit tab first."); return; }
+    if (locked) { setPendingItemStatusSave({ item_id: itemId, order_status, backordered, item_name: itemName }); openPin("itemStatusEdit"); return; }
     await doSaveItemStatus(itemId, order_status, backordered, itemName);
   }
 
+  // ── Area Row Editor ───────────────────────────────────────────────────────
   function openAreaRowEditor(row: AreaInvRow) {
-    setAreaEditRow(row);
-    setAreaEditOnHand(String(row.on_hand ?? 0));
-    setAreaEditPar(String(row.par_level ?? 0));
-    setAreaEditLow(String(row.low_level ?? 0));
+    setAreaEditRow(row); setAreaEditOnHand(String(row.on_hand ?? 0));
+    setAreaEditPar(String(row.par_level ?? 0)); setAreaEditLow(String(row.low_level ?? 0));
     setAreaEditOpen(true);
-
-    pushAudit({
-      action: "AREA_ROW_EDIT_OPEN",
-      details: `Area=${row.storage_area_name} Item=${row.item_name}`,
-    });
+    pushAudit({ action: "AREA_ROW_EDIT_OPEN", details: `Area=${row.storage_area_name} Item=${row.item_name}` });
   }
 
   function buildAreaSavePayload(row: AreaInvRow) {
-    const onHand = parseIntSafe(areaEditOnHand);
-    const par = parseIntSafe(areaEditPar);
-    const low = parseIntSafe(areaEditLow);
-
+    const onHand = parseIntSafe(areaEditOnHand); const par = parseIntSafe(areaEditPar); const low = parseIntSafe(areaEditLow);
     if (onHand === null || onHand < 0) throw new Error("On-hand must be 0 or more.");
-    if (par === null || par < 0) throw new Error("Par must be 0 or more.");
-    if (low === null || low < 0) throw new Error("Low must be 0 or more.");
-
-    return {
-      storage_area_id: row.storage_area_id,
-      item_id: row.item_id,
-      on_hand: onHand,
-      par_level: par,
-      low_level: low,
-    };
+    if (par    === null || par    < 0) throw new Error("Par must be 0 or more.");
+    if (low    === null || low    < 0) throw new Error("Low must be 0 or more.");
+    return { storage_area_id: row.storage_area_id, item_id: row.item_id, on_hand: onHand, par_level: par, low_level: low };
   }
 
   async function saveAreaRow(
-    payload: {
-      storage_area_id: string;
-      item_id: string;
-      on_hand: number | null;
-      par_level: number | null;
-      low_level: number | null;
-    },
+    payload: { storage_area_id: string; item_id: string; on_hand: number | null; par_level: number | null; low_level: number | null },
     pinAlreadyPassed = false
   ) {
-    if (!staffName.trim()) {
-      setTab("Audit");
-      alert("Enter staff name in Audit tab first.");
-      return;
-    }
-
-    if (locked && !pinAlreadyPassed) {
-      setPendingAreaRowSave(payload);
-      openPin("areaRowEdit");
-      return;
-    }
-
-    const res = await fetch("/api/storage-inventory/update", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      cache: "no-store",
-      body: JSON.stringify(payload),
-    });
-
+    if (!staffName.trim()) { setTab("Audit"); alert("Enter staff name in Audit tab first."); return; }
+    if (locked && !pinAlreadyPassed) { setPendingAreaRowSave(payload); openPin("areaRowEdit"); return; }
+    const res  = await fetch("/api/storage-inventory/update", { method: "POST", headers: { "Content-Type": "application/json" }, cache: "no-store", body: JSON.stringify(payload) });
     const json = await res.json();
-    if (!json.ok) {
-      alert(`Save failed: ${json.error}`);
-      return;
-    }
-
-    pushAudit({
-      action: "AREA_ROW_EDIT_SAVE",
-      details: `Area=${selectedAreaName} ItemID=${payload.item_id} on_hand=${payload.on_hand} par=${payload.par_level} low=${payload.low_level}`,
-    });
-
-    setAreaEditOpen(false);
-    await loadAreaInventory();
+    if (!json.ok) { alert(`Save failed: ${json.error}`); return; }
+    pushAudit({ action: "AREA_ROW_EDIT_SAVE", details: `Area=${selectedAreaName} ItemID=${payload.item_id} on_hand=${payload.on_hand} par=${payload.par_level} low=${payload.low_level}` });
+    setAreaEditOpen(false); await loadAreaInventory();
   }
 
+  // ── Derived values ────────────────────────────────────────────────────────
   const staffMissing = !staffName.trim();
+  const sc           = statusClass(status);
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // RENDER
+  // ──────────────────────────────────────────────────────────────────────────
 
   return (
-    <div className="min-h-screen w-full bg-black text-white overflow-x-hidden flex justify-center">
-      <div
-        className="w-full max-w-md px-3 pb-6 overflow-x-hidden"
-        style={{ paddingTop: "env(safe-area-inset-top)" }}
-      >
-        <div className="mt-3 mb-2">
-          <button
-            onClick={() => router.push("/")}
-            className="rounded-2xl bg-white/10 px-4 py-2 text-sm font-semibold ring-1 ring-white/10"
-          >
-            ← Back
-          </button>
-        </div>
+    <>
+      <style dangerouslySetInnerHTML={{ __html: PREMIUM_CSS }} />
+      <div className="p-root">
+        <div className="p-wrap">
 
-        <div className="rounded-3xl bg-white/5 p-3 ring-1 ring-white/10">
-          <div className="grid grid-cols-[1fr_auto] gap-3 items-start">
-            <div className="min-w-0">
-              <div className="text-3xl font-extrabold leading-none">
-                Baxter ASC Inventory
-              </div>
-              <div className="mt-1 text-xs text-white/60">
-                Cabinet tracking + building totals + low stock alerts
-              </div>
-            </div>
+          {/* ── Back ──────────────────────────────────────────────────── */}
+          <button onClick={() => router.push("/")} className="back-btn">← Back</button>
 
-            <div className="text-right w-[160px] shrink-0">
-              <div className="text-[11px] text-white/60">Location</div>
-              <div className="text-sm font-semibold leading-tight break-words">
-                {selectedAreaName}
-              </div>
-
-              <button
-                onClick={() => openPin(locked ? "unlock" : "lock")}
-                className="mt-2 w-full rounded-2xl bg-white/10 px-3 py-2 ring-1 ring-white/10 text-sm font-semibold"
-              >
-                {locked ? "🔒 Locked" : "🔓 Unlocked"}
-              </button>
-            </div>
-          </div>
-
-          <div className="mt-3 grid grid-cols-4 gap-2">
-            <TabBtn active={tab === "Transaction"} onClick={() => setTab("Transaction")}>
-              Tx
-            </TabBtn>
-            <TabBtn active={tab === "Totals"} onClick={() => setTab("Totals")}>
-              Totals
-            </TabBtn>
-            <TabBtn active={tab === "Audit"} onClick={() => setTab("Audit")}>
-              Audit
-            </TabBtn>
-            <TabBtn active={tab === "Settings"} onClick={() => setTab("Settings")}>
-              Settings
-            </TabBtn>
-          </div>
-        </div>
-
-        {tab === "Transaction" ? (
-          <div className="mt-3 rounded-3xl bg-white/5 p-4 ring-1 ring-white/10">
-            {staffMissing && (
-              <div className="mb-3 rounded-2xl bg-red-600/20 p-3 ring-1 ring-red-500/30">
-                <div className="text-sm font-extrabold text-red-200">
-                  Staff name required
+          {/* ── Header Card ───────────────────────────────────────────── */}
+          <div className="hdr-card">
+            <div className="fxb">
+              <div style={{ minWidth: 0 }}>
+                <div className="fx" style={{ gap: 10, marginBottom: 4 }}>
+                  <div className="hdr-logo">⚕️</div>
+                  <div className="hdr-title">Baxter <span>ASC</span></div>
                 </div>
-                <div className="mt-1 text-xs text-red-100/80">
-                  Go to the Audit tab and set the staff name for this device.
+                <div className="hdr-sub">Cabinet tracking + building totals + low stock alerts</div>
+              </div>
+              <div style={{ flexShrink: 0, minWidth: 0 }}>
+                <div className="loc-badge">
+                  <div className="loc-lbl">Location</div>
+                  <div className="loc-name">{selectedAreaName}</div>
                 </div>
-                <button
-                  onClick={() => setTab("Audit")}
-                  className="mt-2 w-full rounded-2xl bg-white px-4 py-2 text-sm font-extrabold text-black"
-                >
-                  Go to Audit
+                <button onClick={() => openPin(locked ? "unlock" : "lock")} className={`lock-btn ${locked ? "locked" : "unlocked"}`}>
+                  <span>{locked ? "🔒" : "🔓"}</span>
+                  <span>{locked ? "Locked" : "Unlocked"}</span>
                 </button>
               </div>
-            )}
-
-            <div className="text-sm text-white/70">Select location</div>
-
-            {locked ? (
-              <div className="mt-2 rounded-2xl bg-black/40 px-4 py-3 ring-1 ring-white/10">
-                <div className="text-xs text-white/60">Locked to:</div>
-                <div className="text-sm font-semibold break-words">
-                  {selectedAreaName}
-                </div>
-                <div className="mt-1 text-[11px] text-white/50">
-                  Unlock to change location.
-                </div>
-              </div>
-            ) : (
-              <select
-                value={areaId}
-                onChange={(e) => requestLocationChange(e.target.value)}
-                className="mt-2 w-full rounded-2xl bg-black/40 px-4 py-3 ring-1 ring-white/10"
-              >
-                {areasLoading ? (
-                  <option value="">Loading locations…</option>
-                ) : areas.length === 0 ? (
-                  <option value="">No locations found</option>
-                ) : (
-                  areas.map((a) => (
-                    <option key={a.id} value={a.id}>
-                      {a.name}
-                    </option>
-                  ))
-                )}
-              </select>
-            )}
-
-            {locked && (
-              <div className="mt-2 text-xs text-white/50">
-                Locked: password required once per app session.
-              </div>
-            )}
-
-            <div className="mt-3 grid grid-cols-2 gap-2">
-              <button
-                onClick={() => {
-                  setAreaListOpen(false);
-                  pushAudit({ action: "AREA_LIST_TOGGLE", details: "SCAN" });
-                }}
-                className={[
-                  "rounded-2xl px-4 py-3 font-extrabold ring-1 text-sm",
-                  !areaListOpen
-                    ? "bg-white text-black ring-white/20"
-                    : "bg-white/10 text-white ring-white/10",
-                ].join(" ")}
-              >
-                SCAN MODE
-              </button>
-              <button
-                onClick={() => {
-                  setAreaListOpen(true);
-                  pushAudit({
-                    action: "AREA_LIST_TOGGLE",
-                    details: `AREA_LIST Area=${selectedAreaName}`,
-                  });
-                }}
-                className={[
-                  "rounded-2xl px-4 py-3 font-extrabold ring-1 text-sm",
-                  areaListOpen
-                    ? "bg-white text-black ring-white/20"
-                    : "bg-white/10 text-white ring-white/10",
-                ].join(" ")}
-              >
-                AREA LIST
-              </button>
             </div>
+            <div className="tab-bar">
+              <TabBtn active={tab === "Transaction"} onClick={() => setTab("Transaction")}>Tx</TabBtn>
+              <TabBtn active={tab === "Totals"}      onClick={() => setTab("Totals")}>Totals</TabBtn>
+              <TabBtn active={tab === "Audit"}       onClick={() => setTab("Audit")}>Audit</TabBtn>
+              <TabBtn active={tab === "Settings"}    onClick={() => setTab("Settings")}>Settings</TabBtn>
+            </div>
+          </div>
 
-            {areaListOpen ? (
-              <div className="mt-3 rounded-2xl bg-black/30 p-3 ring-1 ring-white/10">
-                <div className="flex items-center justify-between gap-2">
-                  <div className="text-lg font-semibold">{selectedAreaName}</div>
-                  <div className="text-xs text-white/60">
-                    {areaInvLoading
-                      ? "Loading…"
-                      : `${filteredAreaInv.length} shown / ${areaInv.length} total`}
-                  </div>
+          {/* ══════════════════════════════════════════════════════════════
+              TRANSACTION TAB
+          ══════════════════════════════════════════════════════════════ */}
+          {tab === "Transaction" && (
+            <div className="c-card anim">
+
+              {/* Staff warning */}
+              {staffMissing && (
+                <div className="alert-danger">
+                  <div className="t">Staff name required</div>
+                  <div className="b">Go to the Audit tab and set the staff name for this device.</div>
+                  <button onClick={() => setTab("Audit")} className="btn btn-err btn-full" style={{ marginTop: 10, fontSize: 13 }}>Go to Audit</button>
                 </div>
+              )}
 
-                <div className="mt-2 text-[11px] text-white/55">
-                  Tip: If you ever see “0 shown” but “total is not 0”, a filter is hiding rows.
+              {/* Location selector */}
+              <div className="s-lbl">Select Location</div>
+              {locked ? (
+                <div className="c-deep" style={{ marginBottom: 6 }}>
+                  <div style={{ fontSize: 10, color: "var(--text3)" }}>Locked to:</div>
+                  <div style={{ fontSize: 15, fontWeight: 800, color: "var(--text)", marginTop: 3, wordBreak: "break-word" }}>{selectedAreaName}</div>
+                  <div style={{ fontSize: 11, color: "var(--text4)", marginTop: 4 }}>Unlock to change location.</div>
                 </div>
+              ) : (
+                <select value={areaId} onChange={(e) => requestLocationChange(e.target.value)} className="inp inp-sel" style={{ marginBottom: 6 }}>
+                  {areasLoading ? <option value="">Loading locations…</option>
+                    : areas.length === 0 ? <option value="">No locations found</option>
+                    : areas.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+                </select>
+              )}
+              {locked && <div style={{ fontSize: 11, color: "var(--text4)", marginBottom: 12 }}>Locked: password required once per app session.</div>}
 
-                <div className="mt-3 grid grid-cols-3 gap-2">
-                  <button
-                    onClick={() => setAreaParOnly((v) => !v)}
-                    className={[
-                      "rounded-2xl px-3 py-3 font-extrabold ring-1 text-xs",
-                      areaParOnly
-                        ? "bg-white text-black ring-white/20"
-                        : "bg-white/10 text-white ring-white/10",
-                    ].join(" ")}
-                  >
-                    PAR: {areaParOnly ? "ONLY" : "ALL"}
-                  </button>
-
-                  <button
-                    onClick={() => setAreaLowOnly((v) => !v)}
-                    className={[
-                      "rounded-2xl px-3 py-3 font-extrabold ring-1 text-xs",
-                      areaLowOnly
-                        ? "bg-red-600 text-white ring-red-500/30"
-                        : "bg-white/10 text-white ring-white/10",
-                    ].join(" ")}
-                  >
-                    LOW: {areaLowOnly ? "ONLY" : "ALL"}
-                  </button>
-
-                  <button
-                    onClick={() => loadAreaInventory()}
-                    className="rounded-2xl bg-white/10 px-3 py-3 text-xs font-extrabold ring-1 ring-white/10"
-                  >
-                    Refresh
-                  </button>
-                </div>
-
-                <div className="mt-2">
-                  <input
-                    value={areaInvSearch}
-                    onChange={(e) => setAreaInvSearch(e.target.value)}
-                    placeholder="Search item/vendor/category/status…"
-                    className="w-full rounded-2xl bg-white text-black px-4 py-3"
-                  />
-                </div>
-
-                {areaInvError && (
-                  <div className="mt-2 text-sm text-red-300 break-words">
-                    {areaInvError}
-                  </div>
-                )}
-
-                <div className="mt-3 space-y-2">
-                  {filteredAreaInv.slice(0, 200).map((r) => {
-                    const onHand = r.on_hand ?? 0;
-                    const par = r.par_level ?? 0;
-                    const low = r.low_level ?? 0;
-                    const isLow = low > 0 && onHand <= low;
-
-                    return (
-                      <button
-                        key={`${r.storage_area_id}-${r.item_id}`}
-                        onClick={() => openAreaRowEditor(r)}
-                        className="w-full text-left rounded-2xl bg-black/20 p-3 ring-1 ring-white/10"
-                      >
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="min-w-0">
-                            <div className="text-sm font-semibold break-words">
-                              {r.item_name}
-                            </div>
-                            <div className="mt-1 text-xs text-white/60 break-words">
-                              {r.vendor ?? "—"} • {r.category ?? "—"}{" "}
-                              {r.reference_number ? `• ${r.reference_number}` : ""}
-                            </div>
-                            <div className="mt-1 text-[11px] text-white/55">
-                              Status: {r.order_status || "IN STOCK"}{" "}
-                              {r.backordered ? "• BACKORDERED" : ""}
-                            </div>
-                          </div>
-
-                          <div
-                            className={[
-                              "shrink-0 rounded-2xl px-3 py-2 text-sm font-extrabold ring-1",
-                              isLow
-                                ? "bg-red-600 text-white ring-red-500/30"
-                                : "bg-white/10 text-white ring-white/10",
-                            ].join(" ")}
-                          >
-                            {onHand}
-                            <div className="text-[10px] font-semibold opacity-80">
-                              on hand
-                            </div>
-                          </div>
-                        </div>
-
-                        <div className="mt-2 grid grid-cols-3 gap-2 text-xs">
-                          <div className="rounded-xl bg-white/5 p-2 ring-1 ring-white/10">
-                            <div className="text-white/60">Par</div>
-                            <div className="font-semibold">{par}</div>
-                          </div>
-                          <div className="rounded-xl bg-white/5 p-2 ring-1 ring-white/10">
-                            <div className="text-white/60">Low</div>
-                            <div className="font-semibold">{low}</div>
-                          </div>
-                          <div className="rounded-xl bg-white/5 p-2 ring-1 ring-white/10">
-                            <div className="text-white/60">Unit</div>
-                            <div className="font-semibold">{r.unit ?? "—"}</div>
-                          </div>
-                        </div>
-
-                        {r.notes && (
-                          <div className="mt-2 text-[11px] text-white/60 break-words">
-                            Notes: {r.notes}
-                          </div>
-                        )}
-
-                        <div className="mt-2 text-[11px] text-white/50">
-                          Tap to edit (password required once per app session).
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
-
-                <div className="mt-3 text-[11px] text-white/50">
-                  Showing up to 200 rows to keep it fast on phones.
-                </div>
-
-                {areaEditOpen && areaEditRow && (
-                  <Modal
-                    title="Edit area item"
-                    okText="Save"
-                    onCancel={() => setAreaEditOpen(false)}
-                    onOk={async () => {
-                      try {
-                        const payload = buildAreaSavePayload(areaEditRow);
-                        await saveAreaRow(payload);
-                      } catch (e: any) {
-                        alert(e?.message ?? "Invalid values");
-                      }
-                    }}
-                  >
-                    <div className="mt-1 text-sm text-white/80 break-words">
-                      <div className="font-semibold">{areaEditRow.item_name}</div>
-                      <div className="text-xs text-white/60">
-                        {areaEditRow.storage_area_name}
-                        {areaEditRow.reference_number
-                          ? ` • ${areaEditRow.reference_number}`
-                          : ""}
-                      </div>
-                    </div>
-
-                    <div className="mt-3 rounded-2xl bg-black/30 p-3 ring-1 ring-white/10">
-                      <div className="text-sm font-semibold">Item status</div>
-
-                      <div className="mt-3">
-                        <div className="mb-1 text-xs text-white/60">Order status</div>
-                        <select
-                          value={areaEditRow.order_status || "IN STOCK"}
-                          onChange={(e) =>
-                            setAreaEditRow({
-                              ...areaEditRow,
-                              order_status: e.target.value,
-                            })
-                          }
-                          className="w-full rounded-2xl bg-white text-black px-3 py-3"
-                        >
-                          {ITEM_STATUS_OPTIONS.map((opt) => (
-                            <option key={opt} value={opt}>
-                              {opt}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-
-                      <label className="mt-3 flex items-center gap-2 text-sm">
-                        <input
-                          type="checkbox"
-                          checked={!!areaEditRow.backordered}
-                          onChange={(e) =>
-                            setAreaEditRow({
-                              ...areaEditRow,
-                              backordered: e.target.checked,
-                            })
-                          }
-                        />
-                        <span>Backordered</span>
-                      </label>
-
-                      <button
-                        onClick={async () => {
-                          await saveItemStatus(
-                            areaEditRow.item_id,
-                            areaEditRow.order_status || "IN STOCK",
-                            !!areaEditRow.backordered,
-                            areaEditRow.item_name
-                          );
-                          await loadAreaInventory();
-                        }}
-                        disabled={itemStatusSaving}
-                        className="mt-3 w-full rounded-2xl bg-white px-4 py-3 text-sm font-extrabold text-black disabled:opacity-60"
-                      >
-                        {itemStatusSaving ? "Saving..." : "Save Item Status"}
-                      </button>
-                    </div>
-
-                    <div className="mt-4 grid grid-cols-3 gap-2">
-                      <div>
-                        <div className="text-xs text-white/60 mb-1">On hand</div>
-                        <input
-                          value={areaEditOnHand}
-                          onChange={(e) =>
-                            setAreaEditOnHand(e.target.value.replace(/[^\d]/g, ""))
-                          }
-                          inputMode="numeric"
-                          className="w-full rounded-2xl bg-white text-black px-3 py-3"
-                        />
-                      </div>
-                      <div>
-                        <div className="text-xs text-white/60 mb-1">PAR</div>
-                        <input
-                          value={areaEditPar}
-                          onChange={(e) =>
-                            setAreaEditPar(e.target.value.replace(/[^\d]/g, ""))
-                          }
-                          inputMode="numeric"
-                          className="w-full rounded-2xl bg-white text-black px-3 py-3"
-                        />
-                      </div>
-                      <div>
-                        <div className="text-xs text-white/60 mb-1">LOW</div>
-                        <input
-                          value={areaEditLow}
-                          onChange={(e) =>
-                            setAreaEditLow(e.target.value.replace(/[^\d]/g, ""))
-                          }
-                          inputMode="numeric"
-                          className="w-full rounded-2xl bg-white text-black px-3 py-3"
-                        />
-                      </div>
-                    </div>
-
-                    <div className="mt-2 text-xs text-white/50">
-                      Saves counts to <span className="font-semibold">storage_inventory</span> and
-                      status to <span className="font-semibold">items</span>.
-                    </div>
-                  </Modal>
-                )}
+              {/* Scan mode / area list toggle */}
+              <div className="tog-wrap-2 mt3">
+                <button onClick={() => { setAreaListOpen(false); pushAudit({ action: "AREA_LIST_TOGGLE", details: "SCAN" }); }} className={`tog ${!areaListOpen ? "on" : "off"}`}>SCAN MODE</button>
+                <button onClick={() => { setAreaListOpen(true);  pushAudit({ action: "AREA_LIST_TOGGLE", details: `AREA_LIST Area=${selectedAreaName}` }); }} className={`tog ${areaListOpen ? "on" : "off"}`}>AREA LIST</button>
               </div>
-            ) : (
-              <>
-                <div className="mt-3 rounded-2xl bg-black/30 p-4 ring-1 ring-white/10">
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="min-w-0">
-                      <div className="text-lg font-semibold">One-time override</div>
-                      <div className="mt-1 text-sm text-white/70">
-                        Grabbed it from MAIN supply room? Tap once.
+
+              {/* ── AREA LIST ───────────────────────────────────────── */}
+              {areaListOpen ? (
+                <div className="c-inner mt3">
+                  <div className="area-hdr">
+                    <div className="area-title">{selectedAreaName}</div>
+                    <div className="area-count">{areaInvLoading ? "Loading…" : `${filteredAreaInv.length} / ${areaInv.length}`}</div>
+                  </div>
+                  <div style={{ fontSize: 11, color: "var(--text4)", marginBottom: 10, lineHeight: 1.5 }}>
+                    Tip: If you see "0 shown" but total is not 0, a filter is hiding rows.
+                  </div>
+                  <div className="tog-wrap-3">
+                    <button onClick={() => setAreaParOnly((v) => !v)} className={`tog ${areaParOnly ? "on" : "off"}`}>PAR: {areaParOnly ? "ONLY" : "ALL"}</button>
+                    <button onClick={() => setAreaLowOnly((v) => !v)} className={`tog ${areaLowOnly ? "on-red" : "off"}`}>LOW: {areaLowOnly ? "ONLY" : "ALL"}</button>
+                    <button onClick={() => loadAreaInventory()} className="tog off">Refresh</button>
+                  </div>
+                  <input value={areaInvSearch} onChange={(e) => setAreaInvSearch(e.target.value)} placeholder="Search item, vendor, category, status…" className="inp mt3" />
+                  {areaInvError && <div style={{ color: "#fca5a5", fontSize: 12, marginTop: 8, wordBreak: "break-word" }}>{areaInvError}</div>}
+
+                  <div className="sp mt3">
+                    {filteredAreaInv.slice(0, 200).map((r) => {
+                      const oh = r.on_hand ?? 0; const par = r.par_level ?? 0; const low = r.low_level ?? 0;
+                      const isLow = low > 0 && oh <= low;
+                      return (
+                        <button key={`${r.storage_area_id}-${r.item_id}`} onClick={() => openAreaRowEditor(r)} className={`item-card ${isLow ? "low" : "ok"}`}>
+                          <div className="fxb">
+                            <div style={{ minWidth: 0, flex: 1 }}>
+                              <div className="i-name">{r.item_name}</div>
+                              <div className="i-meta">{r.vendor ?? "—"} · {r.category ?? "—"}{r.reference_number ? ` · ${r.reference_number}` : ""}</div>
+                              <div className="i-status">Status: {r.order_status || "IN STOCK"}{r.backordered ? " · BACKORDERED" : ""}</div>
+                            </div>
+                            <div className={`oh-badge ${isLow ? "low" : "ok"}`}>
+                              <div className={`oh-num ${isLow ? "low" : "ok"}`}>{oh}</div>
+                              <div className="oh-unit">on hand</div>
+                            </div>
+                          </div>
+                          <div className="stats-row">
+                            {[["Par", par], ["Low", low], ["Unit", r.unit ?? "—"]].map(([l, v]) => (
+                              <div key={String(l)} className="stat-pill"><div className="stat-lbl">{l}</div><div className="stat-val">{v}</div></div>
+                            ))}
+                          </div>
+                          {r.notes && <div className="notes-txt">Notes: {r.notes}</div>}
+                          <div className="edit-hint">Tap to edit (password required once per app session).</div>
+                        </button>
+                      );
+                    })}
+                    {filteredAreaInv.length === 0 && !areaInvLoading && <div style={{ textAlign: "center", padding: "28px 0", color: "var(--text4)", fontSize: 13 }}>No items found</div>}
+                  </div>
+                  <div style={{ marginTop: 14, fontSize: 10, color: "var(--text4)" }}>Showing up to 200 rows to keep it fast on phones.</div>
+
+                  {/* Area row edit modal */}
+                  {areaEditOpen && areaEditRow && (
+                    <AscModal title="Edit area item" okText="Save" onCancel={() => setAreaEditOpen(false)} onOk={async () => { try { const payload = buildAreaSavePayload(areaEditRow); await saveAreaRow(payload); } catch (e: any) { alert(e?.message ?? "Invalid values"); } }}>
+                      <div style={{ marginBottom: 14 }}>
+                        <div style={{ fontSize: 15, fontWeight: 800, color: "var(--text)", wordBreak: "break-word" }}>{areaEditRow.item_name}</div>
+                        <div style={{ fontSize: 12, color: "var(--text2)", marginTop: 3 }}>{areaEditRow.storage_area_name}{areaEditRow.reference_number ? ` · ${areaEditRow.reference_number}` : ""}</div>
                       </div>
-                    </div>
-                    <button
-                      onClick={onToggleOverride}
-                      className={[
-                        "shrink-0 rounded-2xl px-4 py-3 ring-1",
-                        mainOverride
-                          ? "bg-white text-black ring-white/20"
-                          : "bg-black/40 text-white ring-white/10",
-                      ].join(" ")}
-                    >
-                      <div className="text-xs opacity-80">⚡</div>
-                      <div className="text-sm font-semibold">
-                        MAIN <span className="opacity-70">(1x)</span>
-                      </div>
-                    </button>
-                  </div>
-                </div>
-
-                {mainOverride && (
-                  <div className="mt-3 rounded-2xl bg-yellow-500/20 p-3 ring-1 ring-yellow-500/30">
-                    <div className="text-sm font-extrabold text-yellow-200">
-                      ⚡ MAIN OVERRIDE ACTIVE (1 transaction)
-                    </div>
-                    <div className="mt-1 text-xs text-yellow-100/80">
-                      This submit will be treated as pulled from MAIN supply room.
-                    </div>
-                    <button
-                      onClick={() => setMainOverride(false)}
-                      className="mt-2 w-full rounded-2xl bg-white px-4 py-2 text-sm font-extrabold text-black"
-                    >
-                      Cancel MAIN Override
-                    </button>
-                  </div>
-                )}
-
-                <div className="mt-3 rounded-2xl bg-black/30 p-4 ring-1 ring-white/10">
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="min-w-0">
-                      <div className="text-lg font-semibold">Mode</div>
-                      <div className="mt-1 text-sm text-white/70">
-                        {mode === "USE"
-                          ? "Use removes items from on-hand."
-                          : "Restock adds items to on-hand."}
-                      </div>
-                    </div>
-                    <div className="flex gap-2 shrink-0">
-                      <ModeBtn
-                        active={mode === "USE"}
-                        danger
-                        onClick={() => setMode("USE")}
-                      >
-                        USE
-                      </ModeBtn>
-                      <ModeBtn
-                        active={mode === "RESTOCK"}
-                        onClick={() => setMode("RESTOCK")}
-                      >
-                        RESTOCK
-                      </ModeBtn>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="mt-3 grid grid-cols-3 gap-2">
-                  <button
-                    onClick={() => {
-                      setLookupMode("BARCODE");
-                      setMatches([]);
-                    }}
-                    className={[
-                      "rounded-2xl px-3 py-3 font-extrabold ring-1 text-xs",
-                      lookupMode === "BARCODE"
-                        ? "bg-white text-black ring-white/20"
-                        : "bg.white/10 text-white ring-white/10".replace(".",""),
-                    ].join(" ")}
-                  >
-                    BARCODE
-                  </button>
-                  <button
-                    onClick={() => {
-                      setLookupMode("REF");
-                      setMatches([]);
-                    }}
-                    className={[
-                      "rounded-2xl px-3 py-3 font-extrabold ring-1 text-xs",
-                      lookupMode === "REF"
-                        ? "bg-white text-black ring-white/20"
-                        : "bg-white/10 text-white ring-white/10",
-                    ].join(" ")}
-                  >
-                    REF #
-                  </button>
-                  <button
-                    onClick={() => {
-                      setLookupMode("NAME");
-                      setMatches([]);
-                    }}
-                    className={[
-                      "rounded-2xl px-3 py-3 font-extrabold ring-1 text-xs",
-                      lookupMode === "NAME"
-                        ? "bg-white text-black ring-white/20"
-                        : "bg-white/10 text-white ring-white/10",
-                    ].join(" ")}
-                  >
-                    NAME
-                  </button>
-                </div>
-
-                <div className="mt-2 flex gap-2">
-                  <div className="relative flex-1">
-                    <input
-                      value={query}
-                      onChange={(e) => {
-                        setQuery(e.target.value);
-                        setStatus("");
-                      }}
-                      onKeyDown={async (e) => {
-                        if (e.key === "Enter") {
-                          await lookup(query);
-                        }
-                      }}
-                      placeholder={
-                        lookupMode === "BARCODE"
-                          ? "Scan or type barcode"
-                          : lookupMode === "REF"
-                          ? "Type reference number"
-                          : "Type item name"
-                      }
-                      className="w-full rounded-2xl bg-white text-black px-4 py-3 pr-14"
-                    />
-                    <button
-                      onClick={() => startScanner()}
-                      className="absolute right-2 top-1/2 -translate-y-1/2 rounded-xl bg-black/10 px-3 py-2 text-black"
-                      aria-label="Start scanner"
-                    >
-                      📷
-                    </button>
-                  </div>
-
-                  <button
-                    onClick={async () => await lookup(query)}
-                    className="rounded-2xl bg-white px-4 py-3 font-extrabold text-black"
-                  >
-                    Find
-                  </button>
-                </div>
-
-                {lookupMode !== "BARCODE" && (
-                  <div className="mt-2 text-[11px] text-white/55">
-                    {suggestLoading
-                      ? "Searching…"
-                      : matches.length
-                      ? "Suggestions:"
-                      : query.trim().length >= 2
-                      ? "No suggestions yet (press Find to search fully)."
-                      : "Type 2+ characters for suggestions."}
-                  </div>
-                )}
-
-                {matches.length > 0 && (
-                  <div className="mt-2 space-y-2">
-                    {matches.slice(0, 8).map((m) => (
-                      <button
-                        key={m.id}
-                        onClick={() => {
-                          setItem(m);
-                          setItemStatusDraft({
-                            order_status: m.order_status || "IN STOCK",
-                            backordered: !!m.backordered,
-                          });
-                          setOrderStatusRows([]);
-                          setMatches([]);
-                          setStatus(`Selected: ${m.name}`);
-                        }}
-                        className="w-full text-left rounded-2xl bg-black/30 p-3 ring-1 ring-white/10"
-                      >
-                        <div className="text-sm font-semibold break-words">{m.name}</div>
-                        <div className="mt-1 text-xs text-white/60 break-words">
-                          {m.reference_number ? `Ref: ${m.reference_number}` : "Ref: —"}
-                          {" • "}
-                          {m.barcode ? `Barcode: ${m.barcode}` : "Barcode: —"}
+                      <div className="c-panel mb3">
+                        <div className="s-title">Item status</div>
+                        <div className="field">
+                          <label className="f-lbl">Order status</label>
+                          <select value={areaEditRow.order_status || "IN STOCK"} onChange={(e) => setAreaEditRow({ ...areaEditRow, order_status: e.target.value })} className="inp inp-sel">
+                            {ITEM_STATUS_OPTIONS.map((opt) => <option key={opt} value={opt}>{opt}</option>)}
+                          </select>
                         </div>
-                        <div className="mt-1 text-[11px] text-white/55">
-                          Status: {m.order_status || "IN STOCK"} {m.backordered ? "• BACKORDERED" : ""}
-                        </div>
+                        <label className="chk-row">
+                          <input type="checkbox" checked={!!areaEditRow.backordered} onChange={(e) => setAreaEditRow({ ...areaEditRow, backordered: e.target.checked })} />
+                          <span>Backordered</span>
+                        </label>
+                        <button onClick={async () => { await saveItemStatus(areaEditRow.item_id, areaEditRow.order_status || "IN STOCK", !!areaEditRow.backordered, areaEditRow.item_name); await loadAreaInventory(); }} disabled={itemStatusSaving} className="btn btn-ac btn-full mt3" style={{ fontSize: 13 }}>
+                          {itemStatusSaving ? "Saving…" : "Save Item Status"}
+                        </button>
+                      </div>
+                      <div className="g3">
+                        {[["On hand", areaEditOnHand, setAreaEditOnHand], ["PAR", areaEditPar, setAreaEditPar], ["LOW", areaEditLow, setAreaEditLow]].map(([label, val, setter]) => (
+                          <div key={String(label)} className="field">
+                            <label className="f-lbl">{label}</label>
+                            <input value={val as string} onChange={(e) => (setter as any)(e.target.value.replace(/[^\d]/g, ""))} inputMode="numeric" className="inp" style={{ textAlign: "center" }} />
+                          </div>
+                        ))}
+                      </div>
+                      <div style={{ fontSize: 10, color: "var(--text4)", marginTop: 8 }}>Saves counts to <strong style={{ color: "var(--text2)" }}>storage_inventory</strong> and status to <strong style={{ color: "var(--text2)" }}>items</strong>.</div>
+                    </AscModal>
+                  )}
+                </div>
+
+              ) : (
+                /* ── SCAN MODE ──────────────────────────────────────── */
+                <>
+                  {/* One-time override */}
+                  <div className="c-sm mt3">
+                    <div className="fxb">
+                      <div style={{ minWidth: 0 }}>
+                        <div className="s-title">One-time override</div>
+                        <div className="s-desc">Grabbed it from MAIN supply room? Tap once.</div>
+                      </div>
+                      <button onClick={onToggleOverride} className={`ov-btn ${mainOverride ? "on" : ""}`}>
+                        <div className="ov-icon">⚡</div>
+                        <div className={`ov-lbl ${mainOverride ? "on" : "off"}`}>MAIN (1x)</div>
                       </button>
+                    </div>
+                  </div>
+
+                  {/* Override active banner */}
+                  {mainOverride && (
+                    <div className="alert-warn mt2">
+                      <div className="t">⚡ MAIN OVERRIDE ACTIVE (1 transaction)</div>
+                      <div className="b">This submit will be treated as pulled from MAIN supply room.</div>
+                      <button onClick={() => setMainOverride(false)} className="btn btn-gh btn-full" style={{ marginTop: 10, fontSize: 12 }}>Cancel MAIN Override</button>
+                    </div>
+                  )}
+
+                  {/* Mode toggle */}
+                  <div className="c-sm mt3">
+                    <div className="s-title">Mode</div>
+                    <div className="s-desc">{mode === "USE" ? "Use removes items from on-hand." : "Restock adds items to on-hand."}</div>
+                    <div className="mode-row">
+                      <ModeBtn active={mode === "USE"}     danger onClick={() => setMode("USE")}>USE</ModeBtn>
+                      <ModeBtn active={mode === "RESTOCK"}        onClick={() => setMode("RESTOCK")}>RESTOCK</ModeBtn>
+                    </div>
+                  </div>
+
+                  {/* Lookup mode tabs */}
+                  <div className="lk-row">
+                    {(["BARCODE", "REF", "NAME"] as LookupMode[]).map((m) => (
+                      <button key={m} onClick={() => { setLookupMode(m); setMatches([]); }} className={`lk-tab ${lookupMode === m ? "on" : "off"}`}>{m === "REF" ? "REF #" : m}</button>
                     ))}
                   </div>
-                )}
 
-                <div className="mt-2 text-sm text-white/70 break-words">
-                  {status || "Ready."}
-                </div>
-
-                {item && (
-                  <div className="mt-3 rounded-2xl bg-black/30 p-3 ring-1 ring-white/10">
-                    <div className="text-sm font-semibold">{item.name}</div>
-                    <div className="text-xs text-white/60 break-words">
-                      {item.reference_number ? `Ref: ${item.reference_number}` : ""}
-                      {item.reference_number && item.barcode ? " • " : ""}
-                      {item.barcode ? `Barcode: ${item.barcode}` : ""}
+                  {/* Search input */}
+                  <div className="srch-row">
+                    <div className="srch-wrap">
+                      <input value={query} onChange={(e) => { setQuery(e.target.value); setStatus(""); }} onKeyDown={async (e) => { if (e.key === "Enter") await lookup(query); }}
+                        placeholder={lookupMode === "BARCODE" ? "Scan or type barcode" : lookupMode === "REF" ? "Type reference number" : "Type item name"}
+                        className="srch-inp" />
+                      <button onClick={() => startScanner()} className="cam-btn" aria-label="Start scanner">📷</button>
                     </div>
+                    <button onClick={async () => await lookup(query)} className="btn btn-ac">Find</button>
+                  </div>
 
-                    <div className="mt-3 rounded-2xl bg-white/5 p-3 ring-1 ring-white/10">
-                      <div className="text-sm font-semibold">Item status</div>
-
-                      <div className="mt-3">
-                        <div className="mb-1 text-xs text-white/60">Order status</div>
-                        <select
-                          value={itemStatusDraft.order_status}
-                          onChange={(e) =>
-                            setItemStatusDraft((prev) => ({
-                              ...prev,
-                              order_status: e.target.value,
-                            }))
-                          }
-                          className="w-full rounded-2xl bg-white text-black px-4 py-3"
-                        >
-                          {ITEM_STATUS_OPTIONS.map((opt) => (
-                            <option key={opt} value={opt}>
-                              {opt}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-
-                      <label className="mt-3 flex items-center gap-2 text-sm">
-                        <input
-                          type="checkbox"
-                          checked={itemStatusDraft.backordered}
-                          onChange={(e) =>
-                            setItemStatusDraft((prev) => ({
-                              ...prev,
-                              backordered: e.target.checked,
-                            }))
-                          }
-                        />
-                        <span>Backordered</span>
-                      </label>
-
-                      <button
-                        onClick={async () => {
-                          await saveItemStatus(
-                            item.id,
-                            itemStatusDraft.order_status,
-                            itemStatusDraft.backordered,
-                            item.name
-                          );
-                        }}
-                        disabled={itemStatusSaving || staffMissing}
-                        className="mt-3 w-full rounded-2xl bg-white px-4 py-3 text-sm font-extrabold text-black disabled:opacity-60"
-                      >
-                        {itemStatusSaving ? "Saving..." : "Save Item Status"}
-                      </button>
-
-                      <div className="mt-2 text-[11px] text-white/55">
-                        This updates the item itself so app and admin both see it.
-                      </div>
+                  {/* Suggest hint */}
+                  {lookupMode !== "BARCODE" && (
+                    <div style={{ fontSize: 11, color: "var(--text4)", marginTop: 7, lineHeight: 1.5 }}>
+                      {suggestLoading ? "Searching…" : matches.length ? "Suggestions:" : query.trim().length >= 2 ? "No suggestions yet (press Find to search fully)." : "Type 2+ characters for suggestions."}
                     </div>
+                  )}
 
-                    <button
-                      onClick={openOrderStatus}
-                      className="mt-3 w-full rounded-2xl bg-white/10 px-4 py-3 text-sm font-extrabold text-white ring-1 ring-white/10"
-                    >
-                      View Order History
-                    </button>
+                  {/* Suggestions */}
+                  {matches.length > 0 && (
+                    <div className="sp mt2">
+                      {matches.slice(0, 8).map((m) => (
+                        <button key={m.id} onClick={() => { setItem(m); setItemStatusDraft({ order_status: m.order_status || "IN STOCK", backordered: !!m.backordered }); setOrderStatusRows([]); setMatches([]); setStatus(`Selected: ${m.name}`); }} className="sug-item">
+                          <div className="sug-name">{m.name}</div>
+                          <div className="sug-meta">{m.reference_number ? `Ref: ${m.reference_number}` : "Ref: —"} · {m.barcode ? `Barcode: ${m.barcode}` : "Barcode: —"}</div>
+                          <div className="sug-status">Status: {m.order_status || "IN STOCK"} {m.backordered ? "· BACKORDERED" : ""}</div>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Status bar */}
+                  {status && <div className={`s-bar ${sc}`}><span>{status}</span></div>}
+
+                  {/* Found item panel */}
+                  {item && (
+                    <div className="found-panel">
+                      <div className="f-name">{item.name}</div>
+                      <div className="f-meta">
+                        {item.reference_number ? `Ref: ${item.reference_number}` : ""}
+                        {item.reference_number && item.barcode ? " · " : ""}
+                        {item.barcode ? `Barcode: ${item.barcode}` : ""}
+                      </div>
+                      <div className="c-panel mt3">
+                        <div className="s-title">Item status</div>
+                        <div className="field">
+                          <label className="f-lbl">Order status</label>
+                          <select value={itemStatusDraft.order_status} onChange={(e) => setItemStatusDraft((prev) => ({ ...prev, order_status: e.target.value }))} className="inp inp-sel">
+                            {ITEM_STATUS_OPTIONS.map((opt) => <option key={opt} value={opt}>{opt}</option>)}
+                          </select>
+                        </div>
+                        <label className="chk-row">
+                          <input type="checkbox" checked={itemStatusDraft.backordered} onChange={(e) => setItemStatusDraft((prev) => ({ ...prev, backordered: e.target.checked }))} />
+                          <span>Backordered</span>
+                        </label>
+                        <button onClick={async () => { await saveItemStatus(item.id, itemStatusDraft.order_status, itemStatusDraft.backordered, item.name); }} disabled={itemStatusSaving || staffMissing} className="btn btn-ac btn-full mt3" style={{ fontSize: 13 }}>
+                          {itemStatusSaving ? "Saving…" : "Save Item Status"}
+                        </button>
+                        <div style={{ fontSize: 10, color: "var(--text4)", marginTop: 6 }}>This updates the item so app and admin both see it.</div>
+                      </div>
+                      <button onClick={openOrderStatus} className="btn btn-gh btn-full" style={{ marginTop: 12, fontSize: 13 }}>View Order History</button>
+                    </div>
+                  )}
+
+                  {/* Qty + Submit */}
+                  <div className="qty-row">
+                    <QtyBtn onClick={() => setQty((q) => Math.max(1, q - 1))}>−</QtyBtn>
+                    <div className="qty-disp">{qty}</div>
+                    <QtyBtn onClick={() => setQty((q) => q + 1)}>+</QtyBtn>
                   </div>
-                )}
-
-                <div className="mt-3 flex items-center gap-3">
-                  <QtyBtn onClick={() => setQty((q) => Math.max(1, q - 1))}>−</QtyBtn>
-                  <div className="flex-1 rounded-2xl bg-white px-4 py-3 text-center text-black">
-                    <span className="text-lg font-semibold">{qty}</span>
-                  </div>
-                  <QtyBtn onClick={() => setQty((q) => q + 1)}>+</QtyBtn>
-                </div>
-
-                <button
-                  className="mt-3 w-full rounded-2xl bg-black/80 px-4 py-4 text-white font-semibold disabled:opacity-60"
-                  disabled={!item || locked || staffMissing}
-                  onClick={submit}
-                >
-                  Submit
-                </button>
-
-                <button
-                  className="mt-2 w-full rounded-2xl bg-white/10 px-4 py-3 text-white font-extrabold ring-1 ring-white/10 disabled:opacity-60"
-                  disabled={!lastTx || locked || staffMissing || undoBusy}
-                  onClick={undoLast}
-                >
-                  {undoBusy ? "Undoing…" : "↩️ Undo last transaction"}
-                </button>
-              </>
-            )}
-
-            {pinOpen && (
-              <Modal
-                title={
-                  pinPurpose === "unlock"
-                    ? "Enter password to unlock edits"
-                    : pinPurpose === "lock"
-                    ? "Enter password to lock"
-                    : pinPurpose === "changeLocation"
-                    ? "Enter password to change location"
-                    : pinPurpose === "addItem"
-                    ? "Enter password to add item"
-                    : pinPurpose === "areaRowEdit"
-                    ? "Enter password to edit this area item"
-                    : pinPurpose === "itemStatusEdit"
-                    ? "Enter password to save item status"
-                    : "Enter password to edit totals"
-                }
-                okText="OK"
-                onCancel={() => {
-                  setPinOpen(false);
-                  setPendingArea("");
-                  setPendingTotalsAction(null);
-                  setPendingAreaRowSave(null);
-                  setPendingItemStatusSave(null);
-                }}
-                onOk={onPinConfirm}
-              >
-                <input
-                  value={pinInput}
-                  onChange={(e) =>
-                    setPinInput(e.target.value.replace(/\D/g, "").slice(0, 6))
-                  }
-                  inputMode="numeric"
-                  className="mt-3 w-full rounded-2xl bg-white text-black px-4 py-3"
-                  placeholder="Password"
-                />
-                <div className="mt-2 text-xs text-white/50">
-                  Unlock lasts until you fully close this app/tab. Default password is{" "}
-                  <span className="font-semibold">1234</span> until changed in Settings.
-                </div>
-              </Modal>
-            )}
-
-            {scannerOpen && (
-              <div className="fixed inset-0 z-[60] bg-black">
-                <div
-                  className="flex items-center justify-between px-4"
-                  style={{
-                    paddingTop: "calc(env(safe-area-inset-top) + 12px)",
-                    paddingBottom: "12px",
-                  }}
-                >
-                  <div className="text-lg font-semibold text-white">Scan barcode</div>
-                  <button
-                    onClick={closeScanner}
-                    className="rounded-2xl bg-white/10 px-4 py-2 text-sm font-semibold text-white ring-1 ring-white/10"
-                  >
-                    Close
+                  <button className="btn btn-submit btn-full btn-lg mt3" disabled={!item || locked || staffMissing} onClick={submit}>Submit</button>
+                  <button className="btn btn-gh btn-full" style={{ marginTop: 10, fontSize: 13 }} disabled={!lastTx || locked || staffMissing || undoBusy} onClick={undoLast}>
+                    {undoBusy ? "Undoing…" : "↩️ Undo last transaction"}
                   </button>
-                </div>
+                </>
+              )}
 
-                <div className="relative w-full" style={{ height: "calc(100vh - 120px)" }}>
-                  <video
-                    ref={videoRef}
-                    className="absolute inset-0 h-full w-full object-cover"
-                    muted
-                    playsInline
-                  />
-                  <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-                    <div className="h-52 w-80 rounded-2xl ring-2 ring-white/40" />
-                  </div>
-                </div>
-
-                <div
-                  className="px-4 text-xs text-white/70"
-                  style={{
-                    paddingBottom: "calc(env(safe-area-inset-bottom) + 16px)",
-                  }}
+              {/* PIN modal */}
+              {pinOpen && (
+                <AscModal
+                  title={pinPurpose === "unlock" ? "Enter password to unlock edits" : pinPurpose === "lock" ? "Enter password to lock" : pinPurpose === "changeLocation" ? "Enter password to change location" : pinPurpose === "addItem" ? "Enter password to add item" : pinPurpose === "areaRowEdit" ? "Enter password to edit this area item" : pinPurpose === "itemStatusEdit" ? "Enter password to save item status" : "Enter password to edit totals"}
+                  okText="OK"
+                  onCancel={() => { setPinOpen(false); setPendingArea(""); setPendingTotalsAction(null); setPendingAreaRowSave(null); setPendingItemStatusSave(null); }}
+                  onOk={onPinConfirm}
                 >
-                  Hold the barcode steady inside the box. Best distance: 6–10 inches.
+                  <input value={pinInput} onChange={(e) => setPinInput(e.target.value.replace(/\D/g, "").slice(0, 6))} inputMode="numeric" type="password" className="pin-inp" placeholder="Password" />
+                  <div className="pin-hint">Unlock lasts until you fully close this app/tab. Default password is <strong style={{ color: "var(--text2)" }}>1234</strong> until changed in Settings.</div>
+                </AscModal>
+              )}
+
+              {/* Add item modal */}
+              {addOpen && (
+                <AscModal title="Add New Item" okText="Add Item" onCancel={() => setAddOpen(false)} onOk={() => addItemNow()}>
+                  <div style={{ fontSize: 13, color: "var(--text2)", marginBottom: 14, lineHeight: 1.5 }}>Item not found for: <strong style={{ color: "var(--text)" }}>{query}</strong></div>
+                  <div className="field">
+                    <label className="f-lbl">Item Name *</label>
+                    <input value={addName} onChange={(e) => setAddName(e.target.value)} className="inp" placeholder="e.g., Surgical Gloves Large" />
+                  </div>
+                  <div className="field">
+                    <label className="f-lbl">PAR Level</label>
+                    <input type="number" value={addPar} onChange={(e) => setAddPar(Number(e.target.value))} className="inp" min={0} />
+                  </div>
+                </AscModal>
+              )}
+
+              {/* Scanner overlay */}
+              {scannerOpen && (
+                <div className="scan-ov">
+                  <div className="scan-hdr">
+                    <div className="scan-title">Scan Barcode</div>
+                    <button onClick={closeScanner} className="scan-close">Close</button>
+                  </div>
+                  <div className="scan-vp">
+                    <video ref={videoRef} className="scan-vid" muted playsInline />
+                    <div className="scan-frame"><div className="scan-box" /></div>
+                  </div>
+                  <div className="scan-hint">Hold the barcode steady inside the box. Best distance: 6–10 inches.</div>
                 </div>
-              </div>
-            )}
+              )}
 
-            {orderStatusOpen && (
-              <Modal
-                title="Order Status"
-                okText="Close"
-                onCancel={() => setOrderStatusOpen(false)}
-                onOk={() => setOrderStatusOpen(false)}
-              >
-                {item && (
-                  <div className="mb-3 rounded-2xl bg-black/30 p-3 ring-1 ring-white/10">
-                    <div className="text-sm font-semibold">Current item status</div>
-                    <div className="mt-1 text-xs text-white/60">
-                      {item.order_status || "IN STOCK"} {item.backordered ? "• BACKORDERED" : ""}
+              {/* Order status modal */}
+              {orderStatusOpen && (
+                <AscModal title="Order Status" okText="Close" onCancel={() => setOrderStatusOpen(false)} onOk={() => setOrderStatusOpen(false)}>
+                  {item && (
+                    <div className="c-deep mb3">
+                      <div style={{ fontSize: 12, fontWeight: 800, color: "var(--text)", marginBottom: 4 }}>Current item status</div>
+                      <div style={{ fontSize: 12, color: "var(--text2)" }}>{item.order_status || "IN STOCK"} {item.backordered ? "· BACKORDERED" : ""}</div>
                     </div>
-                  </div>
-                )}
-
-                {orderStatusLoading ? (
-                  <div className="text-sm text-white/70">Loading…</div>
-                ) : orderStatusRows.length === 0 ? (
-                  <div className="text-sm text-white/70">
-                    No order history found for this item.
-                  </div>
-                ) : (
-                  <OrderStatusList rows={orderStatusRows} />
-                )}
-              </Modal>
-            )}
-          </div>
-        ) : tab === "Totals" ? (
-          <div className="mt-3 rounded-3xl bg-white/5 p-4 ring-1 ring-white/10">
-            <div className="flex items-center justify-between gap-2">
-              <div className="text-lg font-semibold">
-                {totalsShowInactive ? "Inactive Items" : "Building Totals"}
-              </div>
-              <div className="text-xs text-white/60">
-                {totalsLoading ? "Loading…" : `${filteredTotals.length} shown`}
-              </div>
+                  )}
+                  {orderStatusLoading ? <div style={{ fontSize: 13, color: "var(--text2)", padding: "12px 0" }}>Loading…</div>
+                    : orderStatusRows.length === 0 ? <div style={{ fontSize: 13, color: "var(--text2)", padding: "12px 0" }}>No order history found for this item.</div>
+                    : <OrderStatusList rows={orderStatusRows} />}
+                </AscModal>
+              )}
             </div>
+          )}
 
-            <div className="mt-3">
+// ─── END OF PART 2 ───────────────────────────────────────────────────────────
+// Paste Part 3 immediately after this line — do NOT add anything between them.
+
+          {/* ══════════════════════════════════════════════════════════════
+              TOTALS TAB
+          ══════════════════════════════════════════════════════════════ */}
+          {tab === "Totals" && (
+            <div className="c-card anim">
+
+              <div className="tot-hdr">
+                <div className="tot-title">{totalsShowInactive ? "Inactive Items" : "Building Totals"}</div>
+                <div className="tot-count">{totalsLoading ? "Loading…" : `${filteredTotals.length} shown`}</div>
+              </div>
+
               <input
                 value={totalsSearch}
                 onChange={(e) => setTotalsSearch(e.target.value)}
                 placeholder="Search name, vendor, category, status…"
-                className="w-full rounded-2xl bg-white text-black px-4 py-3"
+                className="inp mb3"
               />
-            </div>
 
-            <div className="mt-2 grid grid-cols-2 gap-2">
-              <button
-                onClick={() => setTotalsShowInactive(false)}
-                className={[
-                  "rounded-2xl px-4 py-3 font-extrabold ring-1 text-sm",
-                  !totalsShowInactive
-                    ? "bg-white text-black ring-white/20"
-                    : "bg-white/10 text-white ring-white/10",
-                ].join(" ")}
-              >
-                ACTIVE
-              </button>
-              <button
-                onClick={() => setTotalsShowInactive(true)}
-                className={[
-                  "rounded-2xl px-4 py-3 font-extrabold ring-1 text-sm",
-                  totalsShowInactive
-                    ? "bg-yellow-500 text-black ring-yellow-400/40"
-                    : "bg-white/10 text-white ring-white/10",
-                ].join(" ")}
-              >
-                INACTIVE
-              </button>
-            </div>
+              <div className="tog-wrap-2">
+                <button onClick={() => setTotalsShowInactive(false)} className={`tog ${!totalsShowInactive ? "on" : "off"}`}>ACTIVE</button>
+                <button onClick={() => setTotalsShowInactive(true)}  className={`tog ${totalsShowInactive  ? "on-yel" : "off"}`}>INACTIVE</button>
+              </div>
 
-            <div className="mt-2 grid grid-cols-2 gap-2">
-              <button
-                onClick={() => setTotalsLowOnly((v) => !v)}
-                className={[
-                  "rounded-2xl px-4 py-3 font-extrabold ring-1 text-sm",
-                  totalsLowOnly
-                    ? "bg-red-600 text-white ring-red-500/30"
-                    : "bg-white/10 text-white ring-white/10",
-                ].join(" ")}
-              >
-                {totalsLowOnly ? "LOW ONLY" : "LOW FILTER"}
-              </button>
+              <div className="tog-wrap-2 mt2">
+                <button onClick={() => setTotalsLowOnly((v) => !v)}  className={`tog ${totalsLowOnly  ? "on-red" : "off"}`}>{totalsLowOnly  ? "LOW ONLY"       : "LOW FILTER"}</button>
+                <button onClick={() => setTotalsZeroOnly((v) => !v)} className={`tog ${totalsZeroOnly ? "on-yel" : "off"}`}>{totalsZeroOnly ? "ZERO SETUP ONLY" : "ZERO SETUP"}</button>
+              </div>
 
-              <button
-                onClick={() => setTotalsZeroOnly((v) => !v)}
-                className={[
-                  "rounded-2xl px-4 py-3 font-extrabold ring-1 text-sm",
-                  totalsZeroOnly
-                    ? "bg-yellow-500 text-black ring-yellow-400/40"
-                    : "bg-white/10 text-white ring-white/10",
-                ].join(" ")}
-              >
-                {totalsZeroOnly ? "ZERO SETUP ONLY" : "ZERO SETUP"}
-              </button>
-            </div>
+              <div className="tog-wrap-2 mt2 mb3">
+                <button onClick={loadTotals} className="btn btn-gh" style={{ fontSize: 13 }}>Refresh</button>
+                <button onClick={() => { setTotalsLowOnly(false); setTotalsZeroOnly(false); setTotalsSearch(""); }} className="btn btn-gh" style={{ fontSize: 13 }}>Clear</button>
+              </div>
 
-            <div className="mt-2 flex gap-2">
-              <button
-                onClick={loadTotals}
-                className="flex-1 rounded-2xl bg-white/10 px-4 py-3 text-sm font-semibold ring-1 ring-white/10"
-              >
-                Refresh
-              </button>
-              <button
-                onClick={() => {
-                  setTotalsLowOnly(false);
-                  setTotalsZeroOnly(false);
-                  setTotalsSearch("");
-                }}
-                className="rounded-2xl bg-white/10 px-4 py-3 text-sm font-semibold ring-1 ring-white/10"
-              >
-                Clear
-              </button>
-            </div>
+              {totalsError && <div style={{ color: "#fca5a5", fontSize: 12, marginBottom: 10, wordBreak: "break-word" }}>{totalsError}</div>}
 
-            {totalsError && (
-              <div className="mt-2 text-sm text-red-300 break-words">{totalsError}</div>
-            )}
+              {/* ── Totals Items List ─────────────────────────────────── */}
+              <div className="sp">
+                {filteredTotals.map((r) => {
+                  const oh        = r.total_on_hand ?? 0;
+                  const low       = r.low_level    ?? 0;
+                  const par       = r.par_level    ?? 0;
+                  const zeroSetup = par === 0 || low === 0;
+                  const isLow     = low > 0 && oh <= low;
 
-            <div className="mt-3 space-y-2">
-              {filteredTotals.map((r) => {
-                const onHand = r.total_on_hand ?? 0;
-                const low = r.low_level ?? 0;
-                const par = r.par_level ?? 0;
-                const zeroSetup = par === 0 || low === 0;
-                const isLow = low > 0 && onHand <= low;
-
-                const cardClass = isLow
-                  ? "bg-black/30 ring-red-500/30"
-                  : zeroSetup
-                  ? "bg-yellow-500/15 ring-yellow-400/30"
-                  : "bg-black/30 ring-white/10";
-
-                return (
-                  <button
-                    key={`${r.item_id}-${r.reference_number ?? ""}`}
-                    onClick={() => openTotalsEditor(r)}
-                    className={`w-full text-left rounded-2xl p-3 ring-1 ${cardClass}`}
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0">
-                        <div className="text-sm font-semibold break-words">{r.name}</div>
-                        <div className="mt-1 text-xs text-white/60 break-words">
-                          {r.vendor ?? "—"} • {r.category ?? "—"}{" "}
-                          {r.reference_number ? `• ${r.reference_number}` : ""}
+                  return (
+                    <button
+                      key={`${r.item_id}-${r.reference_number ?? ""}`}
+                      onClick={() => openTotalsEditor(r)}
+                      className={`item-card ${isLow ? "low" : zeroSetup ? "warn" : "ok"}`}
+                    >
+                      <div className="fxb">
+                        <div style={{ minWidth: 0, flex: 1 }}>
+                          <div className="i-name">{r.name}</div>
+                          <div className="i-meta">
+                            {r.vendor ?? "—"} · {r.category ?? "—"}
+                            {r.reference_number ? ` · ${r.reference_number}` : ""}
+                          </div>
+                          <div className="i-status">
+                            Status: {r.order_status || "IN STOCK"}
+                            {r.backordered ? " · BACKORDERED" : ""}
+                          </div>
                         </div>
-                        <div className="mt-1 text-[11px] text-white/55">
-                          Status: {r.order_status || "IN STOCK"}{" "}
-                          {r.backordered ? "• BACKORDERED" : ""}
+                        <div className={`oh-badge ${isLow ? "low" : "ok"}`}>
+                          <div className={`oh-num ${isLow ? "low" : "ok"}`}>{oh}</div>
+                          <div className="oh-unit">on hand</div>
                         </div>
                       </div>
 
-                      <div
-                        className={[
-                          "shrink-0 rounded-2xl px-3 py-2 text-sm font-extrabold ring-1",
-                          isLow
-                            ? "bg-red-600 text-white ring-red-500/30"
-                            : "bg-white/10 text-white ring-white/10",
-                        ].join(" ")}
-                      >
-                        {onHand}
-                        <div className="text-[10px] font-semibold opacity-80">on hand</div>
+                      <div className="stats-row">
+                        {[
+                          { label: "Par",  value: par,           warn: par === 0 },
+                          { label: "Low",  value: low,           warn: low === 0 },
+                          { label: "Unit", value: r.unit ?? "—", warn: false     },
+                        ].map(({ label, value, warn }) => (
+                          <div key={label} className={`stat-pill ${warn ? "wb" : ""}`}>
+                            <div className="stat-lbl">{label}</div>
+                            <div className={`stat-val ${warn ? "w" : ""}`}>{value}</div>
+                          </div>
+                        ))}
                       </div>
-                    </div>
 
-                    <div className="mt-2 grid grid-cols-3 gap-2 text-xs">
-                      <div
-                        className={[
-                          "rounded-xl p-2 ring-1",
-                          par === 0
-                            ? "bg-yellow-500/20 ring-yellow-400/30"
-                            : "bg-white/5 ring-white/10",
-                        ].join(" ")}
-                      >
-                        <div className="text-white/60">Par</div>
-                        <div className="font-semibold">{par}</div>
+                      {zeroSetup && <div className="zero-warn">⚠ Zero setup field detected</div>}
+                      {r.notes   && <div className="notes-txt">Notes: {r.notes}</div>}
+                      <div className="edit-hint">
+                        Tap to edit on-hand + item details
+                        {locked ? " (password required once per app session)" : ""}
                       </div>
-                      <div
-                        className={[
-                          "rounded-xl p-2 ring-1",
-                          low === 0
-                            ? "bg-yellow-500/20 ring-yellow-400/30"
-                            : "bg-white/5 ring-white/10",
-                        ].join(" ")}
-                      >
-                        <div className="text-white/60">Low</div>
-                        <div className="font-semibold">{low}</div>
-                      </div>
-                      <div className="rounded-xl bg-white/5 p-2 ring-1 ring-white/10">
-                        <div className="text-white/60">Unit</div>
-                        <div className="font-semibold">{r.unit ?? "—"}</div>
-                      </div>
-                    </div>
-
-                    {zeroSetup && (
-                      <div className="mt-2 text-[11px] font-semibold text-yellow-200">
-                        ⚠ Zero setup field detected
-                      </div>
-                    )}
-
-                    {r.notes && (
-                      <div className="mt-2 text-[11px] text-white/60 break-words">
-                        Notes: {r.notes}
-                      </div>
-                    )}
-                    <div className="mt-2 text-[11px] text-white/50">
-                      Tap to edit on-hand + item details{" "}
-                      {locked ? "(password required once per app session)" : ""}
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-
-            {totalsEditOpen && totalsEditRow && (
-              <Modal
-                title="Edit building totals"
-                okText="Close"
-                onCancel={() => setTotalsEditOpen(false)}
-                onOk={() => setTotalsEditOpen(false)}
-              >
-                <div className="mt-1 text-sm text-white/80 break-words">
-                  <div className="font-semibold">{totalsEditRow.name}</div>
-                  <div className="text-xs text-white/60">
-                    {totalsEditRow.vendor ?? "—"} • {totalsEditRow.category ?? "—"}{" "}
-                    {totalsEditRow.reference_number
-                      ? `• ${totalsEditRow.reference_number}`
-                      : ""}
-                  </div>
-                </div>
-
-                <div className="mt-3 rounded-2xl bg-black/30 p-3 ring-1 ring-white/10">
-                  <div className="text-sm font-semibold">Item status</div>
-
-                  <div className="mt-3">
-                    <div className="mb-1 text-xs text-white/60">Order status</div>
-                    <select
-                      value={totalsOrderStatusInput}
-                      onChange={(e) => setTotalsOrderStatusInput(e.target.value)}
-                      className="w-full rounded-2xl bg-white text-black px-4 py-3"
-                    >
-                      {ITEM_STATUS_OPTIONS.map((opt) => (
-                        <option key={opt} value={opt}>
-                          {opt}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <label className="mt-3 flex items-center gap-2 text-sm">
-                    <input
-                      type="checkbox"
-                      checked={totalsBackorderedInput}
-                      onChange={(e) => setTotalsBackorderedInput(e.target.checked)}
-                    />
-                    <span>Backordered</span>
-                  </label>
-
-                  <button
-                    onClick={async () => {
-                      await saveItemStatus(
-                        totalsEditRow.item_id,
-                        totalsOrderStatusInput,
-                        totalsBackorderedInput,
-                        totalsEditRow.name
-                      );
-                      await loadTotals();
-                    }}
-                    disabled={itemStatusSaving}
-                    className="mt-3 w-full rounded-2xl bg-white px-4 py-3 text-sm font-extrabold text-black disabled:opacity-60"
-                  >
-                    {itemStatusSaving ? "Saving..." : "Save Item Status"}
-                  </button>
-                </div>
-
-                <div className="mt-3 rounded-2xl bg-black/30 p-3 ring-1 ring-white/10">
-                  <div className="text-sm font-semibold">Order history</div>
-                  <div className="mt-2 text-[11px] text-white/55">
-                    This is read-only history from purchase orders.
-                  </div>
-
-                  <div className="mt-3">
-                    {totalsOrderLoading ? (
-                      <div className="text-sm text-white/70">Loading order status…</div>
-                    ) : totalsOrderRows.length === 0 ? (
-                      <div className="rounded-2xl bg-white/5 p-3 text-sm text-white/60 ring-1 ring-white/10">
-                        No order history found for this item.
-                      </div>
-                    ) : (
-                      <OrderStatusList rows={totalsOrderRows} />
-                    )}
-                  </div>
-                </div>
-
-                <div className="mt-3 rounded-2xl bg-black/30 p-3 ring-1 ring-white/10">
-                  <div className="text-sm font-semibold">Item active state</div>
-                  <div className="mt-2 grid grid-cols-2 gap-2">
-                    <button
-                      onClick={async () => {
-                        await doTotalsSetActive(totalsEditRow, false);
-                      }}
-                      className="rounded-2xl bg-yellow-500 px-4 py-3 text-sm font-extrabold text-black"
-                    >
-                      Move To Inactive
                     </button>
+                  );
+                })}
+              </div>
+
+              {/* ── Totals Editor Modal ───────────────────────────────── */}
+              {totalsEditOpen && totalsEditRow && (
+                <AscModal
+                  title="Edit building totals"
+                  okText="Close"
+                  onCancel={() => setTotalsEditOpen(false)}
+                  onOk={() => setTotalsEditOpen(false)}
+                >
+                  {/* Item header */}
+                  <div style={{ marginBottom: 16 }}>
+                    <div style={{ fontSize: 16, fontWeight: 800, color: "var(--text)", wordBreak: "break-word", letterSpacing: "-0.3px" }}>{totalsEditRow.name}</div>
+                    <div style={{ fontSize: 12, color: "var(--text2)", marginTop: 3 }}>
+                      {totalsEditRow.vendor ?? "—"} · {totalsEditRow.category ?? "—"}
+                      {totalsEditRow.reference_number ? ` · ${totalsEditRow.reference_number}` : ""}
+                    </div>
+                  </div>
+
+                  {/* Item Status */}
+                  <div className="c-panel mb3">
+                    <div className="s-title">Item status</div>
+                    <div className="field">
+                      <label className="f-lbl">Order status</label>
+                      <select value={totalsOrderStatusInput} onChange={(e) => setTotalsOrderStatusInput(e.target.value)} className="inp inp-sel">
+                        {ITEM_STATUS_OPTIONS.map((opt) => <option key={opt} value={opt}>{opt}</option>)}
+                      </select>
+                    </div>
+                    <label className="chk-row">
+                      <input type="checkbox" checked={totalsBackorderedInput} onChange={(e) => setTotalsBackorderedInput(e.target.checked)} />
+                      <span>Backordered</span>
+                    </label>
                     <button
-                      onClick={async () => {
-                        await doTotalsSetActive(totalsEditRow, true);
-                      }}
-                      className="rounded-2xl bg-white px-4 py-3 text-sm font-extrabold text-black"
+                      onClick={async () => { await saveItemStatus(totalsEditRow.item_id, totalsOrderStatusInput, totalsBackorderedInput, totalsEditRow.name); await loadTotals(); }}
+                      disabled={itemStatusSaving}
+                      className="btn btn-ac btn-full mt3"
+                      style={{ fontSize: 13 }}
                     >
-                      Restore Active
+                      {itemStatusSaving ? "Saving…" : "Save Item Status"}
                     </button>
                   </div>
-                  <div className="mt-2 text-[11px] text-white/55">
-                    Password required once per app session. This does not delete the item.
-                  </div>
-                </div>
 
-                <div className="mt-4 rounded-2xl bg-black/30 p-3 ring-1 ring-white/10">
-                  <div className="text-sm font-semibold">Set PAR level</div>
-                  <div className="mt-2 flex gap-2">
-                    <input
-                      value={parInput}
-                      onChange={(e) => setParInput(e.target.value.replace(/[^\d]/g, ""))}
-                      inputMode="numeric"
-                      className="flex-1 rounded-2xl bg-white text-black px-4 py-3"
-                      placeholder="e.g., 30"
-                    />
+                  {/* Order History */}
+                  <div className="c-panel mb3">
+                    <div className="s-title">Order history</div>
+                    <div style={{ fontSize: 10, color: "var(--text4)", marginBottom: 10 }}>Read-only history from purchase orders.</div>
+                    {totalsOrderLoading
+                      ? <div style={{ fontSize: 13, color: "var(--text2)" }}>Loading order status…</div>
+                      : totalsOrderRows.length === 0
+                        ? <div className="c-deep" style={{ fontSize: 13, color: "var(--text2)" }}>No order history found for this item.</div>
+                        : <OrderStatusList rows={totalsOrderRows} />}
+                  </div>
+
+                  {/* Item Active State */}
+                  <div className="c-panel mb3">
+                    <div className="s-title">Item active state</div>
+                    <div className="g2 mt2">
+                      <button onClick={async () => { await doTotalsSetActive(totalsEditRow, false); }} className="btn btn-warn" style={{ fontSize: 12 }}>Move To Inactive</button>
+                      <button onClick={async () => { await doTotalsSetActive(totalsEditRow, true);  }} className="btn btn-gh"   style={{ fontSize: 12 }}>Restore Active</button>
+                    </div>
+                    <div style={{ fontSize: 10, color: "var(--text4)", marginTop: 8 }}>
+                      Password required once per app session. This does not delete the item.
+                    </div>
+                  </div>
+
+                  {/* Set PAR Level */}
+                  <div className="c-panel mb3">
+                    <div className="s-title">Set PAR level</div>
+                    <div className="fx mt2">
+                      <input value={parInput} onChange={(e) => setParInput(e.target.value.replace(/[^\d]/g, ""))} inputMode="numeric" className="inp" placeholder="e.g., 30" style={{ flex: 1 }} />
+                      <button
+                        onClick={async () => {
+                          const n = parseIntSafe(parInput);
+                          if (n === null || n < 0) return alert("Enter a valid PAR (0 or more).");
+                          const res  = await fetch("/api/building-inventory/update", { method: "POST", headers: { "Content-Type": "application/json" }, cache: "no-store", body: JSON.stringify({ item_id: totalsEditRow.item_id, action: "SET_PAR", par_level: n }) });
+                          const json = await res.json();
+                          if (!json.ok) return alert(`PAR update failed: ${json.error}`);
+                          pushAudit({ action: "TOTALS_ADJUST", details: `PAR Set Item=${totalsEditRow.name} Par=${n}` });
+                          setTotalsEditOpen(false); await loadTotals();
+                        }}
+                        className="btn btn-ac s0"
+                      >
+                        Set PAR
+                      </button>
+                    </div>
+                    <div style={{ fontSize: 10, color: "var(--text4)", marginTop: 6 }}>
+                      PAR is stored in <strong style={{ color: "var(--text2)" }}>items.par_level</strong>.
+                    </div>
+                  </div>
+
+                  {/* Item Details */}
+                  <div className="c-panel mb3">
+                    <div className="s-title">Item details</div>
+                    <div className="g2 mt2">
+                      <div className="field">
+                        <label className="f-lbl">Reference #</label>
+                        <input value={refInput} onChange={(e) => setRefInput(e.target.value)} className="inp" />
+                      </div>
+                      <div className="field">
+                        <label className="f-lbl">Low</label>
+                        <input value={totalsLowInput} onChange={(e) => setTotalsLowInput(e.target.value.replace(/[^\d]/g, ""))} inputMode="numeric" className="inp" />
+                      </div>
+                    </div>
+                    <div className="g2">
+                      <div className="field">
+                        <label className="f-lbl">Vendor</label>
+                        <input value={vendorInput} onChange={(e) => setVendorInput(e.target.value)} className="inp" />
+                      </div>
+                      <div className="field">
+                        <label className="f-lbl">Category</label>
+                        <input value={categoryInput} onChange={(e) => setCategoryInput(e.target.value)} className="inp" />
+                      </div>
+                    </div>
+                    <div className="field">
+                      <label className="f-lbl">Unit</label>
+                      <input value={unitInput} onChange={(e) => setUnitInput(e.target.value)} className="inp" />
+                    </div>
+                    <div className="field">
+                      <label className="f-lbl">Notes</label>
+                      <textarea value={notesInput} onChange={(e) => setNotesInput(e.target.value)} className="inp inp-ta" />
+                    </div>
                     <button
                       onClick={async () => {
-                        const n = parseIntSafe(parInput);
-                        if (n === null || n < 0) {
-                          return alert("Enter a valid PAR (0 or more).");
-                        }
-
-                        const res = await fetch("/api/building-inventory/update", {
-                          method: "POST",
-                          headers: { "Content-Type": "application/json" },
-                          cache: "no-store",
-                          body: JSON.stringify({
-                            item_id: totalsEditRow.item_id,
-                            action: "SET_PAR",
-                            par_level: n,
-                          }),
-                        });
-
+                        const low = parseIntSafe(totalsLowInput);
+                        if (low === null || low < 0) return alert("Enter a valid low level.");
+                        const res  = await fetch("/api/building-inventory/update", { method: "POST", headers: { "Content-Type": "application/json" }, cache: "no-store", body: JSON.stringify({ item_id: totalsEditRow.item_id, action: "SAVE_ITEM_META", vendor: vendorInput, category: categoryInput, unit: unitInput, notes: notesInput, low_level: low, reference_number_new: refInput }) });
                         const json = await res.json();
-                        if (!json.ok) return alert(`PAR update failed: ${json.error}`);
-
-                        pushAudit({
-                          action: "TOTALS_ADJUST",
-                          details: `PAR Set Item=${totalsEditRow.name} Par=${n}`,
-                        });
-
-                        setTotalsEditOpen(false);
-                        await loadTotals();
+                        if (!json.ok) return alert(`Save failed: ${json.error}`);
+                        pushAudit({ action: "TOTALS_ADJUST", details: `Meta Save Item=${totalsEditRow.name}` });
+                        setTotalsEditOpen(false); await loadTotals();
                       }}
-                      className="rounded-2xl bg-white px-4 py-3 text-sm font-extrabold text-black"
+                      className="btn btn-ac btn-full"
+                      style={{ fontSize: 13 }}
                     >
-                      Set PAR
-                    </button>
-                  </div>
-                  <div className="mt-2 text-[11px] text-white/55">
-                    PAR is stored in <span className="font-semibold">items.par_level</span>.
-                  </div>
-                </div>
-
-                <div className="mt-3 rounded-2xl bg-black/30 p-3 ring-1 ring-white/10">
-                  <div className="text-sm font-semibold">Item details</div>
-
-                  <div className="mt-3 grid grid-cols-2 gap-2">
-                    <div>
-                      <div className="mb-1 text-xs text-white/60">Reference #</div>
-                      <input
-                        value={refInput}
-                        onChange={(e) => setRefInput(e.target.value)}
-                        className="w-full rounded-2xl bg-white px-4 py-3 text-black"
-                      />
-                    </div>
-                    <div>
-                      <div className="mb-1 text-xs text-white/60">Low</div>
-                      <input
-                        value={totalsLowInput}
-                        onChange={(e) =>
-                          setTotalsLowInput(e.target.value.replace(/[^\d]/g, ""))
-                        }
-                        inputMode="numeric"
-                        className="w-full rounded-2xl bg-white px-4 py-3 text-black"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="mt-2 grid grid-cols-2 gap-2">
-                    <div>
-                      <div className="mb-1 text-xs text-white/60">Vendor</div>
-                      <input
-                        value={vendorInput}
-                        onChange={(e) => setVendorInput(e.target.value)}
-                        className="w-full rounded-2xl bg-white px-4 py-3 text-black"
-                      />
-                    </div>
-                    <div>
-                      <div className="mb-1 text-xs text-white/60">Category</div>
-                      <input
-                        value={categoryInput}
-                        onChange={(e) => setCategoryInput(e.target.value)}
-                        className="w-full rounded-2xl bg-white px-4 py-3 text-black"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="mt-2">
-                    <div className="mb-1 text-xs text-white/60">Unit</div>
-                    <input
-                      value={unitInput}
-                      onChange={(e) => setUnitInput(e.target.value)}
-                      className="w-full rounded-2xl bg-white px-4 py-3 text-black"
-                    />
-                  </div>
-
-                  <div className="mt-2">
-                    <div className="mb-1 text-xs text-white/60">Notes</div>
-                    <textarea
-                      value={notesInput}
-                      onChange={(e) => setNotesInput(e.target.value)}
-                      className="min-h-[90px] w-full rounded-2xl bg-white px-4 py-3 text-black"
-                    />
-                  </div>
-
-                  <button
-                    onClick={async () => {
-                      const low = parseIntSafe(totalsLowInput);
-                      if (low === null || low < 0) {
-                        return alert("Enter a valid low level.");
-                      }
-
-                      const res = await fetch("/api/building-inventory/update", {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        cache: "no-store",
-                        body: JSON.stringify({
-                          item_id: totalsEditRow.item_id,
-                          action: "SAVE_ITEM_META",
-                          vendor: vendorInput,
-                          category: categoryInput,
-                          unit: unitInput,
-                          notes: notesInput,
-                          low_level: low,
-                          reference_number_new: refInput,
-                        }),
-                      });
-
-                      const json = await res.json();
-                      if (!json.ok) return alert(`Save failed: ${json.error}`);
-
-                      pushAudit({
-                        action: "TOTALS_ADJUST",
-                        details: `Meta Save Item=${totalsEditRow.name}`,
-                      });
-
-                      setTotalsEditOpen(false);
-                      await loadTotals();
-                    }}
-                    className="mt-3 w-full rounded-2xl bg-white px-4 py-3 text-sm font-extrabold text-black"
-                  >
-                    Save Item Details
-                  </button>
-                </div>
-
-                <div className="mt-3 rounded-2xl bg-black/30 p-3 ring-1 ring-white/10">
-                  <div className="text-sm font-semibold">Set exact on-hand</div>
-                  <div className="mt-2 flex gap-2">
-                    <input
-                      value={setOnHandInput}
-                      onChange={(e) =>
-                        setSetOnHandInput(e.target.value.replace(/[^\d]/g, ""))
-                      }
-                      inputMode="numeric"
-                      className="flex-1 rounded-2xl bg-white text-black px-4 py-3"
-                      placeholder="e.g., 17"
-                    />
-                    <button
-                      onClick={async () => {
-                        const n = parseIntSafe(setOnHandInput);
-                        if (n === null || n < 0) {
-                          return alert("Enter a valid number (0 or more).");
-                        }
-                        await doTotalsSet(totalsEditRow, n);
-                      }}
-                      className="rounded-2xl bg-white px-4 py-3 text-sm font-extrabold text-black"
-                    >
-                      Set
-                    </button>
-                  </div>
-                </div>
-
-                <div className="mt-3 rounded-2xl bg-black/30 p-3 ring-1 ring-white/10">
-                  <div className="text-sm font-semibold">Adjust + / −</div>
-                  <div className="mt-2 grid grid-cols-3 gap-2">
-                    <button
-                      onClick={() => {
-                        const cur = parseIntSafe(deltaInput) ?? 0;
-                        setDeltaInput(String(cur - 1));
-                      }}
-                      className="rounded-2xl bg-white/10 px-4 py-3 text-sm font-extrabold ring-1 ring-white/10"
-                    >
-                      −1
-                    </button>
-                    <input
-                      value={deltaInput}
-                      onChange={(e) =>
-                        setDeltaInput(
-                          e.target.value.replace(/[^\d-]/g, "").slice(0, 7)
-                        )
-                      }
-                      inputMode="numeric"
-                      className="rounded-2xl bg-white text-black px-4 py-3 text-center"
-                      placeholder="e.g., +5"
-                    />
-                    <button
-                      onClick={() => {
-                        const cur = parseIntSafe(deltaInput) ?? 0;
-                        setDeltaInput(String(cur + 1));
-                      }}
-                      className="rounded-2xl bg-white/10 px-4 py-3 text-sm font-extrabold ring-1 ring-white/10"
-                    >
-                      +1
+                      Save Item Details
                     </button>
                   </div>
 
-                  <div className="mt-2 flex gap-2">
-                    <button
-                      onClick={async () => {
-                        const d = parseIntSafe(deltaInput);
-                        if (d === null) return alert("Enter a valid delta.");
-                        await doTotalsAdjust(totalsEditRow, d);
-                      }}
-                      className="flex-1 rounded-2xl bg-white px-4 py-3 text-sm font-extrabold text-black"
-                    >
-                      Apply delta
-                    </button>
-                    <button
-                      onClick={() => setDeltaInput("")}
-                      className="rounded-2xl bg-white/10 px-4 py-3 text-sm font-semibold ring-1 ring-white/10"
-                    >
-                      Clear
-                    </button>
-                  </div>
-                </div>
-              </Modal>
-            )}
-          </div>
-        ) : tab === "Audit" ? (
-          <div className="mt-3 rounded-3xl bg-white/5 p-4 ring-1 ring-white/10 overflow-hidden">
-            <div className="text-lg font-semibold">Audit</div>
-            <div className="mt-1 text-xs text-white/60">
-              Set staff name (saved on this device). Actions are logged below.
-            </div>
-
-            <div className="mt-3">
-              <div className="text-xs text-white/60 mb-1">Staff name</div>
-              <input
-                value={staffName}
-                onChange={(e) => setStaffName(e.target.value)}
-                className="w-full rounded-2xl bg-white text-black px-4 py-3"
-                placeholder="e.g., Jeremy Johnson"
-              />
-            </div>
-
-            <div className="mt-4 flex gap-2">
-              <button
-                onClick={() => {
-                  setAudit([]);
-                  try {
-                    localStorage.removeItem(LS.AUDIT);
-                  } catch {}
-                }}
-                className="flex-1 rounded-2xl bg-white/10 px-4 py-3 text-sm font-semibold ring-1 ring-white/10"
-              >
-                Clear device log
-              </button>
-              <button
-                onClick={() => {
-                  const text = JSON.stringify(audit, null, 2);
-                  navigator.clipboard
-                    ?.writeText(text)
-                    .then(() => alert("Audit log copied ✅"))
-                    .catch(() => alert("Copy failed (iOS may block clipboard)."));
-                }}
-                className="flex-1 rounded-2xl bg-white px-4 py-3 text-sm font-extrabold text-black"
-              >
-                Copy log
-              </button>
-            </div>
-
-            <div className="mt-4 text-sm font-semibold text-white/80">Recent events</div>
-
-            <div className="mt-2 space-y-2">
-              {audit.length === 0 ? (
-                <div className="rounded-2xl bg-black/30 p-3 text-sm text-white/60 ring-1 ring-white/10">
-                  No audit events yet.
-                </div>
-              ) : (
-                audit.slice(0, 60).map((e) => (
-                  <div
-                    key={e.id}
-                    className="rounded-2xl bg-black/30 p-3 ring-1 ring-white/10"
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="text-sm font-semibold">{e.action}</div>
-                      <div className="text-[11px] text-white/55">
-                        {new Date(e.ts).toLocaleString()}
-                      </div>
+                  {/* Set Exact On-Hand */}
+                  <div className="c-panel mb3">
+                    <div className="s-title">Set exact on-hand</div>
+                    <div className="fx mt2">
+                      <input value={setOnHandInput} onChange={(e) => setSetOnHandInput(e.target.value.replace(/[^\d]/g, ""))} inputMode="numeric" className="inp" placeholder="e.g., 17" style={{ flex: 1 }} />
+                      <button
+                        onClick={async () => {
+                          const n = parseIntSafe(setOnHandInput);
+                          if (n === null || n < 0) return alert("Enter a valid number (0 or more).");
+                          await doTotalsSet(totalsEditRow, n);
+                        }}
+                        className="btn btn-ac s0"
+                      >
+                        Set
+                      </button>
                     </div>
-                    <div className="mt-1 text-xs text-white/70">
-                      Staff: <span className="font-semibold">{e.staff}</span>
-                    </div>
-                    {e.details && (
-                      <div className="mt-1 text-xs text-white/55 break-words">
-                        {e.details}
-                      </div>
-                    )}
                   </div>
-                ))
+
+                  {/* Adjust +/- */}
+                  <div className="c-panel">
+                    <div className="s-title">Adjust + / −</div>
+                    <div className="g3 mt2">
+                      <button onClick={() => setDeltaInput(String((parseIntSafe(deltaInput) ?? 0) - 1))} className="btn btn-gh" style={{ fontSize: 15, fontWeight: 900 }}>−1</button>
+                      <input value={deltaInput} onChange={(e) => setDeltaInput(e.target.value.replace(/[^\d-]/g, "").slice(0, 7))} inputMode="numeric" className="inp" placeholder="±" style={{ textAlign: "center" }} />
+                      <button onClick={() => setDeltaInput(String((parseIntSafe(deltaInput) ?? 0) + 1))} className="btn btn-gh" style={{ fontSize: 15, fontWeight: 900 }}>+1</button>
+                    </div>
+                    <div className="fx mt2">
+                      <button
+                        onClick={async () => { const d = parseIntSafe(deltaInput); if (d === null) return alert("Enter a valid delta."); await doTotalsAdjust(totalsEditRow, d); }}
+                        className="btn btn-ac"
+                        style={{ flex: 1, fontSize: 13 }}
+                      >
+                        Apply delta
+                      </button>
+                      <button onClick={() => setDeltaInput("")} className="btn btn-gh" style={{ fontSize: 13 }}>Clear</button>
+                    </div>
+                  </div>
+                </AscModal>
               )}
             </div>
-          </div>
-        ) : (
-          <div className="mt-3 rounded-3xl bg-white/5 p-4 ring-1 ring-white/10">
-            <div className="text-lg font-semibold">Settings</div>
-            <div className="mt-3 text-sm text-white/70">
-              Set/Change password (min 4 digits):
-            </div>
-            <PinSetter onSave={savePin} />
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
+          )}
 
-function OrderStatusList({ rows }: { rows: OrderStatusRow[] }) {
-  return (
-    <div className="space-y-3">
-      {rows.map((row) => {
-        const pending = Math.max(
-          (row.qty_ordered ?? 0) - (row.qty_received ?? 0),
-          0
-        );
+          {/* ══════════════════════════════════════════════════════════════
+              AUDIT TAB
+          ══════════════════════════════════════════════════════════════ */}
+          {tab === "Audit" && (
+            <div className="c-card anim">
 
-        return (
-          <div
-            key={row.id}
-            className="rounded-2xl bg-black/30 p-3 ring-1 ring-white/10"
-          >
-            <div className="flex items-start justify-between gap-2">
-              <div className="min-w-0">
-                <div className="text-sm font-extrabold break-words">
-                  {row.purchase_orders?.vendor || "Unknown vendor"}
-                </div>
-                <div className="mt-1 text-xs text-white/60 break-words">
-                  PO: {row.purchase_orders?.po_number || "—"}
+              <div style={{ marginBottom: 18 }}>
+                <div style={{ fontSize: 18, fontWeight: 900, color: "var(--text)", letterSpacing: "-0.5px", marginBottom: 4 }}>Audit Log</div>
+                <div style={{ fontSize: 12, color: "var(--text2)", lineHeight: 1.5 }}>
+                  Set staff name (saved on this device). Actions are logged below.
                 </div>
               </div>
-              <div className="rounded-2xl bg-white/10 px-3 py-2 text-xs font-extrabold ring-1 ring-white/10">
-                {row.status}
+
+              {/* Staff name input */}
+              <div className="field">
+                <label className="f-lbl">Staff Name</label>
+                <input
+                  value={staffName}
+                  onChange={(e) => setStaffName(e.target.value)}
+                  className="inp"
+                  placeholder="e.g., Jeremy Johnson"
+                />
+              </div>
+
+              {/* Audit actions */}
+              <div className="g2 mt3">
+                <button
+                  onClick={() => { setAudit([]); try { localStorage.removeItem(LS.AUDIT); } catch {} }}
+                  className="btn btn-gh"
+                  style={{ fontSize: 13 }}
+                >
+                  Clear device log
+                </button>
+                <button
+                  onClick={() => {
+                    const text = JSON.stringify(audit, null, 2);
+                    navigator.clipboard
+                      ?.writeText(text)
+                      .then(() => alert("Audit log copied ✅"))
+                      .catch(() => alert("Copy failed (iOS may block clipboard)."));
+                  }}
+                  className="btn btn-ac"
+                  style={{ fontSize: 13 }}
+                >
+                  Copy log
+                </button>
+              </div>
+
+              <div className="divider" />
+
+              <div className="s-lbl">Recent Events</div>
+
+              {/* Audit event list */}
+              <div className="sp">
+                {audit.length === 0 ? (
+                  <div className="c-deep" style={{ textAlign: "center", color: "var(--text3)", fontSize: 13, padding: "20px 0" }}>
+                    No audit events yet.
+                  </div>
+                ) : (
+                  audit.slice(0, 60).map((e) => (
+                    <div key={e.id} className="audit-card">
+                      <div className="audit-hdr">
+                        <span className="audit-act" style={auditStyle(e.action)}>{e.action}</span>
+                        <span className="audit-time">{new Date(e.ts).toLocaleString()}</span>
+                      </div>
+                      <div className="audit-stf">Staff: <strong>{e.staff}</strong></div>
+                      {e.details && <div className="audit-det">{e.details}</div>}
+                    </div>
+                  ))
+                )}
               </div>
             </div>
+          )}
 
-            <div className="mt-3 grid grid-cols-3 gap-2 text-xs">
-              <div className="rounded-xl bg-white/5 p-2 ring-1 ring-white/10">
-                <div className="text-white/60">Ordered</div>
-                <div className="font-semibold">{row.qty_ordered ?? 0}</div>
+          {/* ══════════════════════════════════════════════════════════════
+              SETTINGS TAB
+          ══════════════════════════════════════════════════════════════ */}
+          {tab === "Settings" && (
+            <div className="c-card anim">
+              <div style={{ marginBottom: 18 }}>
+                <div style={{ fontSize: 18, fontWeight: 900, color: "var(--text)", letterSpacing: "-0.5px", marginBottom: 4 }}>Settings</div>
+                <div style={{ fontSize: 12, color: "var(--text2)" }}>Set/Change password (min 4 digits):</div>
               </div>
-              <div className="rounded-xl bg-white/5 p-2 ring-1 ring-white/10">
-                <div className="text-white/60">Received</div>
-                <div className="font-semibold">{row.qty_received ?? 0}</div>
-              </div>
-              <div className="rounded-xl bg-white/5 p-2 ring-1 ring-white/10">
-                <div className="text-white/60">Pending</div>
-                <div className="font-semibold">{pending}</div>
-              </div>
+              <PinSetter onSave={savePin} />
             </div>
+          )}
 
-            <div className="mt-2 text-xs text-white/60">
-              Expected: {row.purchase_orders?.expected_date || "—"}
-            </div>
-
-            {(row.notes || row.purchase_orders?.notes) && (
-              <div className="mt-2 text-[11px] text-white/55 break-words">
-                Notes: {row.notes || row.purchase_orders?.notes}
-              </div>
-            )}
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-function TabBtn({
-  active,
-  onClick,
-  children,
-}: {
-  active: boolean;
-  onClick: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      className={[
-        "rounded-2xl px-2 py-2 text-xs font-extrabold ring-1",
-        active
-          ? "bg-white text-black ring-white/20"
-          : "bg-white/5 text-white ring-white/10",
-      ].join(" ")}
-    >
-      {children}
-    </button>
-  );
-}
-
-function ModeBtn({ active, danger, onClick, children }: any) {
-  const activeCls = danger
-    ? "bg-red-600 text-white ring-red-500/30"
-    : "bg-white text-black ring-white/20";
-  const inactiveCls = "bg-black/30 text-white ring-white/10";
-  return (
-    <button
-      onClick={onClick}
-      className={[
-        "rounded-2xl px-3 py-2 text-sm font-bold ring-1",
-        active ? activeCls : inactiveCls,
-      ].join(" ")}
-    >
-      {children}
-    </button>
-  );
-}
-
-function QtyBtn({ onClick, children }: any) {
-  return (
-    <button
-      onClick={onClick}
-      className="h-12 w-12 rounded-2xl bg-white/5 text-white text-xl font-semibold ring-1 ring-white/10"
-    >
-      {children}
-    </button>
-  );
-}
-
-function Modal({ title, children, okText, onOk, onCancel }: any) {
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-3">
-      <div className="w-full max-w-md max-h-[90vh] overflow-y-auto rounded-3xl bg-[#111] p-4 ring-1 ring-white/10">
-        <div className="text-lg font-semibold">{title}</div>
-
-        <div className="mt-3">{children}</div>
-
-        <div className="mt-4 flex gap-2 sticky bottom-0 bg-[#111] pt-3">
-          <button
-            onClick={onCancel}
-            className="flex-1 rounded-2xl bg-white/10 px-4 py-3 font-semibold"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={onOk}
-            className="flex-1 rounded-2xl bg-white px-4 py-3 font-semibold text-black"
-          >
-            {okText}
-          </button>
         </div>
       </div>
-    </div>
-  );
-}
-
-function PinSetter({ onSave }: any) {
-  const [pin, setPin] = useState("");
-  return (
-    <div className="mt-2">
-      <input
-        value={pin}
-        onChange={(e) => setPin(e.target.value.replace(/\D/g, "").slice(0, 6))}
-        className="w-full rounded-2xl bg-white text-black px-4 py-3"
-        placeholder="New password (e.g. 1234)"
-        inputMode="numeric"
-      />
-      <button
-        onClick={() => onSave(pin)}
-        className="mt-3 w-full rounded-2xl bg-white px-4 py-3 font-semibold text-black"
-      >
-        Save Password
-      </button>
-    </div>
+    </>
   );
 }
