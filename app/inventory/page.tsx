@@ -1,11 +1,5 @@
 "use client";
 
-// ════════════════════════════════════════════════════════════════════════════
-//  BAXTER HEALTH ASC — INVENTORY MANAGEMENT SYSTEM
-//  Premium UI Rewrite v3.1 — Bug Fixed
-//  Part 1 of 3: Types · Constants · CSS · Utilities · Sub-Components
-// ════════════════════════════════════════════════════════════════════════════
-
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { BrowserMultiFormatReader } from "@zxing/browser";
@@ -490,11 +484,8 @@ function QtyBtn({ onClick, children }: { onClick: () => void; children: React.Re
   return <button onClick={onClick} className="qty-btn">{children}</button>;
 }
 
-// ─── END OF PART 1 ───────────────────────────────────────────────────────────
-// Paste Part 2 immediately after this line.
-
 // ─────────────────────────────────────────────────────────────────────────────
-// MAIN COMPONENT — Part 2 of 3
+// MAIN COMPONENT
 // ─────────────────────────────────────────────────────────────────────────────
 
 export default function InventoryPage() {
@@ -1041,7 +1032,6 @@ export default function InventoryPage() {
                   </div>
                   <div style={{marginTop:14,fontSize:10,color:"var(--text4)"}}>Showing up to 200 rows to keep it fast on phones.</div>
 
-                  {/* Area row edit modal — BUG FIXED: no .map() with setter functions */}
                   {areaEditOpen && areaEditRow && (
                     <AscModal title="Edit area item" okText="Save" onCancel={()=>setAreaEditOpen(false)} onOk={async()=>{try{const payload=buildAreaSavePayload(areaEditRow);await saveAreaRow(payload);}catch(e:any){alert(e?.message??"Invalid values");}}}>
                       <div style={{marginBottom:14}}>
@@ -1225,9 +1215,6 @@ export default function InventoryPage() {
               )}
             </div>
           )}
-
-// ─── END OF PART 2 ───────────────────────────────────────────────────────────
-// Paste Part 3 immediately after this line.
 
           {/* ═══════════════════════════ TOTALS TAB ═══════════════════════════ */}
           {tab==="Totals" && (
