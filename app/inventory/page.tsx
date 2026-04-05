@@ -1514,6 +1514,105 @@ export default function InventoryPage() {
 
         </div>
       </div>
+
+      {/* ═══ TOTALS EDIT MODAL — outside all tabs so it renders on top ═══ */}
+      {totalsEditOpen && totalsEditRow && (
+        <AscModal title="Edit building totals" okText="Close" onCancel={()=>setTotalsEditOpen(false)} onOk={()=>setTotalsEditOpen(false)}>
+          <div style={{marginBottom:16}}>
+            <div style={{fontSize:16,fontWeight:800,color:"var(--text)",wordBreak:"break-word",letterSpacing:"-0.3px"}}>{totalsEditRow.name}</div>
+            <div style={{fontSize:12,color:"var(--text2)",marginTop:3}}>{totalsEditRow.vendor??"—"} · {totalsEditRow.category??"—"}{totalsEditRow.reference_number?` · ${totalsEditRow.reference_number}`:""}</div>
+          </div>
+
+          <div className="c-panel mb3">
+            <div className="s-title">Item status</div>
+            <div className="field">
+              <label className="f-lbl">Order status</label>
+              <select value={totalsOrderStatusInput} onChange={(e)=>setTotalsOrderStatusInput(e.target.value)} className="inp inp-sel">
+                {ITEM_STATUS_OPTIONS.map((opt)=><option key={opt} value={opt}>{opt}</option>)}
+              </select>
+            </div>
+            <label className="chk-row">
+              <input type="checkbox" checked={totalsBackorderedInput} onChange={(e)=>setTotalsBackorderedInput(e.target.checked)} />
+              <span>Backordered</span>
+            </label>
+            <button onClick={async()=>{await saveItemStatus(totalsEditRow.item_id,totalsOrderStatusInput,totalsBackorderedInput,totalsEditRow.name);await loadTotals();}} disabled={itemStatusSaving} className="btn btn-ac btn-full mt3" style={{fontSize:13}}>
+              {itemStatusSaving?"Saving…":"Save Item Status"}
+            </button>
+          </div>
+
+          <div className="c-panel mb3">
+            <div className="s-title">Order history</div>
+            <div style={{fontSize:10,color:"var(--text4)",marginBottom:10}}>Read-only history from purchase orders.</div>
+            {totalsOrderLoading?<div style={{fontSize:13,color:"var(--text2)"}}>Loading order status…</div>:totalsOrderRows.length===0?<div className="c-deep" style={{fontSize:13,color:"var(--text2)"}}>No order history found for this item.</div>:<OrderStatusList rows={totalsOrderRows} />}
+          </div>
+
+          <div className="c-panel mb3">
+            <div className="s-title">Item active state</div>
+            <div className="g2 mt2">
+              <button onClick={async()=>{await doTotalsSetActive(totalsEditRow,false);}} className="btn btn-warn" style={{fontSize:12}}>Move To Inactive</button>
+              <button onClick={async()=>{await doTotalsSetActive(totalsEditRow,true);}}  className="btn btn-gh"   style={{fontSize:12}}>Restore Active</button>
+            </div>
+            <div style={{fontSize:10,color:"var(--text4)",marginTop:8}}>Password required once per app session. This does not delete the item.</div>
+          </div>
+
+          <div className="c-panel mb3">
+            <div className="s-title">Set PAR level</div>
+            <div className="fx mt2">
+              <input value={parInput} onChange={(e)=>setParInput(e.target.value.replace(/[^\d]/g,""))} inputMode="numeric" className="inp" placeholder="e.g., 30" style={{flex:1}} />
+              <button onClick={async()=>{
+                const n=parseIntSafe(parInput); if(n===null||n<0) return alert("Enter a valid PAR (0 or more).");
+                const res=await fetch("/api/building-inventory/update",{method:"POST",headers:{"Content-Type":"application/json"},cache:"no-store",body:JSON.stringify({item_id:totalsEditRow.item_id,action:"SET_PAR",par_level:n})});
+                const json=await res.json(); if(!json.ok) return alert(`PAR update failed: ${json.error}`);
+                pushAudit({action:"TOTALS_ADJUST",details:`PAR Set Item=${totalsEditRow.name} Par=${n}`});
+                setTotalsEditOpen(false); await loadTotals();
+              }} className="btn btn-ac s0">Set PAR</button>
+            </div>
+            <div style={{fontSize:10,color:"var(--text4)",marginTop:6}}>PAR is stored in <strong style={{color:"var(--text2)"}}>items.par_level</strong>.</div>
+          </div>
+
+          <div className="c-panel mb3">
+            <div className="s-title">Item details</div>
+            <div className="g2 mt2">
+              <div className="field"><label className="f-lbl">Reference #</label><input value={refInput} onChange={(e)=>setRefInput(e.target.value)} className="inp" /></div>
+              <div className="field"><label className="f-lbl">Low</label><input value={totalsLowInput} onChange={(e)=>setTotalsLowInput(e.target.value.replace(/[^\d]/g,""))} inputMode="numeric" className="inp" /></div>
+            </div>
+            <div className="g2">
+              <div className="field"><label className="f-lbl">Vendor</label><input value={vendorInput} onChange={(e)=>setVendorInput(e.target.value)} className="inp" /></div>
+              <div className="field"><label className="f-lbl">Category</label><input value={categoryInput} onChange={(e)=>setCategoryInput(e.target.value)} className="inp" /></div>
+            </div>
+            <div className="field"><label className="f-lbl">Unit</label><input value={unitInput} onChange={(e)=>setUnitInput(e.target.value)} className="inp" /></div>
+            <div className="field"><label className="f-lbl">Notes</label><textarea value={notesInput} onChange={(e)=>setNotesInput(e.target.value)} className="inp inp-ta" /></div>
+            <button onClick={async()=>{
+              const low=parseIntSafe(totalsLowInput); if(low===null||low<0) return alert("Enter a valid low level.");
+              const res=await fetch("/api/building-inventory/update",{method:"POST",headers:{"Content-Type":"application/json"},cache:"no-store",body:JSON.stringify({item_id:totalsEditRow.item_id,action:"SAVE_ITEM_META",vendor:vendorInput,category:categoryInput,unit:unitInput,notes:notesInput,low_level:low,reference_number_new:refInput})});
+              const json=await res.json(); if(!json.ok) return alert(`Save failed: ${json.error}`);
+              pushAudit({action:"TOTALS_ADJUST",details:`Meta Save Item=${totalsEditRow.name}`});
+              setTotalsEditOpen(false); await loadTotals();
+            }} className="btn btn-ac btn-full" style={{fontSize:13}}>Save Item Details</button>
+          </div>
+
+          <div className="c-panel mb3">
+            <div className="s-title">Set exact on-hand</div>
+            <div className="fx mt2">
+              <input value={setOnHandInput} onChange={(e)=>setSetOnHandInput(e.target.value.replace(/[^\d]/g,""))} inputMode="numeric" className="inp" placeholder="e.g., 17" style={{flex:1}} />
+              <button onClick={async()=>{const n=parseIntSafe(setOnHandInput);if(n===null||n<0)return alert("Enter a valid number (0 or more).");await doTotalsSet(totalsEditRow,n);}} className="btn btn-ac s0">Set</button>
+            </div>
+          </div>
+
+          <div className="c-panel">
+            <div className="s-title">Adjust + / −</div>
+            <div className="g3 mt2">
+              <button onClick={()=>setDeltaInput(String((parseIntSafe(deltaInput)??0)-1))} className="btn btn-gh" style={{fontSize:15,fontWeight:900}}>−1</button>
+              <input value={deltaInput} onChange={(e)=>setDeltaInput(e.target.value.replace(/[^\d-]/g,"").slice(0,7))} inputMode="numeric" className="inp" placeholder="±" style={{textAlign:"center"}} />
+              <button onClick={()=>setDeltaInput(String((parseIntSafe(deltaInput)??0)+1))} className="btn btn-gh" style={{fontSize:15,fontWeight:900}}>+1</button>
+            </div>
+            <div className="fx mt2">
+              <button onClick={async()=>{const d=parseIntSafe(deltaInput);if(d===null)return alert("Enter a valid delta.");await doTotalsAdjust(totalsEditRow,d);}} className="btn btn-ac" style={{flex:1,fontSize:13}}>Apply delta</button>
+              <button onClick={()=>setDeltaInput("")} className="btn btn-gh" style={{fontSize:13}}>Clear</button>
+            </div>
+          </div>
+        </AscModal>
+      )}
     </>
   );
 }
