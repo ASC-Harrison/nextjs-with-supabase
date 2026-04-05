@@ -865,10 +865,22 @@ export default function InventoryPage() {
   async function openOrderStatus() { if (!item?.id) return; setOrderStatusOpen(true); await loadOrderRowsForItem(item.id,"modal"); }
 
   async function openTotalsEditor(row: BuildingTotalRow) {
-    setTotalsEditRow(row); setSetOnHandInput(String(row.total_on_hand??0)); setDeltaInput(""); setParInput(String(row.par_level??0));
-    setVendorInput(row.vendor??""); setCategoryInput(row.category??""); setUnitInput(row.unit??""); setNotesInput(row.notes??"");
-    setTotalsLowInput(String(row.low_level??0)); setRefInput(row.reference_number??""); setTotalsOrderStatusInput(row.order_status||"IN STOCK");
-    setTotalsBackorderedInput(!!row.backordered); setTotalsEditOpen(true); await loadOrderRowsForItem(row.item_id,"totals");
+    // Open the modal immediately — don't wait for anything
+    setTotalsEditRow(row);
+    setSetOnHandInput(String(row.total_on_hand??0));
+    setDeltaInput("");
+    setParInput(String(row.par_level??0));
+    setVendorInput(row.vendor??"");
+    setCategoryInput(row.category??"");
+    setUnitInput(row.unit??"");
+    setNotesInput(row.notes??"");
+    setTotalsLowInput(String(row.low_level??0));
+    setRefInput(row.reference_number??"");
+    setTotalsOrderStatusInput(row.order_status||"IN STOCK");
+    setTotalsBackorderedInput(!!row.backordered);
+    setTotalsEditOpen(true); // open modal right away
+    // Load order rows in background — won't block modal opening
+    loadOrderRowsForItem(row.item_id,"totals").catch(()=>{});
   }
 
   function parseIntSafe(raw: string): number|null {
@@ -1236,12 +1248,16 @@ export default function InventoryPage() {
                     </div>
                   )}
 
-                  <div className="qty-row" style={{opacity: item ? 0.3 : 1, pointerEvents: item ? "none" : "auto"}}>
-                    <QtyBtn onClick={()=>setQty((q)=>Math.max(1,q-1))}>−</QtyBtn>
-                    <div className="qty-disp">{qty}</div>
-                    <QtyBtn onClick={()=>setQty((q)=>q+1)}>+</QtyBtn>
-                  </div>
-                  <button className="btn btn-submit btn-full btn-lg mt3" disabled={!item||locked||staffMissing} onClick={submit} style={{opacity: item ? 0.3 : 1, pointerEvents: item ? "none" : "auto"}}>Submit</button>
+                  {!item && (
+                    <>
+                      <div className="qty-row">
+                        <QtyBtn onClick={()=>setQty((q)=>Math.max(1,q-1))}>−</QtyBtn>
+                        <div className="qty-disp">{qty}</div>
+                        <QtyBtn onClick={()=>setQty((q)=>q+1)}>+</QtyBtn>
+                      </div>
+                      <button className="btn btn-submit btn-full btn-lg mt3" disabled={!item||locked||staffMissing} onClick={submit}>Submit</button>
+                    </>
+                  )}
                   <button className="btn btn-gh btn-full" style={{marginTop:10,fontSize:13}} disabled={!lastTx||locked||staffMissing||undoBusy} onClick={undoLast}>
                     {undoBusy?"Undoing…":"↩️ Undo last transaction"}
                   </button>
