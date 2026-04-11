@@ -1,0 +1,993 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Baxter ASC — AI Inventory Monitor</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600&family=IBM+Plex+Sans:wght@300;400;500;600;700&display=swap');
+
+:root {
+  --bg: #080c14;
+  --card: #101820;
+  --card2: #141e2c;
+  --border: rgba(99,179,237,0.12);
+  --border2: rgba(99,179,237,0.06);
+  --text: #e8f4ff;
+  --text2: #7ba8c8;
+  --text3: #3d6480;
+  --accent: #63b3ed;
+  --green: #48bb78;
+  --red: #fc8181;
+  --amber: #f6ad55;
+  --purple: #b794f4;
+  --mono: 'IBM Plex Mono', monospace;
+  --sans: 'IBM Plex Sans', sans-serif;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--sans);
+  font-size: 13px;
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(99,179,237,0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(99,179,237,0.03) 1px, transparent 1px);
+  background-size: 40px 40px;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.app { position: relative; z-index: 1; max-width: 1300px; margin: 0 auto; padding: 0 20px 60px; }
+
+/* ── Header ── */
+.header {
+  border-bottom: 1px solid var(--border);
+  padding: 18px 0 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 20px;
+}
+.header-left { display: flex; align-items: center; gap: 12px; }
+.logo {
+  width: 40px; height: 40px;
+  background: linear-gradient(135deg, #1a3a5c, #0d2137);
+  border: 1px solid var(--accent);
+  border-radius: 10px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 20px;
+  box-shadow: 0 0 20px rgba(99,179,237,0.15);
+  flex-shrink: 0;
+}
+.header-title { font-family: var(--mono); font-size: 15px; font-weight: 600; }
+.header-sub { font-size: 10px; color: var(--text3); font-family: var(--mono); letter-spacing: 0.1em; margin-top: 2px; }
+.status-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--amber);
+  box-shadow: 0 0 8px var(--amber);
+  flex-shrink: 0;
+  transition: all 0.3s;
+}
+.status-dot.online { background: var(--green); box-shadow: 0 0 8px var(--green); animation: pulse 2.5s infinite; }
+.status-dot.error  { background: var(--red);   box-shadow: 0 0 8px var(--red); }
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.5} }
+
+.header-right { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.last-upd { font-family: var(--mono); font-size: 10px; color: var(--text3); }
+
+/* ── Tabs ── */
+.tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 20px;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 0;
+}
+.tab-btn {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 500;
+  padding: 10px 18px;
+  border: none;
+  background: transparent;
+  color: var(--text3);
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  transition: all 0.15s;
+  letter-spacing: 0.05em;
+}
+.tab-btn:hover { color: var(--text2); }
+.tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+/* ── Buttons ── */
+.btn {
+  font-family: var(--mono); font-size: 11px; font-weight: 500;
+  padding: 7px 14px; border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--card); color: var(--text2);
+  cursor: pointer; transition: all 0.15s; white-space: nowrap;
+}
+.btn:hover { border-color: var(--accent); color: var(--accent); background: rgba(99,179,237,0.06); }
+.btn:disabled { opacity: 0.35; cursor: not-allowed; }
+.btn-accent { background: var(--accent); color: #000; border-color: var(--accent); font-weight: 600; }
+.btn-accent:hover { background: #90cdf4; color: #000; }
+.btn-ai { background: rgba(183,148,244,0.1); border-color: rgba(183,148,244,0.3); color: var(--purple); }
+.btn-ai:hover { background: rgba(183,148,244,0.2); color: var(--purple); }
+
+/* ── Stats ── */
+.stats-grid { display: grid; grid-template-columns: repeat(5,1fr); gap: 10px; margin-bottom: 20px; }
+.stat-card {
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: 12px; padding: 14px 16px; position: relative; overflow: hidden;
+}
+.stat-card::after { content:''; position:absolute; top:0;left:0;right:0; height:2px; border-radius:12px 12px 0 0; }
+.stat-card.blue::after  { background: var(--accent); }
+.stat-card.green::after { background: var(--green); }
+.stat-card.red::after   { background: var(--red); }
+.stat-card.amber::after { background: var(--amber); }
+.stat-card.purple::after{ background: var(--purple); }
+.stat-lbl { font-family:var(--mono); font-size:9px; letter-spacing:0.18em; color:var(--text3); text-transform:uppercase; }
+.stat-val { font-family:var(--mono); font-size:28px; font-weight:600; margin-top:4px; line-height:1; }
+.stat-val.blue   { color:var(--accent); }
+.stat-val.green  { color:var(--green); }
+.stat-val.red    { color:var(--red); }
+.stat-val.amber  { color:var(--amber); }
+.stat-val.purple { color:var(--purple); }
+.stat-sub { font-size:10px; color:var(--text3); margin-top:3px; }
+
+/* ── Main layout ── */
+.main-grid { display: grid; grid-template-columns: 1fr 360px; gap: 16px; align-items: start; }
+
+/* ── Panel ── */
+.panel { background:var(--card); border:1px solid var(--border); border-radius:14px; overflow:hidden; margin-bottom:14px; }
+.panel-hdr {
+  display:flex; align-items:center; justify-content:space-between;
+  padding:12px 16px; border-bottom:1px solid var(--border2); gap:10px;
+}
+.panel-title { font-family:var(--mono); font-size:10px; font-weight:600; letter-spacing:0.15em; color:var(--text2); text-transform:uppercase; display:flex; align-items:center; gap:7px; }
+.panel-body { padding:14px 16px; }
+
+/* ── Alert items ── */
+.alert-list { display:flex; flex-direction:column; gap:7px; }
+.alert-item {
+  display:flex; align-items:center; gap:10px;
+  padding:10px 12px; border-radius:9px; border:1px solid;
+}
+.alert-item.critical { background:rgba(252,129,129,0.06); border-color:rgba(252,129,129,0.2); }
+.alert-item.warning  { background:rgba(246,173,85,0.06);  border-color:rgba(246,173,85,0.2); }
+.alert-item.info     { background:rgba(99,179,237,0.06);  border-color:rgba(99,179,237,0.12); }
+.alert-item.ok       { background:rgba(72,187,120,0.06);  border-color:rgba(72,187,120,0.15); }
+.alert-icon { font-size:15px; flex-shrink:0; width:22px; text-align:center; }
+.alert-content { flex:1; min-width:0; }
+.alert-name { font-size:12px; font-weight:600; color:var(--text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.alert-detail { font-size:10px; color:var(--text2); margin-top:1px; font-family:var(--mono); }
+.badge {
+  flex-shrink:0; font-family:var(--mono); font-size:9px; font-weight:600;
+  padding:2px 8px; border-radius:100px; white-space:nowrap;
+}
+.badge-critical { background:rgba(252,129,129,0.15); color:var(--red);    border:1px solid rgba(252,129,129,0.3); }
+.badge-warning  { background:rgba(246,173,85,0.15);  color:var(--amber);  border:1px solid rgba(246,173,85,0.3); }
+.badge-info     { background:rgba(99,179,237,0.15);  color:var(--accent); border:1px solid rgba(99,179,237,0.3); }
+.badge-ok       { background:rgba(72,187,120,0.15);  color:var(--green);  border:1px solid rgba(72,187,120,0.3); }
+.badge-purple   { background:rgba(183,148,244,0.15); color:var(--purple); border:1px solid rgba(183,148,244,0.3); }
+
+/* ── Activity feed ── */
+.activity-list { display:flex; flex-direction:column; gap:0; }
+.activity-item {
+  display:flex; align-items:flex-start; gap:10px;
+  padding:10px 0; border-bottom:1px solid var(--border2);
+}
+.activity-item:last-child { border-bottom:none; }
+.activity-dot { width:8px; height:8px; border-radius:50%; flex-shrink:0; margin-top:4px; }
+.activity-dot.use     { background:var(--red); }
+.activity-dot.restock { background:var(--green); }
+.activity-dot.edit    { background:var(--accent); }
+.activity-dot.other   { background:var(--text3); }
+.activity-content { flex:1; min-width:0; }
+.activity-text { font-size:12px; color:var(--text); line-height:1.4; }
+.activity-meta { font-family:var(--mono); font-size:10px; color:var(--text3); margin-top:2px; }
+
+/* ── Table ── */
+.inv-table { width:100%; border-collapse:collapse; }
+.inv-table th { text-align:left; padding:7px 10px; font-family:var(--mono); font-size:9px; letter-spacing:0.12em; color:var(--text3); text-transform:uppercase; border-bottom:1px solid var(--border2); }
+.inv-table td { padding:9px 10px; font-size:12px; border-bottom:1px solid var(--border2); vertical-align:middle; }
+.inv-table tr:last-child td { border-bottom:none; }
+.inv-table tr:hover td { background:rgba(99,179,237,0.03); }
+.stock-bar-wrap { display:flex; align-items:center; gap:7px; }
+.stock-bar-track { flex:1; height:3px; background:rgba(255,255,255,0.06); border-radius:100px; overflow:hidden; min-width:50px; }
+.stock-bar-fill { height:100%; border-radius:100px; }
+.ok     { color:var(--green); }
+.warn   { color:var(--amber); }
+.danger { color:var(--red); }
+.fill-ok     { background:var(--green); }
+.fill-warn   { background:var(--amber); }
+.fill-danger { background:var(--red); }
+
+/* ── Area breakdown ── */
+.area-grid { display:grid; grid-template-columns:repeat(2,1fr); gap:10px; }
+.area-card {
+  background:var(--card2); border:1px solid var(--border2);
+  border-radius:10px; padding:12px 14px;
+}
+.area-name { font-size:12px; font-weight:600; color:var(--text); margin-bottom:8px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.area-stats { display:flex; gap:12px; }
+.area-stat { text-align:center; }
+.area-stat-val { font-family:var(--mono); font-size:18px; font-weight:600; line-height:1; }
+.area-stat-lbl { font-size:9px; color:var(--text3); margin-top:2px; letter-spacing:0.08em; }
+
+/* ── AI panel ── */
+.ai-panel {
+  background:var(--card); border:1px solid rgba(183,148,244,0.2);
+  border-radius:14px; overflow:hidden; position:sticky; top:20px;
+}
+.ai-hdr {
+  padding:12px 16px; border-bottom:1px solid rgba(183,148,244,0.1);
+  background:linear-gradient(135deg,rgba(183,148,244,0.08),rgba(99,179,237,0.04));
+  display:flex; align-items:center; gap:10px;
+}
+.ai-avatar {
+  width:30px; height:30px;
+  background:linear-gradient(135deg,#553c9a,#1a3a5c);
+  border-radius:8px; display:flex; align-items:center; justify-content:center;
+  font-size:15px; flex-shrink:0; box-shadow:0 0 10px rgba(183,148,244,0.25);
+}
+.ai-name { font-family:var(--mono); font-size:12px; font-weight:600; color:var(--purple); }
+.ai-sub  { font-size:10px; color:var(--text3); margin-top:1px; }
+
+.chat-msgs {
+  height:380px; overflow-y:auto;
+  padding:14px; display:flex; flex-direction:column; gap:10px;
+}
+.msg { display:flex; gap:8px; animation:fadeIn 0.2s ease; }
+.msg.user { flex-direction:row-reverse; }
+@keyframes fadeIn { from{opacity:0;transform:translateY(4px)} to{opacity:1;transform:translateY(0)} }
+.msg-av {
+  width:26px; height:26px; border-radius:6px;
+  display:flex; align-items:center; justify-content:center;
+  font-size:12px; flex-shrink:0; margin-top:2px;
+}
+.msg.ai   .msg-av { background:linear-gradient(135deg,#553c9a,#1a3a5c); }
+.msg.user .msg-av { background:var(--card2); border:1px solid var(--border); }
+.msg-bub {
+  max-width:88%; padding:9px 11px; border-radius:10px;
+  font-size:12px; line-height:1.6;
+}
+.msg.ai   .msg-bub { background:rgba(183,148,244,0.08); border:1px solid rgba(183,148,244,0.15); color:var(--text); border-radius:3px 10px 10px 10px; }
+.msg.user .msg-bub { background:rgba(99,179,237,0.1); border:1px solid rgba(99,179,237,0.2); color:var(--text); border-radius:10px 3px 10px 10px; }
+.msg-time { font-size:9px; color:var(--text3); margin-top:3px; font-family:var(--mono); }
+
+.typing-wrap { display:flex; gap:3px; align-items:center; padding:6px 0; }
+.typing-dot { width:5px; height:5px; border-radius:50%; background:var(--purple); animation:typing 1.2s infinite; }
+.typing-dot:nth-child(2){animation-delay:0.2s}
+.typing-dot:nth-child(3){animation-delay:0.4s}
+@keyframes typing{0%,60%,100%{opacity:0.3;transform:scale(0.8)}30%{opacity:1;transform:scale(1)}}
+
+.quick-prompts { padding:8px 12px; border-top:1px solid rgba(183,148,244,0.08); display:flex; gap:5px; flex-wrap:wrap; }
+.quick-btn {
+  font-family:var(--mono); font-size:9px; padding:3px 9px;
+  border-radius:100px; border:1px solid rgba(183,148,244,0.2);
+  background:transparent; color:var(--text3); cursor:pointer; transition:all 0.12s;
+}
+.quick-btn:hover { border-color:var(--purple); color:var(--purple); background:rgba(183,148,244,0.08); }
+
+.chat-input-area { padding:10px; border-top:1px solid rgba(183,148,244,0.1); display:flex; gap:7px; }
+.chat-input {
+  flex:1; background:rgba(255,255,255,0.04);
+  border:1px solid rgba(183,148,244,0.15); border-radius:9px;
+  padding:8px 11px; color:var(--text); font-family:var(--sans); font-size:12px;
+  outline:none; resize:none; min-height:36px; max-height:90px; transition:border-color 0.15s;
+}
+.chat-input:focus { border-color:rgba(183,148,244,0.4); }
+.chat-input::placeholder { color:var(--text3); }
+.send-btn {
+  width:36px; height:36px;
+  background:rgba(183,148,244,0.15); border:1px solid rgba(183,148,244,0.3);
+  border-radius:9px; cursor:pointer; display:flex; align-items:center; justify-content:center;
+  font-size:14px; transition:all 0.15s; flex-shrink:0;
+}
+.send-btn:hover { background:rgba(183,148,244,0.28); }
+.send-btn:disabled { opacity:0.35; cursor:not-allowed; }
+
+/* ── Tab content ── */
+.tab-content { display:none; }
+.tab-content.active { display:block; }
+
+/* ── Misc ── */
+.empty { text-align:center; padding:28px; color:var(--text3); font-size:12px; }
+.spin { width:18px; height:18px; border:2px solid var(--border); border-top-color:var(--accent); border-radius:50%; animation:spin 0.8s linear infinite; margin:0 auto; }
+@keyframes spin{to{transform:rotate(360deg)}}
+::-webkit-scrollbar{width:3px}
+::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px}
+
+@media(max-width:960px){
+  .main-grid{grid-template-columns:1fr}
+  .stats-grid{grid-template-columns:repeat(3,1fr)}
+  .ai-panel{position:static}
+}
+@media(max-width:540px){
+  .stats-grid{grid-template-columns:repeat(2,1fr)}
+  .area-grid{grid-template-columns:1fr}
+}
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- Header -->
+  <header class="header">
+    <div class="header-left">
+      <div class="logo">⚕️</div>
+      <div>
+        <div class="header-title">Baxter ASC — AI Monitor</div>
+        <div class="header-sub">LIVE INVENTORY INTELLIGENCE</div>
+      </div>
+      <div class="status-dot" id="statusDot"></div>
+    </div>
+    <div class="header-right">
+      <div class="last-upd" id="lastUpd">Not loaded</div>
+      <button class="btn" onclick="loadAll()">↺ Refresh All</button>
+      <button class="btn btn-ai" onclick="runFullAnalysis()">🤖 AI Analysis</button>
+      <button class="btn" onclick="sendAlertEmail()" id="emailAlertBtn" style="border-color:rgba(72,187,120,0.3);color:#48bb78">📧 Email Alerts</button>
+      <button class="btn" onclick="sendSummaryEmail()" id="emailSummaryBtn" style="border-color:rgba(99,179,237,0.3);color:var(--accent)">📊 Email Summary</button>
+    </div>
+  </header>
+
+  <!-- Stats -->
+  <div class="stats-grid">
+    <div class="stat-card blue">
+      <div class="stat-lbl">Total Items</div>
+      <div class="stat-val blue" id="sTotal">—</div>
+      <div class="stat-sub">active items</div>
+    </div>
+    <div class="stat-card red">
+      <div class="stat-lbl">Zero Stock</div>
+      <div class="stat-val red" id="sCritical">—</div>
+      <div class="stat-sub">need immediate restock</div>
+    </div>
+    <div class="stat-card amber">
+      <div class="stat-lbl">Low Stock</div>
+      <div class="stat-val amber" id="sLow">—</div>
+      <div class="stat-sub">below par level</div>
+    </div>
+    <div class="stat-card green">
+      <div class="stat-lbl">Well Stocked</div>
+      <div class="stat-val green" id="sOk">—</div>
+      <div class="stat-sub">at or above par</div>
+    </div>
+    <div class="stat-card purple">
+      <div class="stat-lbl">Transactions</div>
+      <div class="stat-val purple" id="sTx">—</div>
+      <div class="stat-sub">logged today</div>
+    </div>
+  </div>
+
+  <!-- Tabs -->
+  <div class="tabs">
+    <button class="tab-btn active" onclick="switchTab('alerts')">🚨 Alerts</button>
+    <button class="tab-btn" onclick="switchTab('activity')">📋 Live Activity</button>
+    <button class="tab-btn" onclick="switchTab('inventory')">📦 Inventory</button>
+    <button class="tab-btn" onclick="switchTab('areas')">🗄 By Area</button>
+  </div>
+
+  <!-- Main grid -->
+  <div class="main-grid">
+
+    <!-- Left: tab panels -->
+    <div>
+
+      <!-- ALERTS TAB -->
+      <div class="tab-content active" id="tab-alerts">
+        <div class="panel">
+          <div class="panel-hdr">
+            <div class="panel-title">🚨 Alerts Requiring Attention</div>
+            <span id="alertCount" style="font-family:var(--mono);font-size:10px;color:var(--text3)">—</span>
+          </div>
+          <div class="panel-body">
+            <div class="alert-list" id="alertList">
+              <div class="empty"><div class="spin"></div><div style="margin-top:10px">Loading…</div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ACTIVITY TAB -->
+      <div class="tab-content" id="tab-activity">
+        <div class="panel">
+          <div class="panel-hdr">
+            <div class="panel-title">📋 Live Transaction Log</div>
+            <span style="font-family:var(--mono);font-size:10px;color:var(--text3)">From app + admin · last 50</span>
+          </div>
+          <div class="panel-body">
+            <div class="activity-list" id="activityList">
+              <div class="empty"><div class="spin"></div><div style="margin-top:10px">Loading activity…</div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- INVENTORY TAB -->
+      <div class="tab-content" id="tab-inventory">
+        <div class="panel">
+          <div class="panel-hdr">
+            <div class="panel-title">📦 Full Inventory</div>
+            <input id="tableSearch" placeholder="Search…" oninput="filterTable()"
+              style="background:rgba(255,255,255,0.04);border:1px solid var(--border);border-radius:7px;padding:5px 9px;color:var(--text);font-size:11px;outline:none;width:150px;font-family:var(--mono)" />
+          </div>
+          <div style="overflow-x:auto">
+            <table class="inv-table">
+              <thead><tr><th>Item</th><th>Vendor</th><th>On Hand</th><th>Par</th><th>Stock</th><th>Status</th></tr></thead>
+              <tbody id="invBody"><tr><td colspan="6"><div class="empty"><div class="spin"></div></div></td></tr></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- AREAS TAB -->
+      <div class="tab-content" id="tab-areas">
+        <div class="panel">
+          <div class="panel-hdr">
+            <div class="panel-title">🗄 Inventory by Storage Area</div>
+            <span style="font-family:var(--mono);font-size:10px;color:var(--text3)" id="areaCount">—</span>
+          </div>
+          <div class="panel-body" id="areaPanel">
+            <div class="empty"><div class="spin"></div><div style="margin-top:10px">Loading areas…</div></div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Right: AI Assistant -->
+    <div>
+      <div class="ai-panel">
+        <div class="ai-hdr">
+          <div class="ai-avatar">🤖</div>
+          <div>
+            <div class="ai-name">ASC Intelligence</div>
+            <div class="ai-sub">Connected to all inventory tables · Read-only</div>
+          </div>
+        </div>
+
+        <div class="chat-msgs" id="chatMsgs">
+          <div class="msg ai">
+            <div class="msg-av">🤖</div>
+            <div>
+              <div class="msg-bub">
+                Hi! I'm connected to your entire Baxter ASC inventory system — building totals, every storage area, transaction logs, and the change history.<br><br>
+                Hit <strong>Refresh All</strong> to load your live data, then ask me anything or tap <strong>AI Analysis</strong> for a full report.
+              </div>
+              <div class="msg-time">Ready</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="quick-prompts">
+          <button class="quick-btn" onclick="qp('What needs immediate attention right now?')">Urgent items</button>
+          <button class="quick-btn" onclick="qp('What should I reorder today?')">Reorder list</button>
+          <button class="quick-btn" onclick="qp('Give me a full inventory health summary')">Health check</button>
+          <button class="quick-btn" onclick="qp('What transactions happened today?')">Today activity</button>
+          <button class="quick-btn" onclick="qp('Which storage areas are most understocked?')">Areas status</button>
+          <button class="quick-btn" onclick="qp('What are my top 10 fastest moving items?')">Top movers</button>
+        </div>
+
+        <div class="chat-input-area">
+          <textarea id="chatInput" class="chat-input" placeholder="Ask about your inventory…" rows="1"
+            onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendMsg()}"
+            oninput="this.style.height='auto';this.style.height=Math.min(this.scrollHeight,90)+'px'"></textarea>
+          <button class="send-btn" id="sendBtn" onclick="sendMsg()">➤</button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+// ── Config ─────────────────────────────────────────────────────────────────
+const SB_URL = 'https://nimeblkgekyjterfllin.supabase.co';
+const SB_KEY = 'sb_publishable_DlWT4vrRjaWSmjXYrwyacQ_70xl18Vn';
+
+// ── State ──────────────────────────────────────────────────────────────────
+let inventory     = [];   // building_inventory_sheet_view
+let areaInventory = [];   // storage_inventory_area_view (all areas)
+let changeLog     = [];   // inventory_change_log
+let areas         = [];   // storage_areas
+let aiThinking    = false;
+let tableRows     = [];
+
+// ── Supabase READ-ONLY fetch ───────────────────────────────────────────────
+async function sb(path) {
+  const r = await fetch(`${SB_URL}/rest/v1/${path}`, {
+    headers: { 'apikey': SB_KEY, 'Authorization': `Bearer ${SB_KEY}` }
+  });
+  if (!r.ok) throw new Error(`${r.status} ${await r.text()}`);
+  return r.json();
+}
+
+// ── Load everything ────────────────────────────────────────────────────────
+async function loadAll() {
+  setStatus('loading');
+  document.getElementById('lastUpd').textContent = 'Loading…';
+
+  try {
+    // 1. Building totals view
+    inventory = await sb(
+      `building_inventory_sheet_view?select=item_id,name,reference_number,vendor,category,total_on_hand,par_level,low_level,unit,is_active,order_status,backordered&is_active=eq.true&order=name.asc`
+    );
+
+    // 2. All storage areas
+    areas = await sb(`storage_areas?select=id,name&order=name.asc`);
+
+    // 3. Area inventory (all areas combined)
+    areaInventory = await sb(
+      `storage_inventory_area_view?select=storage_area_id,storage_area_name,item_id,item_name,on_hand,par_level,low_level,unit,vendor,category&order=item_name.asc`
+    );
+
+    // 4. Change log (most recent 50)
+    try {
+      changeLog = await sb(
+        `inventory_change_log?select=*&order=changed_at.desc&limit=50`
+      );
+    } catch { changeLog = []; }
+
+    // Update all sections
+    updateStats();
+    renderAlerts();
+    renderActivity();
+    renderTable();
+    renderAreas();
+    updateTodayTx();
+
+    setStatus('online');
+    document.getElementById('lastUpd').textContent =
+      `Updated ${new Date().toLocaleTimeString()}`;
+
+  } catch(e) {
+    setStatus('error');
+    document.getElementById('lastUpd').textContent = `Error: ${e.message}`;
+    console.error(e);
+  }
+}
+
+function setStatus(s) {
+  const dot = document.getElementById('statusDot');
+  dot.className = 'status-dot' + (s === 'online' ? ' online' : s === 'error' ? ' error' : '');
+}
+
+// ── Stats ──────────────────────────────────────────────────────────────────
+function updateStats() {
+  const total    = inventory.length;
+  const critical = inventory.filter(r => (r.total_on_hand ?? 0) === 0).length;
+  const low      = inventory.filter(r => {
+    const oh = r.total_on_hand ?? 0;
+    const par = r.par_level ?? 0;
+    return oh > 0 && par > 0 && oh < par;
+  }).length;
+  const ok = Math.max(0, total - critical - low);
+
+  document.getElementById('sTotal').textContent    = total;
+  document.getElementById('sCritical').textContent = critical;
+  document.getElementById('sLow').textContent      = low;
+  document.getElementById('sOk').textContent       = ok;
+}
+
+function updateTodayTx() {
+  const today = new Date().toISOString().slice(0, 10);
+  const count = changeLog.filter(r => (r.changed_at || '').startsWith(today)).length;
+  document.getElementById('sTx').textContent = count;
+}
+
+// ── Alerts ─────────────────────────────────────────────────────────────────
+function renderAlerts() {
+  const critical  = inventory.filter(r => (r.total_on_hand ?? 0) === 0);
+  const low       = inventory.filter(r => {
+    const oh = r.total_on_hand ?? 0; const par = r.par_level ?? 0;
+    return oh > 0 && par > 0 && oh < par;
+  });
+  const bo = inventory.filter(r => r.backordered);
+
+  const alerts = [];
+  critical.forEach(r => alerts.push({ type:'critical', icon:'🔴', name:r.name, detail:`ZERO on-hand · Par: ${r.par_level ?? 0}${r.unit?' '+r.unit:''}`, badge:'ZERO', bc:'badge-critical' }));
+  low.forEach(r => {
+    const pct = r.par_level > 0 ? Math.round((r.total_on_hand/r.par_level)*100) : 0;
+    alerts.push({ type:'warning', icon:'🟡', name:r.name, detail:`${r.total_on_hand} on-hand · Par: ${r.par_level} · ${pct}% of par`, badge:'LOW', bc:'badge-warning' });
+  });
+  bo.forEach(r => alerts.push({ type:'info', icon:'📦', name:r.name, detail:`${r.order_status||'BACKORDER'} · ${r.total_on_hand??0} on-hand`, badge:'B/O', bc:'badge-info' }));
+
+  document.getElementById('alertCount').textContent = `${alerts.length} alert${alerts.length!==1?'s':''}`;
+
+  const el = document.getElementById('alertList');
+  if (!alerts.length) {
+    el.innerHTML = `<div class="alert-item ok"><div class="alert-icon">✅</div><div class="alert-content"><div class="alert-name">All clear — no alerts</div><div class="alert-detail">All items stocked at or above par</div></div><span class="badge badge-ok">ALL GOOD</span></div>`;
+    return;
+  }
+  el.innerHTML = alerts.slice(0,40).map(a => `
+    <div class="alert-item ${a.type}">
+      <div class="alert-icon">${a.icon}</div>
+      <div class="alert-content">
+        <div class="alert-name">${esc(a.name)}</div>
+        <div class="alert-detail">${esc(a.detail)}</div>
+      </div>
+      <span class="badge ${a.bc}">${a.badge}</span>
+    </div>`).join('');
+}
+
+// ── Activity (from change log + app transactions) ──────────────────────────
+function renderActivity() {
+  const el = document.getElementById('activityList');
+
+  if (!changeLog.length) {
+    el.innerHTML = `<div class="empty">No transaction history yet.<br><small style="color:var(--text3)">Transactions will appear here automatically as items are used or restocked in the app.</small></div>`;
+    return;
+  }
+
+  el.innerHTML = changeLog.slice(0, 50).map(r => {
+    const oldOh = r.old_on_hand ?? 0;
+    const newOh = r.new_on_hand ?? 0;
+    const diff  = newOh - oldOh;
+    const isUse = diff < 0;
+    const isRestock = diff > 0;
+
+    let dotClass = 'other';
+    let action = 'Changed';
+    if (isUse)     { dotClass = 'use';     action = `Used ${Math.abs(diff)}`; }
+    if (isRestock) { dotClass = 'restock'; action = `Restocked +${diff}`; }
+
+    const time = r.changed_at ? new Date(r.changed_at).toLocaleString([], { month:'short', day:'numeric', hour:'2-digit', minute:'2-digit' }) : '—';
+
+    return `
+      <div class="activity-item">
+        <div class="activity-dot ${dotClass}"></div>
+        <div class="activity-content">
+          <div class="activity-text"><strong>${esc(r.item_name||'Unknown item')}</strong> — ${action} (${oldOh} → ${newOh})</div>
+          <div class="activity-meta">${time}${r.changed_by && r.changed_by!=='app'?' · '+esc(r.changed_by):''}</div>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+// ── Inventory table ────────────────────────────────────────────────────────
+function renderTable() {
+  tableRows = [...inventory];
+  filterTable();
+}
+
+function filterTable() {
+  const q = (document.getElementById('tableSearch')?.value||'').toLowerCase();
+  let rows = tableRows;
+  if (q) rows = rows.filter(r =>
+    (r.name||'').toLowerCase().includes(q) ||
+    (r.vendor||'').toLowerCase().includes(q) ||
+    (r.category||'').toLowerCase().includes(q)
+  );
+
+  const tbody = document.getElementById('invBody');
+  if (!rows.length) { tbody.innerHTML = `<tr><td colspan="6"><div class="empty">No items found</div></td></tr>`; return; }
+
+  tbody.innerHTML = rows.map(r => {
+    const oh  = r.total_on_hand ?? 0;
+    const par = r.par_level ?? 0;
+    let sc = 'ok', sl = 'OK';
+    if (oh === 0)              { sc = 'danger'; sl = 'ZERO'; }
+    else if (par>0 && oh<par)  { sc = 'warn';   sl = 'LOW'; }
+    const pct = par > 0 ? Math.min(Math.round((oh/par)*100), 100) : (oh>0?100:0);
+    return `
+      <tr>
+        <td><div style="font-weight:600;color:var(--text);font-size:12px">${esc(r.name||'—')}</div>${r.reference_number?`<div style="font-size:9px;color:var(--text3);font-family:var(--mono)">${esc(r.reference_number)}</div>`:''}</td>
+        <td style="font-size:11px;color:var(--text2)">${esc(r.vendor||'—')}</td>
+        <td><span class="${sc}" style="font-family:var(--mono);font-weight:600">${oh}</span></td>
+        <td><span style="font-family:var(--mono);color:var(--text2)">${par}</span></td>
+        <td><div class="stock-bar-wrap"><div class="stock-bar-track"><div class="stock-bar-fill fill-${sc}" style="width:${pct}%"></div></div><span style="font-family:var(--mono);font-size:9px;color:var(--text3);width:28px;text-align:right">${pct}%</span></div></td>
+        <td><span style="font-family:var(--mono);font-size:9px;padding:2px 7px;border-radius:100px;${sc==='danger'?'background:rgba(252,129,129,0.12);color:#fc8181;border:1px solid rgba(252,129,129,0.25)':sc==='warn'?'background:rgba(246,173,85,0.12);color:#f6ad55;border:1px solid rgba(246,173,85,0.25)':'background:rgba(72,187,120,0.1);color:#48bb78;border:1px solid rgba(72,187,120,0.2)'}">${sl}</span></td>
+      </tr>`;
+  }).join('');
+}
+
+// ── Areas breakdown ────────────────────────────────────────────────────────
+function renderAreas() {
+  const el = document.getElementById('areaPanel');
+  document.getElementById('areaCount').textContent = `${areas.length} areas`;
+
+  if (!areas.length) { el.innerHTML = `<div class="empty">No storage areas found</div>`; return; }
+
+  const areaStats = areas.map(area => {
+    const rows  = areaInventory.filter(r => r.storage_area_id === area.id);
+    const total = rows.length;
+    const zero  = rows.filter(r => (r.on_hand??0) === 0).length;
+    const low   = rows.filter(r => { const oh=r.on_hand??0; const par=r.par_level??0; return oh>0&&par>0&&oh<par; }).length;
+    const ok    = total - zero - low;
+    return { name: area.name, total, zero, low, ok };
+  });
+
+  el.innerHTML = `<div class="area-grid">${areaStats.map(a => `
+    <div class="area-card">
+      <div class="area-name">${esc(a.name)}</div>
+      <div class="area-stats">
+        <div class="area-stat"><div class="area-stat-val" style="color:var(--accent)">${a.total}</div><div class="area-stat-lbl">ITEMS</div></div>
+        <div class="area-stat"><div class="area-stat-val" style="color:var(--red)">${a.zero}</div><div class="area-stat-lbl">ZERO</div></div>
+        <div class="area-stat"><div class="area-stat-val" style="color:var(--amber)">${a.low}</div><div class="area-stat-lbl">LOW</div></div>
+        <div class="area-stat"><div class="area-stat-val" style="color:var(--green)">${a.ok}</div><div class="area-stat-lbl">OK</div></div>
+      </div>
+    </div>`).join('')}</div>`;
+}
+
+// ── Tabs ───────────────────────────────────────────────────────────────────
+function switchTab(name) {
+  document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById(`tab-${name}`).classList.add('active');
+  event.target.classList.add('active');
+}
+
+// ── AI Chat ────────────────────────────────────────────────────────────────
+function buildContext() {
+  if (!inventory.length) return 'No inventory data loaded yet.';
+
+  const critical  = inventory.filter(r => (r.total_on_hand??0)===0);
+  const low       = inventory.filter(r => { const oh=r.total_on_hand??0; const par=r.par_level??0; return oh>0&&par>0&&oh<par; });
+  const bo        = inventory.filter(r => r.backordered);
+  const today     = new Date().toISOString().slice(0,10);
+  const todayLogs = changeLog.filter(r => (r.changed_at||'').startsWith(today));
+  const recentLogs= changeLog.slice(0,10);
+
+  return `BAXTER ASC INVENTORY — ${new Date().toLocaleString()}
+
+SUMMARY:
+- Total active items: ${inventory.length}
+- Zero on-hand (critical): ${critical.length}
+- Below par (low): ${low.length}  
+- At or above par (ok): ${inventory.length-critical.length-low.length}
+- Backordered: ${bo.length}
+- Transactions today: ${todayLogs.length}
+- Storage areas: ${areas.length}
+
+CRITICAL (zero on-hand):
+${critical.slice(0,25).map(r=>`- ${r.name}: 0 on-hand, par=${r.par_level??0}${r.unit?' '+r.unit:''}`).join('\n')||'None'}
+
+LOW STOCK:
+${low.slice(0,25).map(r=>{const pct=r.par_level>0?Math.round((r.total_on_hand/r.par_level)*100):0;return`- ${r.name}: ${r.total_on_hand} on-hand, par=${r.par_level} (${pct}%)`;}).join('\n')||'None'}
+
+BACKORDERED:
+${bo.slice(0,10).map(r=>`- ${r.name}: ${r.order_status}`).join('\n')||'None'}
+
+AREAS (${areas.length} storage locations):
+${areas.map(area=>{const rows=areaInventory.filter(r=>r.storage_area_id===area.id);const zero=rows.filter(r=>(r.on_hand??0)===0).length;const low2=rows.filter(r=>{const oh=r.on_hand??0;const par=r.par_level??0;return oh>0&&par>0&&oh<par;}).length;return`- ${area.name}: ${rows.length} items, ${zero} zero, ${low2} low`;}).join('\n')}
+
+RECENT TRANSACTIONS:
+${recentLogs.map(r=>{const diff=(r.new_on_hand??0)-(r.old_on_hand??0);const time=r.changed_at?new Date(r.changed_at).toLocaleString():'?';return`- ${r.item_name||'Unknown'}: ${diff>0?'+':''}${diff} (${r.old_on_hand}→${r.new_on_hand}) at ${time}${r.changed_by&&r.changed_by!=='app'?' by '+r.changed_by:''}`;}).join('\n')||'No transactions logged yet'}`;
+}
+
+async function sendMsg() {
+  const inp = document.getElementById('chatInput');
+  const msg = inp.value.trim();
+  if (!msg || aiThinking) return;
+  inp.value = ''; inp.style.height = 'auto';
+  addMsg('user', msg);
+  await askAI(msg);
+}
+
+function qp(text) { document.getElementById('chatInput').value = text; sendMsg(); }
+
+function addMsg(role, text) {
+  const c = document.getElementById('chatMsgs');
+  const time = new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
+  const d = document.createElement('div');
+  d.className = `msg ${role}`;
+  d.innerHTML = `<div class="msg-av">${role==='ai'?'🤖':'👤'}</div><div><div class="msg-bub">${fmt(text)}</div><div class="msg-time">${time}</div></div>`;
+  c.appendChild(d);
+  c.scrollTop = c.scrollHeight;
+}
+
+function showTyping() {
+  const c = document.getElementById('chatMsgs');
+  const d = document.createElement('div');
+  d.className = 'msg ai'; d.id = 'typing';
+  d.innerHTML = `<div class="msg-av">🤖</div><div><div class="msg-bub" style="padding:10px"><div class="typing-wrap"><div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div></div></div></div>`;
+  c.appendChild(d); c.scrollTop = c.scrollHeight;
+}
+
+async function askAI(msg) {
+  aiThinking = true;
+  document.getElementById('sendBtn').disabled = true;
+  showTyping();
+
+  try {
+    const res = await fetch('https://nextjs-with-supabase-gamma-rosy.vercel.app/api/ai-chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        message: msg,
+        context: buildContext()
+      })
+    });
+    const data = await res.json();
+    document.getElementById('typing')?.remove();
+    if (data.ok) {
+      addMsg('ai', data.text);
+    } else {
+      addMsg('ai', `Error: ${data.error || 'Something went wrong. Make sure ANTHROPIC_API_KEY is set in Vercel.'}`);
+    }
+  } catch(e) {
+    document.getElementById('typing')?.remove();
+    addMsg('ai', `Connection error: ${e.message}`);
+  }
+
+  aiThinking = false;
+  document.getElementById('sendBtn').disabled = false;
+}
+
+async function runFullAnalysis() {
+  if (!inventory.length) await loadAll();
+  await askAI('Give me a complete inventory health analysis for Baxter ASC. Cover: what needs immediate restocking, what to order soon, which storage areas are most critical, any patterns in recent transactions, and your top 5 action items for today.');
+}
+
+function fmt(t) {
+  return t.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/\*\*(.*?)\*\*/g,'<strong>$1</strong>').replace(/\n/g,'<br>');
+}
+function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+// ── Email config ───────────────────────────────────────────────────────────
+const RESEND_KEY = 're_ACvW7saV_4Q1p5ChLBAJqTFdAVnmVgUyC';
+const ALERT_TO   = 'hogstud800@gmail.com';
+const ALERT_FROM = 'onboarding@resend.dev';
+
+async function sendEmail(subject, html) {
+  const res = await fetch('https://nextjs-with-supabase-gamma-rosy.vercel.app/api/send-email', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ subject, html })
+  });
+  const data = await res.json();
+  if (!data.ok) throw new Error(data.error || 'Email failed');
+  return data;
+}
+
+async function sendAlertEmail() {
+  if (!inventory.length) { alert('Load inventory first by clicking Refresh All'); return; }
+  const btn = document.getElementById('emailAlertBtn');
+  btn.textContent = 'Sending…'; btn.disabled = true;
+
+  const critical = inventory.filter(r => (r.total_on_hand ?? 0) === 0);
+  const low      = inventory.filter(r => { const oh=r.total_on_hand??0; const par=r.par_level??0; return oh>0&&par>0&&oh<par; });
+
+  if (!critical.length && !low.length) {
+    alert('No alerts to send — all items are well stocked!');
+    btn.textContent = '📧 Email Alerts'; btn.disabled = false;
+    return;
+  }
+
+  const criticalRows = critical.map(r => `
+    <tr>
+      <td style="padding:8px 12px;border-bottom:1px solid #fee2e2;font-weight:600">${r.name}</td>
+      <td style="padding:8px 12px;border-bottom:1px solid #fee2e2;color:#dc2626;font-weight:700;text-align:center">0</td>
+      <td style="padding:8px 12px;border-bottom:1px solid #fee2e2;text-align:center">${r.par_level??0}</td>
+      <td style="padding:8px 12px;border-bottom:1px solid #fee2e2;text-align:center"><span style="background:#fee2e2;color:#dc2626;padding:2px 8px;border-radius:4px;font-size:12px">ZERO STOCK</span></td>
+    </tr>`).join('');
+
+  const lowRows = low.map(r => {
+    const pct = r.par_level>0 ? Math.round((r.total_on_hand/r.par_level)*100) : 0;
+    return `
+    <tr>
+      <td style="padding:8px 12px;border-bottom:1px solid #fef3c7;font-weight:600">${r.name}</td>
+      <td style="padding:8px 12px;border-bottom:1px solid #fef3c7;color:#d97706;font-weight:700;text-align:center">${r.total_on_hand}</td>
+      <td style="padding:8px 12px;border-bottom:1px solid #fef3c7;text-align:center">${r.par_level}</td>
+      <td style="padding:8px 12px;border-bottom:1px solid #fef3c7;text-align:center"><span style="background:#fef3c7;color:#d97706;padding:2px 8px;border-radius:4px;font-size:12px">LOW ${pct}%</span></td>
+    </tr>`;}).join('');
+
+  const html = `
+    <div style="font-family:sans-serif;max-width:600px;margin:0 auto">
+      <div style="background:#0a0f1e;padding:24px;border-radius:12px 12px 0 0">
+        <h1 style="color:#63b3ed;margin:0;font-size:20px">⚕️ Baxter ASC — Inventory Alert</h1>
+        <p style="color:#7ba8c8;margin:6px 0 0;font-size:13px">${new Date().toLocaleString()}</p>
+      </div>
+      <div style="background:#f8fafc;padding:24px;border-radius:0 0 12px 12px">
+        ${critical.length ? `
+        <h2 style="color:#dc2626;margin:0 0 12px;font-size:16px">🔴 ${critical.length} Items at ZERO Stock</h2>
+        <table style="width:100%;border-collapse:collapse;margin-bottom:24px;background:white;border-radius:8px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,0.1)">
+          <thead><tr style="background:#fee2e2"><th style="padding:10px 12px;text-align:left;color:#dc2626;font-size:12px">ITEM</th><th style="padding:10px 12px;text-align:center;color:#dc2626;font-size:12px">ON HAND</th><th style="padding:10px 12px;text-align:center;color:#dc2626;font-size:12px">PAR</th><th style="padding:10px 12px;text-align:center;color:#dc2626;font-size:12px">STATUS</th></tr></thead>
+          <tbody>${criticalRows}</tbody>
+        </table>` : ''}
+        ${low.length ? `
+        <h2 style="color:#d97706;margin:0 0 12px;font-size:16px">🟡 ${low.length} Items Below Par</h2>
+        <table style="width:100%;border-collapse:collapse;background:white;border-radius:8px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,0.1)">
+          <thead><tr style="background:#fef3c7"><th style="padding:10px 12px;text-align:left;color:#d97706;font-size:12px">ITEM</th><th style="padding:10px 12px;text-align:center;color:#d97706;font-size:12px">ON HAND</th><th style="padding:10px 12px;text-align:center;color:#d97706;font-size:12px">PAR</th><th style="padding:10px 12px;text-align:center;color:#d97706;font-size:12px">STATUS</th></tr></thead>
+          <tbody>${lowRows}</tbody>
+        </table>` : ''}
+        <p style="color:#64748b;font-size:12px;margin-top:20px;padding-top:16px;border-top:1px solid #e2e8f0">Sent by Baxter ASC AI Monitor · <a href="https://nextjs-with-supabase-gamma-rosy.vercel.app/asc-ai-monitor%20(1).html" style="color:#63b3ed">Open Monitor</a></p>
+      </div>
+    </div>`;
+
+  try {
+    await sendEmail(`🚨 Baxter ASC Inventory Alert — ${critical.length} Zero, ${low.length} Low`, html);
+    alert(`✅ Alert email sent to ${ALERT_TO}`);
+  } catch(e) {
+    alert(`Failed to send: ${e.message}`);
+  }
+  btn.textContent = '📧 Email Alerts'; btn.disabled = false;
+}
+
+async function sendSummaryEmail() {
+  if (!inventory.length) { alert('Load inventory first by clicking Refresh All'); return; }
+  const btn = document.getElementById('emailSummaryBtn');
+  btn.textContent = 'Sending…'; btn.disabled = true;
+
+  const critical = inventory.filter(r => (r.total_on_hand??0)===0).length;
+  const low      = inventory.filter(r => { const oh=r.total_on_hand??0; const par=r.par_level??0; return oh>0&&par>0&&oh<par; }).length;
+  const ok       = inventory.length - critical - low;
+  const today    = new Date().toISOString().slice(0,10);
+  const todayTx  = changeLog.filter(r => (r.changed_at||'').startsWith(today)).length;
+
+  const topLow = inventory
+    .filter(r => (r.total_on_hand??0) < (r.par_level??0))
+    .sort((a,b) => {
+      const pctA = a.par_level>0?(a.total_on_hand/a.par_level):1;
+      const pctB = b.par_level>0?(b.total_on_hand/b.par_level):1;
+      return pctA - pctB;
+    })
+    .slice(0, 15);
+
+  const topRows = topLow.map(r => {
+    const pct = r.par_level>0 ? Math.round((r.total_on_hand/r.par_level)*100) : 0;
+    const color = (r.total_on_hand??0)===0 ? '#dc2626' : '#d97706';
+    const bg    = (r.total_on_hand??0)===0 ? '#fee2e2' : '#fef3c7';
+    return `<tr>
+      <td style="padding:8px 12px;border-bottom:1px solid #f1f5f9;font-weight:500">${r.name}</td>
+      <td style="padding:8px 12px;border-bottom:1px solid #f1f5f9;text-align:center;color:${color};font-weight:700">${r.total_on_hand??0}</td>
+      <td style="padding:8px 12px;border-bottom:1px solid #f1f5f9;text-align:center">${r.par_level??0}</td>
+      <td style="padding:8px 12px;border-bottom:1px solid #f1f5f9;text-align:center"><span style="background:${bg};color:${color};padding:2px 8px;border-radius:4px;font-size:11px">${pct}%</span></td>
+    </tr>`;}).join('');
+
+  const html = `
+    <div style="font-family:sans-serif;max-width:600px;margin:0 auto">
+      <div style="background:#0a0f1e;padding:24px;border-radius:12px 12px 0 0">
+        <h1 style="color:#63b3ed;margin:0;font-size:20px">⚕️ Baxter ASC — Inventory Summary</h1>
+        <p style="color:#7ba8c8;margin:6px 0 0;font-size:13px">${new Date().toLocaleString()}</p>
+      </div>
+      <div style="background:#f8fafc;padding:24px;border-radius:0 0 12px 12px">
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:24px">
+          <div style="background:white;border-radius:8px;padding:14px;text-align:center;box-shadow:0 1px 3px rgba(0,0,0,0.08)"><div style="font-size:24px;font-weight:700;color:#3b82f6">${inventory.length}</div><div style="font-size:11px;color:#64748b;margin-top:4px">TOTAL</div></div>
+          <div style="background:white;border-radius:8px;padding:14px;text-align:center;box-shadow:0 1px 3px rgba(0,0,0,0.08)"><div style="font-size:24px;font-weight:700;color:#dc2626">${critical}</div><div style="font-size:11px;color:#64748b;margin-top:4px">ZERO</div></div>
+          <div style="background:white;border-radius:8px;padding:14px;text-align:center;box-shadow:0 1px 3px rgba(0,0,0,0.08)"><div style="font-size:24px;font-weight:700;color:#d97706">${low}</div><div style="font-size:11px;color:#64748b;margin-top:4px">LOW</div></div>
+          <div style="background:white;border-radius:8px;padding:14px;text-align:center;box-shadow:0 1px 3px rgba(0,0,0,0.08)"><div style="font-size:24px;font-weight:700;color:#16a34a">${ok}</div><div style="font-size:11px;color:#64748b;margin-top:4px">OK</div></div>
+        </div>
+        <p style="color:#64748b;font-size:13px;margin:0 0 16px"><strong style="color:#334155">${todayTx} transactions</strong> logged today</p>
+        ${topLow.length ? `
+        <h2 style="color:#334155;margin:0 0 12px;font-size:15px">Items Needing Attention</h2>
+        <table style="width:100%;border-collapse:collapse;background:white;border-radius:8px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,0.1)">
+          <thead><tr style="background:#f1f5f9"><th style="padding:10px 12px;text-align:left;color:#64748b;font-size:11px">ITEM</th><th style="padding:10px 12px;text-align:center;color:#64748b;font-size:11px">ON HAND</th><th style="padding:10px 12px;text-align:center;color:#64748b;font-size:11px">PAR</th><th style="padding:10px 12px;text-align:center;color:#64748b;font-size:11px">LEVEL</th></tr></thead>
+          <tbody>${topRows}</tbody>
+        </table>` : '<p style="color:#16a34a;font-weight:600">✅ All items are well stocked!</p>'}
+        <p style="color:#64748b;font-size:12px;margin-top:20px;padding-top:16px;border-top:1px solid #e2e8f0">Sent by Baxter ASC AI Monitor · <a href="https://nextjs-with-supabase-gamma-rosy.vercel.app/asc-ai-monitor%20(1).html" style="color:#63b3ed">Open Monitor</a></p>
+      </div>
+    </div>`;
+
+  try {
+    await sendEmail(`📊 Baxter ASC Inventory Summary — ${new Date().toLocaleDateString()}`, html);
+    alert(`✅ Summary email sent to ${ALERT_TO}`);
+  } catch(e) {
+    alert(`Failed to send: ${e.message}`);
+  }
+  btn.textContent = '📊 Email Summary'; btn.disabled = false;
+}
+
+// ── Boot ───────────────────────────────────────────────────────────────────
+loadAll();
+setInterval(loadAll, 3 * 60 * 1000); // refresh every 3 minutes
+</script>
+</body>
+</html>
