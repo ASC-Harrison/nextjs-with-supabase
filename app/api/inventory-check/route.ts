@@ -78,20 +78,23 @@ export async function GET() {
       new Date().toLocaleDateString();
 
     // Send Slack notification
-    const slackText = "🚨 *Baxter ASC Inventory Alert* — " +
-      alerts.length + " item(s) at or below low level\n\n" +
-      alerts.map((r: any) =>
-        "🔴 *" + (r.name ?? "") + "* — " +
-        "On Hand: *" + (r.total_on_hand ?? 0) + " " + (r.unit ?? "") + "* | " +
-        "Low: " + (r.low_level ?? 0) + " | Par: " + (r.par_level ?? 0)
-      ).join("\n") +
-      "\n\n<https://nextjs-with-supabase-gamma-rosy.vercel.app/asc-ai-monitor%20(1).html|Open AI Monitor>";
+    const slackWebhook = process.env.SLACK_WEBHOOK_URL;
+    if (slackWebhook) {
+      const slackText = "🚨 *Baxter ASC Inventory Alert* — " +
+        alerts.length + " item(s) at or below low level\n\n" +
+        alerts.map((r: any) =>
+          "🔴 *" + (r.name ?? "") + "* — " +
+          "On Hand: *" + (r.total_on_hand ?? 0) + " " + (r.unit ?? "") + "* | " +
+          "Low: " + (r.low_level ?? 0) + " | Par: " + (r.par_level ?? 0)
+        ).join("\n") +
+        "\n\n<https://nextjs-with-supabase-gamma-rosy.vercel.app/asc-ai-monitor%20(1).html|Open AI Monitor>";
 
-    await fetch("https://hooks.slack.com/services/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", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text: slackText }),
-    });
+      await fetch(slackWebhook, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: slackText }),
+      });
+    }
 
     const recipients = [
       "hogstud800@gmail.com",
