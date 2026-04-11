@@ -76,7 +76,7 @@ export async function GET() {
 
     await resend.emails.send({
       from: "Baxter ASC Monitor <onboarding@resend.dev>",
-      to: ["hogstud800@gmail.com"],
+      to: ["hogstud800@gmail.com", "brooklyncarter.0716@gmail.com", "Ashelyomsa@gmail.com"],
       subject: subject,
       html: html,
     });
