@@ -78,51 +78,19 @@ export async function GET() {
       new Date().toLocaleDateString();
 
     // Send Slack notification
-    const slackMessage = {
-      text: "🚨 *Baxter ASC Inventory Alert* — " + alerts.length + " item(s) at or below low level",
-      blocks: [
-        {
-          type: "header",
-          text: {
-            type: "plain_text",
-            text: "🚨 Baxter ASC Inventory Alert",
-            emoji: true
-          }
-        },
-        {
-          type: "section",
-          text: {
-            type: "mrkdwn",
-            text: "*" + alerts.length + " item(s) at or below low level* — " + new Date().toLocaleString()
-          }
-        },
-        {
-          type: "divider"
-        },
-        ...alerts.map((r: any) => ({
-          type: "section",
-          text: {
-            type: "mrkdwn",
-            text: "🔴 *" + (r.name ?? "") + "*\n" +
-              "On Hand: *" + (r.total_on_hand ?? 0) + " " + (r.unit ?? "") + "* | " +
-              "Low Level: " + (r.low_level ?? 0) + " | " +
-              "Par: " + (r.par_level ?? 0)
-          }
-        })),
-        {
-          type: "section",
-          text: {
-            type: "mrkdwn",
-            text: "<https://nextjs-with-supabase-gamma-rosy.vercel.app/asc-ai-monitor%20(1).html|Open AI Monitor>"
-          }
-        }
-      ]
-    };
+    const slackText = "🚨 *Baxter ASC Inventory Alert* — " +
+      alerts.length + " item(s) at or below low level\n\n" +
+      alerts.map((r: any) =>
+        "🔴 *" + (r.name ?? "") + "* — " +
+        "On Hand: *" + (r.total_on_hand ?? 0) + " " + (r.unit ?? "") + "* | " +
+        "Low: " + (r.low_level ?? 0) + " | Par: " + (r.par_level ?? 0)
+      ).join("\n") +
+      "\n\n<https://nextjs-with-supabase-gamma-rosy.vercel.app/asc-ai-monitor%20(1).html|Open AI Monitor>";
 
-    await fetch("https://hooks.slack.com/services/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", {
+    await fetch("https://hooks.slack.com/services/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", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(slackMessage)
+      body: JSON.stringify({ text: slackText }),
     });
 
     const recipients = [
