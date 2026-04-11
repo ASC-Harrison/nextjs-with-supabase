@@ -36,9 +36,11 @@ export async function GET() {
       const oh = r.total_on_hand ?? 0;
       const low = r.low_level ?? 0;
       const par = r.par_level ?? 0;
+      const unit = r.unit ?? "—";
       return "<tr>" +
         "<td style='padding:8px 12px;border-bottom:1px solid #fee2e2;font-weight:600'>" + name + "</td>" +
         "<td style='padding:8px 12px;border-bottom:1px solid #fee2e2;color:#dc2626;font-weight:700;text-align:center'>" + oh + "</td>" +
+        "<td style='padding:8px 12px;border-bottom:1px solid #fee2e2;text-align:center'>" + unit + "</td>" +
         "<td style='padding:8px 12px;border-bottom:1px solid #fee2e2;text-align:center'>" + low + "</td>" +
         "<td style='padding:8px 12px;border-bottom:1px solid #fee2e2;text-align:center'>" + par + "</td>" +
         "</tr>";
@@ -49,6 +51,7 @@ export async function GET() {
       "<thead><tr style='background:#fee2e2'>" +
       "<th style='padding:10px 12px;text-align:left;color:#dc2626;font-size:11px'>ITEM</th>" +
       "<th style='padding:10px 12px;text-align:center;color:#dc2626;font-size:11px'>ON HAND</th>" +
+      "<th style='padding:10px 12px;text-align:center;color:#dc2626;font-size:11px'>UNIT</th>" +
       "<th style='padding:10px 12px;text-align:center;color:#dc2626;font-size:11px'>LOW LEVEL</th>" +
       "<th style='padding:10px 12px;text-align:center;color:#dc2626;font-size:11px'>PAR</th>" +
       "</tr></thead>" +
@@ -74,12 +77,20 @@ export async function GET() {
       " items at low level — " +
       new Date().toLocaleDateString();
 
-    await resend.emails.send({
-      from: "Baxter ASC Monitor <onboarding@resend.dev>",
-      to: ["hogstud800@gmail.com", "brooklyncarter.0716@gmail.com", "Ashelyomsa@gmail.com"],
-      subject: subject,
-      html: html,
-    });
+    const recipients = [
+      "hogstud800@gmail.com",
+      "brooklyncarter.0716@gmail.com",
+      "Ashelyomsa@gmail.com",
+    ];
+
+    for (const email of recipients) {
+      await resend.emails.send({
+        from: "Baxter ASC Monitor <onboarding@resend.dev>",
+        to: [email],
+        subject: subject,
+        html: html,
+      });
+    }
 
     return NextResponse.json({
       ok: true,
