@@ -9,6 +9,30 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 );
 
+const TWILIO_SID   = process.env.TWILIO_ACCOUNT_SID!;
+const TWILIO_TOKEN = process.env.TWILIO_AUTH_TOKEN!;
+const TWILIO_FROM  = process.env.TWILIO_PHONE_NUMBER!;
+
+const CONTACTS = [
+  { email: "hogstud800@gmail.com",          phone: "+18708490998" },
+  { email: "brooklyncarter.0716@gmail.com", phone: "+18707546700" },
+  { email: "ashelyomsa@gmail.com",          phone: "+18705179045" },
+];
+
+async function sendSms(to: string, body: string) {
+  const url = `https://api.twilio.com/2010-04-01/Accounts/${TWILIO_SID}/Messages.json`;
+  const auth = Buffer.from(`${TWILIO_SID}:${TWILIO_TOKEN}`).toString("base64");
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Authorization": `Basic ${auth}`,
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body: new URLSearchParams({ From: TWILIO_FROM, To: to, Body: body }).toString(),
+  });
+  return res.json();
+}
+
 export async function GET() {
   try {
     const { data, error } = await supabase
@@ -22,7 +46,7 @@ export async function GET() {
     const items = data ?? [];
 
     const alerts = items.filter((r: any) => {
-      const oh = r.total_on_hand ?? 0;
+      const oh  = r.total_on_hand ?? 0;
       const low = r.low_level ?? 0;
       return low > 0 && oh <= low;
     });
@@ -31,11 +55,12 @@ export async function GET() {
       return NextResponse.json({ ok: true, message: "All items above low level" });
     }
 
+    // Build email HTML
     const rows = alerts.map((r: any) => {
       const name = r.name ?? "";
-      const oh = r.total_on_hand ?? 0;
-      const low = r.low_level ?? 0;
-      const par = r.par_level ?? 0;
+      const oh   = r.total_on_hand ?? 0;
+      const low  = r.low_level ?? 0;
+      const par  = r.par_level ?? 0;
       const unit = r.unit ?? "—";
       return "<tr>" +
         "<td style='padding:8px 12px;border-bottom:1px solid #fee2e2;font-weight:600'>" + name + "</td>" +
@@ -72,48 +97,36 @@ export async function GET() {
       "</div>";
 
     const subject =
-      "Baxter ASC Alert — " +
-      alerts.length +
-      " items at low level — " +
-      new Date().toLocaleDateString();
+      "Baxter ASC Alert — " + alerts.length + " items at low level — " + new Date().toLocaleDateString();
 
-    // Send Slack notification
-    const slackWebhook = process.env.SLACK_WEBHOOK_URL;
-    if (slackWebhook) {
-      const slackText = "🚨 *Baxter ASC Inventory Alert* — " +
-        alerts.length + " item(s) at or below low level\n\n" +
-        alerts.map((r: any) =>
-          "🔴 *" + (r.name ?? "") + "* — " +
-          "On Hand: *" + (r.total_on_hand ?? 0) + " " + (r.unit ?? "") + "* | " +
-          "Low: " + (r.low_level ?? 0) + " | Par: " + (r.par_level ?? 0)
-        ).join("\n") +
-        "\n\n<https://nextjs-with-supabase-gamma-rosy.vercel.app/asc-ai-monitor%20(1).html|Open AI Monitor>";
+    // Build SMS text
+    const smsBody =
+      "Baxter ASC Alert — " + alerts.length + " item(s) at low level:\n\n" +
+      alerts.slice(0, 10).map((r: any) =>
+        "• " + (r.name ?? "") + ": " + (r.total_on_hand ?? 0) + " " + (r.unit ?? "") +
+        " (low=" + (r.low_level ?? 0) + ")"
+      ).join("\n") +
+      (alerts.length > 10 ? "\n...and " + (alerts.length - 10) + " more." : "") +
+      "\n\nView: https://nextjs-with-supabase-gamma-rosy.vercel.app/alerts";
 
-      await fetch(slackWebhook, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: slackText }),
-      });
-    }
+    // Send email + SMS to all contacts
+    const results = await Promise.allSettled([
+      ...CONTACTS.map(c =>
+        resend.emails.send({
+          from: "Baxter ASC Monitor <onboarding@resend.dev>",
+          to: [c.email],
+          subject,
+          html,
+        })
+      ),
+      ...CONTACTS.map(c => sendSms(c.phone, smsBody)),
+    ]);
 
-    const recipients = [
-      "hogstud800@gmail.com",
-      "brooklyncarter.0716@gmail.com",
-      "Ashelyomsa@gmail.com",
-    ];
-
-    for (const email of recipients) {
-      await resend.emails.send({
-        from: "Baxter ASC Monitor <onboarding@resend.dev>",
-        to: [email],
-        subject: subject,
-        html: html,
-      });
-    }
+    const failed = results.filter(r => r.status === "rejected").length;
 
     return NextResponse.json({
       ok: true,
-      message: "Alert sent for " + alerts.length + " items",
+      message: "Alerts sent for " + alerts.length + " items. " + (failed > 0 ? failed + " failed." : "All delivered."),
     });
 
   } catch (e: any) {
