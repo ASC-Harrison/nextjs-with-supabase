@@ -37,7 +37,7 @@ export async function GET() {
   try {
     const { data, error } = await supabase
       .from("building_inventory_sheet_view")
-      .select("name,total_on_hand,par_level,low_level,unit")
+      .select("name,reference_number,total_on_hand,par_level,low_level,unit")
       .eq("is_active", true)
       .order("name", { ascending: true });
 
@@ -58,12 +58,14 @@ export async function GET() {
     // Build email HTML
     const rows = alerts.map((r: any) => {
       const name = r.name ?? "";
+      const ref  = r.reference_number ?? "—";
       const oh   = r.total_on_hand ?? 0;
       const low  = r.low_level ?? 0;
       const par  = r.par_level ?? 0;
       const unit = r.unit ?? "—";
       return "<tr>" +
         "<td style='padding:8px 12px;border-bottom:1px solid #fee2e2;font-weight:600'>" + name + "</td>" +
+        "<td style='padding:8px 12px;border-bottom:1px solid #fee2e2;font-family:monospace;font-size:11px'>" + ref + "</td>" +
         "<td style='padding:8px 12px;border-bottom:1px solid #fee2e2;color:#dc2626;font-weight:700;text-align:center'>" + oh + "</td>" +
         "<td style='padding:8px 12px;border-bottom:1px solid #fee2e2;text-align:center'>" + unit + "</td>" +
         "<td style='padding:8px 12px;border-bottom:1px solid #fee2e2;text-align:center'>" + low + "</td>" +
@@ -75,6 +77,7 @@ export async function GET() {
       "<table style='width:100%;border-collapse:collapse;background:white;border-radius:8px;overflow:hidden'>" +
       "<thead><tr style='background:#fee2e2'>" +
       "<th style='padding:10px 12px;text-align:left;color:#dc2626;font-size:11px'>ITEM</th>" +
+      "<th style='padding:10px 12px;text-align:left;color:#dc2626;font-size:11px'>REF #</th>" +
       "<th style='padding:10px 12px;text-align:center;color:#dc2626;font-size:11px'>ON HAND</th>" +
       "<th style='padding:10px 12px;text-align:center;color:#dc2626;font-size:11px'>UNIT</th>" +
       "<th style='padding:10px 12px;text-align:center;color:#dc2626;font-size:11px'>LOW LEVEL</th>" +
