@@ -113,7 +113,7 @@ export async function GET() {
     const results = await Promise.allSettled([
       ...CONTACTS.map(c =>
         resend.emails.send({
-          from: "Baxter ASC Monitor <onboarding@resend.dev>",
+          from: "Baxter ASC Monitor <alerts@ascinventory.com>",
           to: [c.email],
           subject,
           html,
