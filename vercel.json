@@ -1,5 +1,8 @@
 {
   "crons": [
-    { "path": "/api/notify-storage-low-stock", "schedule": "0 8 * * *" }
+    {
+      "path": "/api/inventory-check",
+      "schedule": "0 * * * *"
+    }
   ]
 }
