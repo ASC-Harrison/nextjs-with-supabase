@@ -14,6 +14,7 @@ type Body =
       notes?: string | null;
       low_level: number;
       reference_number_new?: string | null;
+      supply_source?: string | null;
     }
   | { item_id: string; action: "SET_ACTIVE"; is_active: boolean };
 
@@ -83,7 +84,7 @@ export async function POST(req: Request) {
         });
       }
 
-      const payload = {
+      const payload: Record<string, any> = {
         vendor:
           typeof (body as any).vendor === "string"
             ? ((body as any).vendor as string).trim() || null
@@ -103,9 +104,13 @@ export async function POST(req: Request) {
         low_level: Math.trunc(low),
         reference_number:
           typeof (body as any).reference_number_new === "string"
-            ? (((body as any).reference_number_new as string).trim() || null)
+            ? ((body as any).reference_number_new as string).trim() || null
             : null,
       };
+
+      if (typeof (body as any).supply_source === "string") {
+        payload.supply_source = (body as any).supply_source.trim() || null;
+      }
 
       const { error } = await supabase
         .from("items")
