@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
-import { cookies } from "next/headers";
 
 export async function POST(req: Request) {
   try {
@@ -10,18 +9,24 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: "Email and password required" });
     }
 
-    const cookieStore = await cookies();
+    const response = NextResponse.json({ ok: true });
 
     const supabase = createServerClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
       {
         cookies: {
-          getAll() { return cookieStore.getAll(); },
+          getAll() { return []; },
           setAll(cookiesToSet) {
-            cookiesToSet.forEach(({ name, value, options }) =>
-              cookieStore.set(name, value, options)
-            );
+            cookiesToSet.forEach(({ name, value, options }) => {
+              response.cookies.set(name, value, {
+                ...options,
+                httpOnly: true,
+                secure: process.env.NODE_ENV === "production",
+                sameSite: "lax",
+                path: "/",
+              });
+            });
           },
         },
       }
@@ -33,7 +38,13 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: error.message });
     }
 
-    return NextResponse.json({ ok: true, user: { email: data.user.email } });
+    // Return success with the cookies already set on the response
+    return NextResponse.json(
+      { ok: true, user: { email: data.user.email } },
+      {
+        headers: response.headers,
+      }
+    );
   } catch (e: any) {
     return NextResponse.json({ ok: false, error: e?.message ?? "Unknown error" });
   }
