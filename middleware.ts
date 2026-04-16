@@ -2,22 +2,27 @@ import { createServerClient } from "@supabase/ssr";
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
-// Pages that don't require login
-const PUBLIC_PATHS = [
-  "/",
-  "/login",
-  "/api/",
+// Only the login page and API routes are public
+const PUBLIC_PATHS = ["/login", "/api/"];
+
+// Only admin can access these
+const ADMIN_ONLY_PATHS = [
+  "/admin",
+  "/staff-activity",
+  "/admin-users",
 ];
+
+const ADMIN_EMAIL = process.env.ADMIN_EMAIL ?? "hogstud800@gmail.com";
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  // Allow public paths through
-  if (PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(p))) {
+  // Allow public paths
+  if (PUBLIC_PATHS.some((p) => pathname.startsWith(p))) {
     return NextResponse.next();
   }
 
-  // Allow static files and Next internals through
+  // Allow static files
   if (
     pathname.startsWith("/_next") ||
     pathname.startsWith("/favicon") ||
@@ -48,10 +53,17 @@ export async function middleware(request: NextRequest) {
 
   const { data: { session } } = await supabase.auth.getSession();
 
-  // Not logged in — redirect to login
+  // Not logged in — send to login
   if (!session) {
-    const loginUrl = new URL("/login", request.url);
-    return NextResponse.redirect(loginUrl);
+    return NextResponse.redirect(new URL("/login", request.url));
+  }
+
+  const userEmail = session.user.email ?? "";
+  const isAdmin = userEmail.toLowerCase() === ADMIN_EMAIL.toLowerCase();
+
+  // Non-admin trying to access admin-only page — send to inventory
+  if (!isAdmin && ADMIN_ONLY_PATHS.some((p) => pathname.startsWith(p))) {
+    return NextResponse.redirect(new URL("/inventory", request.url));
   }
 
   return response;
