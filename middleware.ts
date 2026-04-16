@@ -3,13 +3,17 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
 // Pages that don't require login
-const PUBLIC_PATHS = ["/login", "/api/"];
+const PUBLIC_PATHS = [
+  "/",
+  "/login",
+  "/api/",
+];
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   // Allow public paths through
-  if (PUBLIC_PATHS.some((p) => pathname.startsWith(p))) {
+  if (PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(p))) {
     return NextResponse.next();
   }
 
