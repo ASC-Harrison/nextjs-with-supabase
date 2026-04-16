@@ -2,12 +2,6 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { createClient } from "@supabase/supabase-js";
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-);
 
 const CSS = `
   *,*::before,*::after{box-sizing:border-box;}
@@ -23,22 +17,19 @@ const CSS = `
   .inp:focus{border-color:#3b82f6;box-shadow:0 0 0 3px rgba(59,130,246,0.1);}
   .inp::placeholder{color:#334155;}
   .btn{width:100%;border-radius:10px;padding:13px;font-size:15px;font-weight:800;cursor:pointer;border:none;background:linear-gradient(135deg,#3b82f6,#1d4ed8);color:#fff;font-family:inherit;letter-spacing:0.3px;box-shadow:0 4px 20px rgba(59,130,246,0.3);transition:all 0.18s;margin-top:4px;}
-  .btn:hover{box-shadow:0 6px 28px rgba(59,130,246,0.45);transform:translateY(-1px);}
+  .btn:hover:not(:disabled){box-shadow:0 6px 28px rgba(59,130,246,0.45);transform:translateY(-1px);}
   .btn:disabled{opacity:0.5;cursor:not-allowed;transform:none;}
   .err{background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.3);border-radius:10px;padding:12px 14px;font-size:13px;color:#fca5a5;margin-bottom:14px;}
-  .back{display:inline-flex;align-items:center;gap:6px;color:#64748b;font-size:13px;cursor:pointer;margin-bottom:20px;background:none;border:none;font-family:inherit;padding:0;}
-  .back:hover{color:#94a3b8;}
-  .timeout-badge{background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.3);border-radius:10px;padding:10px 14px;font-size:12px;color:#fcd34d;margin-bottom:16px;display:flex;align-items:center;gap:8px;}
+  .timeout-badge{background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.3);border-radius:10px;padding:10px 14px;font-size:12px;color:#fcd34d;margin-bottom:16px;}
 `;
 
 export default function LoginPage() {
   const router = useRouter();
-  const [email, setEmail]       = useState("");
+  const [email,    setEmail]    = useState("");
   const [password, setPassword] = useState("");
-  const [loading, setLoading]   = useState(false);
-  const [error, setError]       = useState("");
+  const [loading,  setLoading]  = useState(false);
+  const [error,    setError]    = useState("");
 
-  // Check if redirected due to session timeout
   const isTimeout = typeof window !== "undefined" &&
     new URLSearchParams(window.location.search).get("timeout") === "1";
 
@@ -46,10 +37,21 @@ export default function LoginPage() {
     e.preventDefault();
     setLoading(true);
     setError("");
+
     try {
-      const { error: authError } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
-      if (authError) { setError(authError.message); setLoading(false); return; }
+      const res = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: email.trim(), password }),
+      });
+      const json = await res.json();
+      if (!json.ok) {
+        setError(json.error ?? "Invalid email or password");
+        setLoading(false);
+        return;
+      }
       router.push("/");
+      router.refresh();
     } catch (e: any) {
       setError(e?.message ?? "Login failed");
       setLoading(false);
@@ -61,7 +63,6 @@ export default function LoginPage() {
       <style dangerouslySetInnerHTML={{ __html: CSS }} />
       <div className="root">
         <div className="card">
-          <button onClick={() => router.push("/")} className="back">← Back</button>
           <div className="logo">⚕️</div>
           <div className="title">Baxter ASC</div>
           <div className="sub">Sign in to access the inventory system</div>
@@ -100,8 +101,8 @@ export default function LoginPage() {
             </button>
           </form>
 
-          <div style={{ marginTop: 20, fontSize: 12, color: "#334155", textAlign: "center", lineHeight: 1.6 }}>
-            Contact your administrator to get access.<br />
+          <div style={{ marginTop:20, fontSize:12, color:"#334155", textAlign:"center", lineHeight:1.6 }}>
+            Contact your administrator to get access.<br/>
             Sessions expire after 30 minutes of inactivity.
           </div>
         </div>
