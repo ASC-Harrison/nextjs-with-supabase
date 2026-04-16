@@ -267,8 +267,7 @@ function QtyBtn({onClick,children}:{onClick:()=>void;children:React.ReactNode}){
 export default function InventoryPage() {
   const router = useRouter();
 
-  // ── CHANGE 1: load session user on mount, redirect if not logged in ──
-  const [sessionLoading, setSessionLoading] = useState(true);
+  const [sessionLoading] = useState(false);
 
   const [tab,setTab]=useState<Tab>("Transaction");
   const [mode,setMode]=useState<Mode>("USE");
@@ -348,19 +347,12 @@ export default function InventoryPage() {
   const filteredTotals=useMemo(()=>{const q=totalsSearch.trim().toLowerCase();let list=totals.filter((r)=>totalsShowInactive?!r.is_active:!!r.is_active);if(q)list=list.filter((r)=>(r.name||"").toLowerCase().includes(q)||(r.vendor||"").toLowerCase().includes(q)||(r.category||"").toLowerCase().includes(q)||(r.reference_number||"").toLowerCase().includes(q)||(r.order_status||"").toLowerCase().includes(q));if(totalsLowOnly)list=list.filter((r)=>{const oh=r.total_on_hand??0;const low=r.low_level??0;return low>0&&oh<=low;});if(totalsZeroOnly)list=list.filter((r)=>(r.par_level??0)===0||(r.low_level??0)===0);return list;},[totals,totalsSearch,totalsLowOnly,totalsZeroOnly,totalsShowInactive]);
   const filteredAreaInv=useMemo(()=>{const q=areaInvSearch.trim().toLowerCase();let list=areaInv;if(q)list=list.filter((r)=>(r.item_name||"").toLowerCase().includes(q)||(r.vendor||"").toLowerCase().includes(q)||(r.category||"").toLowerCase().includes(q)||(r.reference_number||"").toLowerCase().includes(q)||(r.order_status||"").toLowerCase().includes(q));if(areaParOnly)list=list.filter((r)=>(r.par_level??0)>0);if(areaLowOnly)list=list.filter((r)=>{const oh=r.on_hand??0;const low=r.low_level??0;return low>0&&oh<=low;});return list;},[areaInv,areaInvSearch,areaParOnly,areaLowOnly]);
 
-  // ── CHANGE 2: check session on mount, set staff name from verified login ──
   useEffect(()=>{
-    supabase.auth.getUser().then(({data})=>{
-      if(!data.user){router.replace("/login");return;}
-      // Use full name from metadata if available, otherwise use email
-      const name = data.user.user_metadata?.full_name || data.user.email || "Unknown";
-      setStaffName(name);
-      setSessionLoading(false);
-    });
-    try{setLocked(!getSessionUnlocked());const savedArea=localStorage.getItem(LS.AREA);if(savedArea)setAreaId(savedArea);setAudit(safeJsonParse<AuditEvent[]>(localStorage.getItem(LS.AUDIT),[]));setLastTx(safeJsonParse<LastTx|null>(localStorage.getItem(LS.LAST_TX),null));}catch{}
+    try{setLocked(!getSessionUnlocked());const savedArea=localStorage.getItem(LS.AREA);if(savedArea)setAreaId(savedArea);setStaffName(localStorage.getItem(LS.STAFF)||"");setAudit(safeJsonParse<AuditEvent[]>(localStorage.getItem(LS.AUDIT),[]));setLastTx(safeJsonParse<LastTx|null>(localStorage.getItem(LS.LAST_TX),null));}catch{}
   },[]);// eslint-disable-line
 
   useEffect(()=>{try{if(areaId)localStorage.setItem(LS.AREA,areaId);}catch{}},[areaId]);
+  useEffect(()=>{try{localStorage.setItem(LS.STAFF,staffName);}catch{}},[staffName]);
   useEffect(()=>{try{localStorage.setItem(LS.AUDIT,JSON.stringify(audit.slice(0,500)));}catch{}},[audit]);
   useEffect(()=>{try{localStorage.setItem(LS.LAST_TX,JSON.stringify(lastTx));}catch{}},[lastTx]);
 
@@ -421,9 +413,6 @@ export default function InventoryPage() {
 
   const staffMissing=!staffName.trim();
   const sc=statusClass(status);
-
-  // ── CHANGE 3: show loading screen while checking session ──
-  if(sessionLoading){return(<><style dangerouslySetInnerHTML={{__html:PREMIUM_CSS}}/><div style={{minHeight:"100vh",background:"#0a0f1e",display:"flex",alignItems:"center",justifyContent:"center"}}><div style={{color:"#64748b",fontSize:14}}>Loading…</div></div></>);}
 
   return (
     <>
@@ -707,16 +696,13 @@ export default function InventoryPage() {
             </div>
           )}
 
-          {/* ── CHANGE 3: Audit tab now shows verified login name, read-only ── */}
           {tab==="Audit" && (
             <div className="c-card anim">
               <div style={{marginBottom:18}}>
                 <div style={{fontSize:18,fontWeight:900,color:"var(--text)",letterSpacing:"-0.5px",marginBottom:4}}>Audit Log</div>
-                <div style={{fontSize:12,color:"var(--text2)",lineHeight:1.5}}>Actions logged under your verified login account.</div>
+                <div style={{fontSize:12,color:"var(--text2)",lineHeight:1.5}}>Set staff name (saved on this device). Actions are logged below.</div>
               </div>
-              <div style={{background:"rgba(59,130,246,0.08)",border:"1px solid rgba(59,130,246,0.2)",borderRadius:10,padding:"10px 14px",fontSize:13,color:"#93c5fd",marginBottom:16}}>
-                Logged in as: <strong>{staffName}</strong>
-              </div>
+              <div className="field"><label className="f-lbl">Staff Name</label><input value={staffName} onChange={(e)=>setStaffName(e.target.value)} className="inp" placeholder="e.g., Jeremy Johnson" /></div>
               <div className="g2 mt3">
                 <button onClick={()=>{setAudit([]);try{localStorage.removeItem(LS.AUDIT);}catch{}}} className="btn btn-gh" style={{fontSize:13}}>Clear device log</button>
                 <button onClick={()=>{const text=JSON.stringify(audit,null,2);navigator.clipboard?.writeText(text).then(()=>alert("Audit log copied ✅")).catch(()=>alert("Copy failed (iOS may block clipboard)."));}} className="btn btn-ac" style={{fontSize:13}}>Copy log</button>
@@ -736,8 +722,6 @@ export default function InventoryPage() {
                 <div style={{fontSize:12,color:"var(--text2)"}}>Set/Change password (min 4 digits):</div>
               </div>
               <PinSetter onSave={savePin} />
-              <div className="divider" />
-              <button onClick={async()=>{await supabase.auth.signOut();router.push("/login");}} className="btn btn-gh btn-full" style={{fontSize:13}}>Sign Out</button>
             </div>
           )}
         </div>
