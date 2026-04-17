@@ -11,7 +11,12 @@ export default function Home() {
         <div className="mt-3 text-white/60">
           Cabinet tracking + building totals + low stock alerts
         </div>
-        <div className="mt-8 space-y-3">
+        <div className="mt-6 rounded-2xl text-center py-4 px-4" style={{background:"rgba(239,68,68,0.08)",border:"1px solid rgba(239,68,68,0.25)"}}>
+          <div style={{fontSize:28,marginBottom:6}}>🚧</div>
+          <div style={{fontSize:13,fontWeight:800,color:"#fca5a5",letterSpacing:0.5,marginBottom:4}}>LOGIN DELETED — UNTIL FURTHER NOTICE</div>
+          <div style={{fontSize:11,color:"#64748b",lineHeight:1.6}}>It packed its bags, said goodbye to nobody,<br/>and left the building entirely. Carry on.</div>
+        </div>
+        <div className="mt-4 space-y-3">
           <Link href="/inventory" className="block w-full rounded-2xl bg-white text-black font-semibold py-4 text-center">
             Launch App
           </Link>
