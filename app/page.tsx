@@ -1,5 +1,4 @@
 "use client";
-import Link from "next/link";
 
 export default function Home() {
   return (
@@ -11,22 +10,27 @@ export default function Home() {
         <div className="mt-3 text-white/60">
           Cabinet tracking + building totals + low stock alerts
         </div>
+
+        {/* Funny banner */}
         <div className="mt-6 rounded-2xl text-center py-4 px-4" style={{background:"rgba(239,68,68,0.08)",border:"1px solid rgba(239,68,68,0.25)"}}>
           <div style={{fontSize:28,marginBottom:6}}>🚧</div>
-          <div style={{fontSize:13,fontWeight:800,color:"#fca5a5",letterSpacing:0.5,marginBottom:4}}>LOGIN DELETED — UNTIL FURTHER NOTICE</div>
-          <div style={{fontSize:11,color:"#64748b",lineHeight:1.6}}>It packed its bags, said goodbye to nobody,<br/>and left the building entirely. Carry on.</div>
+          <div style={{fontSize:13,fontWeight:800,color:"#fca5a5",letterSpacing:0.5,marginBottom:4}}>SYSTEM FROZEN — UNTIL FURTHER NOTICE</div>
+          <div style={{fontSize:11,color:"#64748b",lineHeight:1.6}}>Nothing to see here. These buttons are on strike.<br/>They refused to work today. We respect that.</div>
         </div>
-        <div className="mt-4 space-y-3">
-          <Link href="/inventory" className="block w-full rounded-2xl bg-white text-black font-semibold py-4 text-center">
-            Launch App
-          </Link>
-          <Link href="/admin" className="block w-full rounded-2xl bg-white/10 text-white font-semibold py-4 text-center ring-1 ring-white/15">
-            Admin Inventory (Table View)
-          </Link>
-          <Link href="/staff-activity" className="block w-full rounded-2xl bg-blue-600/20 text-blue-300 font-semibold py-4 text-center ring-1 ring-blue-500/30">
-            👥 Staff Activity
-          </Link>
+
+        {/* Frozen buttons — visible but not clickable */}
+        <div className="mt-4 space-y-3" style={{opacity:0.35,pointerEvents:"none",userSelect:"none"}}>
+          <div className="block w-full rounded-2xl bg-white text-black font-semibold py-4 text-center cursor-not-allowed">
+            🔒 Launch App
+          </div>
+          <div className="block w-full rounded-2xl bg-white/10 text-white font-semibold py-4 text-center ring-1 ring-white/15 cursor-not-allowed">
+            🔒 Admin Inventory (Table View)
+          </div>
+          <div className="block w-full rounded-2xl bg-blue-600/20 text-blue-300 font-semibold py-4 text-center ring-1 ring-blue-500/30 cursor-not-allowed">
+            🔒 Staff Activity
+          </div>
         </div>
+
         <div className="pt-4 text-center text-white/40 text-sm">
           Tip: Add this page to your Home Screen for quick access.
         </div>
