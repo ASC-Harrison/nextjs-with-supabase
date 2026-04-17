@@ -1,39 +1,44 @@
 "use client";
+import { useEffect, useState } from "react";
 
 export default function Home() {
+  const [frame, setFrame] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => setFrame(f => (f + 1) % 2), 400);
+    return () => clearInterval(t);
+  }, []);
+
   return (
-    <main className="min-h-screen w-full bg-black text-white flex items-center justify-center px-4">
-      <div className="w-full max-w-md rounded-3xl bg-white/5 ring-1 ring-white/10 p-6">
-        <div className="text-4xl font-extrabold leading-tight">
-          Baxter ASC<br />Inventory
-        </div>
-        <div className="mt-3 text-white/60">
-          Cabinet tracking + building totals + low stock alerts
+    <main style={{minHeight:"100vh",background:"#0a0f1e",display:"flex",alignItems:"center",justifyContent:"center",padding:"16px",fontFamily:"-apple-system,BlinkMacSystemFont,'SF Pro Display','Segoe UI',sans-serif"}}>
+      <div style={{maxWidth:420,width:"100%",background:"#162032",border:"1px solid #1e3a5f",borderRadius:24,padding:"48px 32px",textAlign:"center",position:"relative",overflow:"hidden"}}>
+        
+        {/* Top gradient line */}
+        <div style={{position:"absolute",top:0,left:0,right:0,height:2,background:"linear-gradient(90deg,#3b82f6,#8b5cf6,#10b981)"}} />
+
+        {/* Waving guy ASCII art */}
+        <pre style={{fontSize:48,lineHeight:1.2,marginBottom:8,fontStyle:"normal"}}>
+{frame === 0 ? `( ╹◡╹)ノ` : `ヽ(╹◡╹ )`}
+        </pre>
+
+        <div style={{fontSize:26,fontWeight:900,color:"#f0f6ff",letterSpacing:-1,marginBottom:12}}>
+          Goodbye! 👋
         </div>
 
-        {/* Funny banner */}
-        <div className="mt-6 rounded-2xl text-center py-4 px-4" style={{background:"rgba(239,68,68,0.08)",border:"1px solid rgba(239,68,68,0.25)"}}>
-          <div style={{fontSize:28,marginBottom:6}}>🚧</div>
-          <div style={{fontSize:13,fontWeight:800,color:"#fca5a5",letterSpacing:0.5,marginBottom:4}}>SYSTEM FROZEN — UNTIL FURTHER NOTICE</div>
-          <div style={{fontSize:11,color:"#64748b",lineHeight:1.6}}>Nothing to see here. These buttons are on strike.<br/>They refused to work today. We respect that.</div>
+        <div style={{display:"inline-flex",alignItems:"center",gap:8,background:"rgba(239,68,68,0.1)",border:"1px solid rgba(239,68,68,0.3)",borderRadius:9999,padding:"7px 18px",fontSize:11,fontWeight:800,color:"#fca5a5",letterSpacing:0.8,marginBottom:24}}>
+          <span style={{width:7,height:7,borderRadius:"50%",background:"#ef4444",display:"inline-block",animation:"blink 1s infinite"}} />
+          OFFICIALLY DELETED
         </div>
 
-        {/* Frozen buttons — visible but not clickable */}
-        <div className="mt-4 space-y-3" style={{opacity:0.35,pointerEvents:"none",userSelect:"none"}}>
-          <div className="block w-full rounded-2xl bg-white text-black font-semibold py-4 text-center cursor-not-allowed">
-            🔒 Launch App
-          </div>
-          <div className="block w-full rounded-2xl bg-white/10 text-white font-semibold py-4 text-center ring-1 ring-white/15 cursor-not-allowed">
-            🔒 Admin Inventory (Table View)
-          </div>
-          <div className="block w-full rounded-2xl bg-blue-600/20 text-blue-300 font-semibold py-4 text-center ring-1 ring-blue-500/30 cursor-not-allowed">
-            🔒 Staff Activity
-          </div>
+        <div style={{fontSize:15,color:"#94a3b8",lineHeight:1.8,marginBottom:8}}>
+          This app has been officially deleted.<br/>
+          It was a good run while it lasted.
         </div>
 
-        <div className="pt-4 text-center text-white/40 text-sm">
-          Tip: Add this page to your Home Screen for quick access.
+        <div style={{fontSize:12,color:"#334155",lineHeight:1.7,marginTop:16}}>
+          Nothing to see here.<br/>
+          Please close the tab and go touch some grass. 🌿
         </div>
+
       </div>
     </main>
   );
