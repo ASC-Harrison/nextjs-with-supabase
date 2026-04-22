@@ -343,6 +343,8 @@ export default function InventoryPage() {
   const [orderReqItems, setOrderReqItems] = useState<Record<string,number>>({});
   const [orderReqSending, setOrderReqSending] = useState(false);
   const [orderReqDone, setOrderReqDone] = useState(false);
+  const [orderReqSearch, setOrderReqSearch] = useState("");
+  const [orderReqLowOnly, setOrderReqLowOnly] = useState(false);
   const videoRef=useRef<HTMLVideoElement|null>(null);
   const readerRef=useRef<BrowserMultiFormatReader|null>(null);
   const lastScanRef=useRef<string>("");
@@ -665,7 +667,7 @@ export default function InventoryPage() {
                 <button onClick={loadTotals} className="btn btn-gh" style={{fontSize:13}}>Refresh</button>
                 <button onClick={()=>{setTotalsLowOnly(false);setTotalsZeroOnly(false);setTotalsSearch("");}} className="btn btn-gh" style={{fontSize:13}}>Clear</button>
               </div>
-              <button onClick={()=>{setOrderReqItems({});setOrderReqDone(false);setOrderReqOpen(true);}} className="btn btn-ac btn-full mb3" style={{fontSize:13}}>📦 Request Order</button>
+              <button onClick={()=>{setOrderReqItems({});setOrderReqDone(false);setOrderReqSearch("");setOrderReqLowOnly(false);setOrderReqOpen(true);}} className="btn btn-ac btn-full mb3" style={{fontSize:13}}>📦 Request Order</button>
               {totalsError && <div style={{color:"#fca5a5",fontSize:12,marginBottom:10,wordBreak:"break-word"}}>{totalsError}</div>}
               <div className="sp">
                 {filteredTotals.map((r)=>{
@@ -820,13 +822,42 @@ export default function InventoryPage() {
               </div>
             ) : (
               <>
-                <div style={{fontSize:12,color:"var(--text2)",marginBottom:16,lineHeight:1.5}}>Select items and enter how many to order.</div>
+                {/* Toggle */}
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:12}}>
+                  <button onClick={()=>setOrderReqLowOnly(false)} className={`tog ${!orderReqLowOnly?"on":"off"}`}>All Items</button>
+                  <button onClick={()=>setOrderReqLowOnly(true)} className={`tog ${orderReqLowOnly?"on-red":"off"}`}>🔴 Low Only</button>
+                </div>
+                {/* Search */}
+                <input
+                  value={orderReqSearch}
+                  onChange={(e)=>setOrderReqSearch(e.target.value)}
+                  placeholder="Search name, vendor, ref #…"
+                  className="inp"
+                  style={{marginBottom:12}}
+                />
                 <div style={{display:"flex",flexDirection:"column",gap:10,marginBottom:16}}>
-                  {totals.filter(r=>!!r.is_active).map((r)=>{
+                  {totals
+                    .filter(r=>!!r.is_active)
+                    .filter(r=>{
+                      const isLow=(r.low_level??0)>0&&(r.total_on_hand??0)<=(r.low_level??0);
+                      if(orderReqLowOnly&&!isLow)return false;
+                      if(orderReqSearch.trim()){
+                        const q=orderReqSearch.toLowerCase();
+                        return (r.name||"").toLowerCase().includes(q)||(r.vendor||"").toLowerCase().includes(q)||(r.reference_number||"").toLowerCase().includes(q);
+                      }
+                      return true;
+                    })
+                    .sort((a,b)=>{
+                      const aLow=(a.low_level??0)>0&&(a.total_on_hand??0)<=(a.low_level??0);
+                      const bLow=(b.low_level??0)>0&&(b.total_on_hand??0)<=(b.low_level??0);
+                      return aLow===bLow?0:aLow?-1:1;
+                    })
+                    .map((r)=>{
                     const checked = orderReqItems[r.item_id] !== undefined;
                     const qty = orderReqItems[r.item_id] ?? 1;
+                    const isLow=(r.low_level??0)>0&&(r.total_on_hand??0)<=(r.low_level??0);
                     return (
-                      <div key={r.item_id} style={{background:"var(--surface)",borderRadius:"var(--r-md)",border:`1px solid ${checked?"var(--border-ac)":"var(--border)"}`,padding:"12px"}}>
+                      <div key={r.item_id} style={{background:"var(--surface)",borderRadius:"var(--r-md)",border:`1px solid ${checked?"var(--border-ac)":isLow?"rgba(239,68,68,0.4)":"var(--border)"}`,padding:"12px"}}>
                         <label style={{display:"flex",alignItems:"flex-start",gap:10,cursor:"pointer"}}>
                           <input type="checkbox" checked={checked} onChange={(e)=>{
                             const next={...orderReqItems};
@@ -835,7 +866,10 @@ export default function InventoryPage() {
                             setOrderReqItems(next);
                           }} style={{marginTop:2,accentColor:"var(--ac)",width:16,height:16,flexShrink:0}} />
                           <div style={{flex:1,minWidth:0}}>
-                            <div style={{fontSize:13,fontWeight:700,color:"var(--text)",wordBreak:"break-word"}}>{r.name}</div>
+                            <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
+                              <div style={{fontSize:13,fontWeight:700,color:"var(--text)",wordBreak:"break-word"}}>{r.name}</div>
+                              {isLow && <span style={{fontSize:9,fontWeight:800,color:"#fca5a5",background:"rgba(239,68,68,0.15)",border:"1px solid rgba(239,68,68,0.3)",borderRadius:4,padding:"1px 6px"}}>LOW</span>}
+                            </div>
                             <div style={{fontSize:11,color:"var(--text2)",marginTop:2}}>{r.vendor||"—"} · Ref: {r.reference_number||"—"} · {r.unit||"—"}</div>
                           </div>
                         </label>
