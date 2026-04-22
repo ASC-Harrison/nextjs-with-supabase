@@ -343,6 +343,7 @@ export default function InventoryPage() {
   const [orderReqItems, setOrderReqItems] = useState<Record<string,number>>({});
   const [orderReqSending, setOrderReqSending] = useState(false);
   const [orderReqDone, setOrderReqDone] = useState(false);
+  const videoRef=useRef<HTMLVideoElement|null>(null);
   const readerRef=useRef<BrowserMultiFormatReader|null>(null);
   const lastScanRef=useRef<string>("");
   const scanCooldownRef=useRef<number>(0);
