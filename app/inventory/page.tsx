@@ -340,7 +340,7 @@ export default function InventoryPage() {
   const [itemStatusDraft,setItemStatusDraft]=useState<{order_status:string;backordered:boolean}>({order_status:"IN STOCK",backordered:false});
   const [pendingItemStatusSave,setPendingItemStatusSave]=useState<null|{item_id:string;order_status:string;backordered:boolean;item_name?:string;}>(null);
   const [orderReqOpen, setOrderReqOpen] = useState(false);
-  const [orderReqItems, setOrderReqItems] = useState<Record<string,number>>({});
+  const [orderReqItems, setOrderReqItems] = useState<Record<string,number|string>>({});
   const [orderReqSending, setOrderReqSending] = useState(false);
   const [orderReqDone, setOrderReqDone] = useState(false);
   const [orderReqSearch, setOrderReqSearch] = useState("");
@@ -854,14 +854,14 @@ export default function InventoryPage() {
                     })
                     .map((r)=>{
                     const checked = orderReqItems[r.item_id] !== undefined;
-                    const qty = orderReqItems[r.item_id] ?? 1;
+                    const qty = orderReqItems[r.item_id] ?? "";
                     const isLow=(r.low_level??0)>0&&(r.total_on_hand??0)<=(r.low_level??0);
                     return (
                       <div key={r.item_id} style={{background:"var(--surface)",borderRadius:"var(--r-md)",border:`1px solid ${checked?"var(--border-ac)":isLow?"rgba(239,68,68,0.4)":"var(--border)"}`,padding:"12px"}}>
                         <label style={{display:"flex",alignItems:"flex-start",gap:10,cursor:"pointer"}}>
                           <input type="checkbox" checked={checked} onChange={(e)=>{
                             const next={...orderReqItems};
-                            if(e.target.checked)next[r.item_id]=1;
+                            if(e.target.checked)next[r.item_id]="";
                             else delete next[r.item_id];
                             setOrderReqItems(next);
                           }} style={{marginTop:2,accentColor:"var(--ac)",width:16,height:16,flexShrink:0}} />
@@ -876,7 +876,7 @@ export default function InventoryPage() {
                         {checked && (
                           <div style={{display:"flex",alignItems:"center",gap:8,marginTop:10,paddingLeft:26}}>
                             <label style={{fontSize:11,color:"var(--text3)",fontWeight:700,flexShrink:0}}>QTY TO ORDER:</label>
-                            <input type="number" min={1} value={qty} onChange={(e)=>setOrderReqItems({...orderReqItems,[r.item_id]:Math.max(1,Number(e.target.value))})} className="inp" style={{width:80,textAlign:"center",padding:"6px 8px",fontSize:14,fontWeight:800}} />
+                            <input type="number" min={1} value={qty} onChange={(e)=>setOrderReqItems({...orderReqItems,[r.item_id]:Number(e.target.value)||1})} className="inp" style={{width:80,textAlign:"center",padding:"6px 8px",fontSize:14,fontWeight:800}} />
                           </div>
                         )}
                       </div>
@@ -890,7 +890,7 @@ export default function InventoryPage() {
                     className="btn btn-ac"
                     style={{flex:1}}
                     onClick={async()=>{
-                      const selectedItems=totals.filter(r=>orderReqItems[r.item_id]!==undefined).map(r=>({name:r.name,reference_number:r.reference_number||null,vendor:r.vendor||null,unit:r.unit||null,qty:orderReqItems[r.item_id]}));
+                      const selectedItems=totals.filter(r=>orderReqItems[r.item_id]!==undefined).map(r=>({name:r.name,reference_number:r.reference_number||null,vendor:r.vendor||null,unit:r.unit||null,qty:Number(orderReqItems[r.item_id])||1}));
                       if(!selectedItems.length)return;
                       setOrderReqSending(true);
                       try{
