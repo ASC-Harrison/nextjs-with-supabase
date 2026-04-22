@@ -66,7 +66,7 @@ export async function POST(req: Request) {
     `;
 
     const { error } = await resend.emails.send({
-      from: "Baxter ASC <onboarding@resend.dev>",
+      from: "Baxter ASC <orders@ascinventory.com>",
       to: ["hogstud800@gmail.com", "brooklyncarter.0716@gmail.com"],
       subject: `Supply Order Request — ${items.length} item${items.length > 1 ? "s" : ""} — Baxter ASC`,
       html,
