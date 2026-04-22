@@ -699,89 +699,6 @@ export default function InventoryPage() {
                 })}
               </div>
 
-              {orderReqOpen && (
-                <div className="modal-ov">
-                  <div className="modal anim" style={{maxHeight:"90vh",overflowY:"auto"}}>
-                    <div className="modal-title">📦 Request Order</div>
-                    {orderReqDone ? (
-                      <div style={{textAlign:"center",padding:"24px 0"}}>
-                        <div style={{fontSize:48,marginBottom:12}}>✅</div>
-                        <div style={{fontSize:16,fontWeight:800,color:"var(--text)"}}>Order Request Sent!</div>
-                        <div style={{fontSize:13,color:"var(--text2)",marginTop:8}}>Email sent to hogstud800@gmail.com and brooklyncarter.0716@gmail.com</div>
-                        <button onClick={()=>setOrderReqOpen(false)} className="btn btn-ac btn-full" style={{marginTop:20}}>Done</button>
-                      </div>
-                    ) : (
-                      <>
-                        <div style={{fontSize:12,color:"var(--text2)",marginBottom:16,lineHeight:1.5}}>Select items and enter how many to order. Email will be sent to both contacts.</div>
-                        <div style={{display:"flex",flexDirection:"column",gap:10,marginBottom:16}}>
-                          {totals.filter(r=>!!r.is_active).map((r)=>{
-                            const checked = orderReqItems[r.item_id] !== undefined;
-                            const qty = orderReqItems[r.item_id] ?? 1;
-                            return (
-                              <div key={r.item_id} style={{background:"var(--surface)",borderRadius:"var(--r-md)",border:`1px solid ${checked?"var(--border-ac)":"var(--border)"}`,padding:"12px"}}>
-                                <label style={{display:"flex",alignItems:"flex-start",gap:10,cursor:"pointer"}}>
-                                  <input type="checkbox" checked={checked} onChange={(e)=>{
-                                    const next={...orderReqItems};
-                                    if(e.target.checked)next[r.item_id]=1;
-                                    else delete next[r.item_id];
-                                    setOrderReqItems(next);
-                                  }} style={{marginTop:2,accentColor:"var(--ac)",width:16,height:16,flexShrink:0}} />
-                                  <div style={{flex:1,minWidth:0}}>
-                                    <div style={{fontSize:13,fontWeight:700,color:"var(--text)",wordBreak:"break-word"}}>{r.name}</div>
-                                    <div style={{fontSize:11,color:"var(--text2)",marginTop:2}}>{r.vendor||"—"} · Ref: {r.reference_number||"—"} · {r.unit||"—"}</div>
-                                  </div>
-                                </label>
-                                {checked && (
-                                  <div style={{display:"flex",alignItems:"center",gap:8,marginTop:10,paddingLeft:26}}>
-                                    <label style={{fontSize:11,color:"var(--text3)",fontWeight:700,flexShrink:0}}>QTY TO ORDER:</label>
-                                    <input
-                                      type="number"
-                                      min={1}
-                                      value={qty}
-                                      onChange={(e)=>setOrderReqItems({...orderReqItems,[r.item_id]:Math.max(1,Number(e.target.value))})}
-                                      className="inp"
-                                      style={{width:80,textAlign:"center",padding:"6px 8px",fontSize:14,fontWeight:800}}
-                                    />
-                                  </div>
-                                )}
-                              </div>
-                            );
-                          })}
-                        </div>
-                        <div style={{position:"sticky",bottom:0,background:"var(--card)",paddingTop:14,borderTop:"1px solid var(--border)",display:"flex",gap:10}}>
-                          <button onClick={()=>setOrderReqOpen(false)} className="btn btn-gh" style={{flex:1}}>Cancel</button>
-                          <button
-                            disabled={orderReqSending||Object.keys(orderReqItems).length===0}
-                            className="btn btn-ac"
-                            style={{flex:1}}
-                            onClick={async()=>{
-                              const selectedItems=totals.filter(r=>orderReqItems[r.item_id]!==undefined).map(r=>({
-                                name:r.name,
-                                reference_number:r.reference_number||null,
-                                vendor:r.vendor||null,
-                                unit:r.unit||null,
-                                qty:orderReqItems[r.item_id],
-                              }));
-                              if(!selectedItems.length)return;
-                              setOrderReqSending(true);
-                              try{
-                                const res=await fetch("/api/order-request",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({items:selectedItems,requested_by:(staffName||"").trim()||"Staff"})});
-                                const json=await res.json();
-                                if(!json.ok){alert(`Failed to send: ${json.error}`);}
-                                else{setOrderReqDone(true);}
-                              }catch(e:any){alert(`Error: ${e?.message}`);}
-                              finally{setOrderReqSending(false);}
-                            }}
-                          >
-                            {orderReqSending?"Sending…":`Send Request (${Object.keys(orderReqItems).length} items)`}
-                          </button>
-                        </div>
-                      </>
-                    )}
-                  </div>
-                </div>
-              )}
-
             </div>
           )}
 
@@ -888,6 +805,76 @@ export default function InventoryPage() {
             </div>
           </div>
         </AscModal>
+      )}
+
+      {orderReqOpen && (
+        <div className="modal-ov">
+          <div className="modal anim" style={{maxHeight:"90vh",overflowY:"auto"}}>
+            <div className="modal-title">📦 Request Order</div>
+            {orderReqDone ? (
+              <div style={{textAlign:"center",padding:"24px 0"}}>
+                <div style={{fontSize:48,marginBottom:12}}>✅</div>
+                <div style={{fontSize:16,fontWeight:800,color:"var(--text)"}}>Order Request Sent!</div>
+                <div style={{fontSize:13,color:"var(--text2)",marginTop:8}}>Email sent to both contacts.</div>
+                <button onClick={()=>setOrderReqOpen(false)} className="btn btn-ac btn-full" style={{marginTop:20}}>Done</button>
+              </div>
+            ) : (
+              <>
+                <div style={{fontSize:12,color:"var(--text2)",marginBottom:16,lineHeight:1.5}}>Select items and enter how many to order.</div>
+                <div style={{display:"flex",flexDirection:"column",gap:10,marginBottom:16}}>
+                  {totals.filter(r=>!!r.is_active).map((r)=>{
+                    const checked = orderReqItems[r.item_id] !== undefined;
+                    const qty = orderReqItems[r.item_id] ?? 1;
+                    return (
+                      <div key={r.item_id} style={{background:"var(--surface)",borderRadius:"var(--r-md)",border:`1px solid ${checked?"var(--border-ac)":"var(--border)"}`,padding:"12px"}}>
+                        <label style={{display:"flex",alignItems:"flex-start",gap:10,cursor:"pointer"}}>
+                          <input type="checkbox" checked={checked} onChange={(e)=>{
+                            const next={...orderReqItems};
+                            if(e.target.checked)next[r.item_id]=1;
+                            else delete next[r.item_id];
+                            setOrderReqItems(next);
+                          }} style={{marginTop:2,accentColor:"var(--ac)",width:16,height:16,flexShrink:0}} />
+                          <div style={{flex:1,minWidth:0}}>
+                            <div style={{fontSize:13,fontWeight:700,color:"var(--text)",wordBreak:"break-word"}}>{r.name}</div>
+                            <div style={{fontSize:11,color:"var(--text2)",marginTop:2}}>{r.vendor||"—"} · Ref: {r.reference_number||"—"} · {r.unit||"—"}</div>
+                          </div>
+                        </label>
+                        {checked && (
+                          <div style={{display:"flex",alignItems:"center",gap:8,marginTop:10,paddingLeft:26}}>
+                            <label style={{fontSize:11,color:"var(--text3)",fontWeight:700,flexShrink:0}}>QTY TO ORDER:</label>
+                            <input type="number" min={1} value={qty} onChange={(e)=>setOrderReqItems({...orderReqItems,[r.item_id]:Math.max(1,Number(e.target.value))})} className="inp" style={{width:80,textAlign:"center",padding:"6px 8px",fontSize:14,fontWeight:800}} />
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+                <div style={{position:"sticky",bottom:0,background:"var(--card)",paddingTop:14,borderTop:"1px solid var(--border)",display:"flex",gap:10}}>
+                  <button onClick={()=>setOrderReqOpen(false)} className="btn btn-gh" style={{flex:1}}>Cancel</button>
+                  <button
+                    disabled={orderReqSending||Object.keys(orderReqItems).length===0}
+                    className="btn btn-ac"
+                    style={{flex:1}}
+                    onClick={async()=>{
+                      const selectedItems=totals.filter(r=>orderReqItems[r.item_id]!==undefined).map(r=>({name:r.name,reference_number:r.reference_number||null,vendor:r.vendor||null,unit:r.unit||null,qty:orderReqItems[r.item_id]}));
+                      if(!selectedItems.length)return;
+                      setOrderReqSending(true);
+                      try{
+                        const res=await fetch("/api/order-request",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({items:selectedItems,requested_by:(staffName||"").trim()||"Staff"})});
+                        const json=await res.json();
+                        if(!json.ok){alert(`Failed to send: ${json.error}`);}
+                        else{setOrderReqDone(true);}
+                      }catch(e:any){alert(`Error: ${e?.message}`);}
+                      finally{setOrderReqSending(false);}
+                    }}
+                  >
+                    {orderReqSending?"Sending…":`Send Request (${Object.keys(orderReqItems).length} items)`}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
       )}
     </>
   );
