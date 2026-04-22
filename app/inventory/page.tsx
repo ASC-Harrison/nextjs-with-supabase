@@ -871,6 +871,10 @@ export default function InventoryPage() {
                               {isLow && <span style={{fontSize:9,fontWeight:800,color:"#fca5a5",background:"rgba(239,68,68,0.15)",border:"1px solid rgba(239,68,68,0.3)",borderRadius:4,padding:"1px 6px"}}>LOW</span>}
                             </div>
                             <div style={{fontSize:11,color:"var(--text2)",marginTop:2}}>{r.vendor||"—"} · Ref: {r.reference_number||"—"} · {r.unit||"—"}</div>
+                            <div style={{display:"flex",gap:10,marginTop:4}}>
+                              <span style={{fontSize:11,fontWeight:700,color:"var(--ok)"}}>On Hand: {r.total_on_hand??0}</span>
+                              <span style={{fontSize:11,fontWeight:700,color:"var(--ac-bright)"}}>PAR: {r.par_level??0}</span>
+                            </div>
                           </div>
                         </label>
                         {checked && (
