@@ -21,6 +21,9 @@ export default function Home() {
           <Link href="/staff-activity" className="block w-full rounded-2xl bg-blue-600/20 text-blue-300 font-semibold py-4 text-center ring-1 ring-blue-500/30">
             👥 Staff Activity
           </Link>
+          <Link href="/labels" className="block w-full rounded-2xl bg-purple-600/20 text-purple-300 font-semibold py-4 text-center ring-1 ring-purple-500/30">
+            🏷️ Print QR Labels
+          </Link>
         </div>
         <div className="pt-4 text-center text-white/40 text-sm">
           Tip: Add this page to your Home Screen for quick access.
