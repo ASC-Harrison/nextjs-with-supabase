@@ -15,11 +15,17 @@ export default function Home() {
           <Link href="/inventory" className="block w-full rounded-2xl bg-white text-black font-semibold py-4 text-center">
             Launch App
           </Link>
+          <Link href="/items" className="block w-full rounded-2xl bg-indigo-600/20 text-indigo-300 font-semibold py-4 text-center ring-1 ring-indigo-500/30">
+            ➕ Add / Manage Items
+          </Link>
           <Link href="/admin" className="block w-full rounded-2xl bg-white/10 text-white font-semibold py-4 text-center ring-1 ring-white/15">
             Admin Inventory (Table View)
           </Link>
           <Link href="/staff-activity" className="block w-full rounded-2xl bg-blue-600/20 text-blue-300 font-semibold py-4 text-center ring-1 ring-blue-500/30">
             👥 Staff Activity
+          </Link>
+          <Link href="/reports" className="block w-full rounded-2xl bg-green-600/20 text-green-300 font-semibold py-4 text-center ring-1 ring-green-500/30">
+            📊 Usage Reports
           </Link>
           <Link href="/labels" className="block w-full rounded-2xl bg-purple-600/20 text-purple-300 font-semibold py-4 text-center ring-1 ring-purple-500/30">
             🏷️ Print QR Labels
