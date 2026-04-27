@@ -1,43 +1,41 @@
-// app/layout.tsx
+import type { Metadata, Viewport } from "next";
 import "./globals.css";
-import type { Metadata } from "next";
 
 export const metadata: Metadata = {
   title: "Baxter ASC Inventory",
   description: "Cabinet tracking + building totals + low stock alerts",
-
-  // ✅ makes iOS/standalone use the manifest
-  manifest: "/manifest.webmanifest",
-
-  // ✅ nice-to-have for iOS
+  manifest: "/manifest.json",
   appleWebApp: {
     capable: true,
     statusBarStyle: "black-translucent",
     title: "ASC Inventory",
   },
-
-  themeColor: "#000000",
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
-  return (
-    <html lang="en" className="h-full w-full overflow-x-hidden">
-      <body className="min-h-screen w-full overflow-x-hidden bg-black text-white antialiased">
-        {children}
+export const viewport: Viewport = {
+  themeColor: "#0a0f1e",
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
+};
 
-        {/* ✅ register service worker (optional but fine) */}
-        <script
-          dangerouslySetInnerHTML={{
-            __html: `
-              if (typeof window !== "undefined" && "serviceWorker" in navigator) {
-                window.addEventListener("load", () => {
-                  navigator.serviceWorker.register("/sw.js").catch(() => {});
-                });
-              }
-            `,
-          }}
-        />
-      </body>
+export default function RootLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  return (
+    <html lang="en">
+      <head>
+        <link rel="manifest" href="/manifest.json" />
+        <link rel="apple-touch-icon" href="/icon-192.png" />
+        <meta name="apple-mobile-web-app-capable" content="yes" />
+        <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+        <meta name="apple-mobile-web-app-title" content="ASC Inventory" />
+        <meta name="theme-color" content="#0a0f1e" />
+      </head>
+      <body>{children}</body>
     </html>
   );
 }
