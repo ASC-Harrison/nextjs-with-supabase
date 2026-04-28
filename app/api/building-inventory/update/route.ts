@@ -112,6 +112,15 @@ export async function POST(req: Request) {
         payload.supply_source = (body as any).supply_source.trim() || null;
       }
 
+      if ((body as any).price !== undefined) {
+        const p = Number((body as any).price);
+        payload.price = Number.isFinite(p) && p >= 0 ? p : null;
+      }
+
+      if ((body as any).expiration_date !== undefined) {
+        payload.expiration_date = (body as any).expiration_date || null;
+      }
+
       const { error } = await supabase
         .from("items")
         .update(payload)
