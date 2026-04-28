@@ -124,25 +124,26 @@ export default function ItemsPage() {
     if (!name.trim()) return showMsg("err", "Item name is required.");
     setLoading(true);
     try {
-      const payload: any = {
-        name: name.trim(),
-        reference_number: refNumber.trim() || null,
-        vendor: vendor.trim() || null,
-        category: category.trim() || null,
-        unit: unit.trim() || null,
-        par_level: parLevel ? Number(parLevel) : 0,
-        low_level: lowLevel ? Number(lowLevel) : 0,
-        price: price ? Number(price) : null,
-        supply_source: supplySource,
-        notes: notes.trim() || null,
-        is_active: true,
-        barcode: `MANUAL-${Date.now()}`,
-      };
-      const { data, error } = await supabase.from("items").insert(payload).select().single();
-      if (error) throw error;
+      const res = await fetch("/api/items/create-item", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: name.trim(),
+          reference_number: refNumber.trim() || null,
+          vendor: vendor.trim() || null,
+          category: category.trim() || null,
+          unit: unit.trim() || null,
+          par_level: parLevel ? Number(parLevel) : 0,
+          low_level: lowLevel ? Number(lowLevel) : 0,
+          price: price ? Number(price) : null,
+          supply_source: supplySource,
+          notes: notes.trim() || null,
+        }),
+      });
+      const json = await res.json();
+      if (!json.ok) throw new Error(json.error);
       showMsg("ok", `✅ "${name.trim()}" added to the system successfully!`);
       resetNewItem();
-      // Refresh items list
       const { data: refreshed } = await supabase.from("items").select("id,name,reference_number,vendor,category,unit").eq("is_active",true).order("name");
       if (refreshed) setAllItems(refreshed as Item[]);
     } catch (e:any) {
