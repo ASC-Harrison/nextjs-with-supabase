@@ -80,6 +80,7 @@ export default function ItemsPage() {
   const [price, setPrice] = useState("");
   const [supplySource, setSupplySource] = useState("VENDOR");
   const [notes, setNotes] = useState("");
+  const [expirationDate, setExpirationDate] = useState("");
 
   // Add to area fields
   const [itemSearch, setItemSearch] = useState("");
@@ -117,7 +118,7 @@ export default function ItemsPage() {
   function resetNewItem() {
     setName(""); setRefNumber(""); setVendor(""); setCategory("");
     setUnit(""); setParLevel(""); setLowLevel(""); setPrice("");
-    setSupplySource("VENDOR"); setNotes("");
+    setSupplySource("VENDOR"); setNotes(""); setExpirationDate("");
   }
 
   async function handleCreateItem() {
@@ -138,6 +139,7 @@ export default function ItemsPage() {
           price: price ? Number(price) : null,
           supply_source: supplySource,
           notes: notes.trim() || null,
+          expiration_date: expirationDate || null,
         }),
       });
       const json = await res.json();
@@ -251,6 +253,9 @@ export default function ItemsPage() {
                   </select>
                 </div>
               </div>
+
+              <label className="lbl">Expiration Date</label>
+              <input value={expirationDate} onChange={e=>setExpirationDate(e.target.value)} className="inp" type="date" style={{marginBottom:10}} />
 
               <label className="lbl">Notes</label>
               <textarea value={notes} onChange={e=>setNotes(e.target.value)} className="inp" style={{minHeight:70,resize:"vertical"}} placeholder="Any additional notes…" />
