@@ -28,6 +28,7 @@ export async function POST(req: Request) {
       price: body.price ?? null,
       supply_source: body.supply_source || "VENDOR",
       notes: body.notes || null,
+      expiration_date: body.expiration_date || null,
       is_active: true,
       barcode: `MANUAL-${Date.now()}`,
     };
