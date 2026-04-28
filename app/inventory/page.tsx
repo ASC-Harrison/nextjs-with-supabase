@@ -11,7 +11,7 @@ type LookupMode = "BARCODE" | "REF" | "NAME";
 type Area = { id: string; name: string };
 type Item = { id: string; name: string; barcode: string; reference_number?: string | null; order_status?: string | null; backordered?: boolean | null; };
 type AuditEvent = { id: string; ts: string; staff: string; action: "SCAN"|"LOOKUP_FOUND"|"LOOKUP_NOT_FOUND"|"ADD_ITEM"|"SUBMIT_TX"|"UNDO_TX"|"CHANGE_LOCATION"|"LOCK"|"UNLOCK"|"MAIN_OVERRIDE_ON"|"MAIN_OVERRIDE_OFF"|"SCANNER_OPEN"|"SCANNER_CLOSE"|"TOTALS_SET"|"TOTALS_ADJUST"|"AREA_LIST_LOAD"|"AREA_LIST_TOGGLE"|"AREA_ROW_EDIT_OPEN"|"AREA_ROW_EDIT_SAVE"|"ITEM_INACTIVE"|"ITEM_RESTORED"|"ITEM_STATUS_SAVE"; details?: string; };
-type BuildingTotalRow = { item_id: string; name: string; reference_number: string | null; vendor: string | null; category: string | null; total_on_hand: number | null; par_level: number | null; low_level: number | null; unit: string | null; notes: string | null; is_active: boolean | null; order_status?: string | null; backordered?: boolean | null; supply_source?: string | null; };
+type BuildingTotalRow = { item_id: string; name: string; reference_number: string | null; vendor: string | null; category: string | null; total_on_hand: number | null; par_level: number | null; low_level: number | null; unit: string | null; notes: string | null; is_active: boolean | null; order_status?: string | null; backordered?: boolean | null; supply_source?: string | null; price?: number | null; expiration_date?: string | null; };
 type AreaInvRow = { storage_area_id: string; storage_area_name: string; item_id: string; item_name: string; on_hand: number | null; par_level: number | null; low_level: number | null; unit: string | null; vendor: string | null; category: string | null; reference_number: string | null; notes: string | null; order_status?: string | null; backordered?: boolean | null; };
 type LastTx = { storage_area_id: string; mode: Mode; item_id: string; qty: number; mainOverride: boolean; item_name?: string; area_name?: string; ts: string; };
 type OrderStatusRow = { id: string; qty_ordered: number; qty_received: number; status: "ORDERED"|"BACKORDER"|"PARTIAL"|"RECEIVED"|"CANCELLED"; notes: string | null; purchase_orders?: { id?: string|null; po_number?: string|null; vendor?: string|null; status?: string|null; expected_date?: string|null; order_date?: string|null; notes?: string|null; }|null; };
@@ -315,6 +315,8 @@ export default function InventoryPage() {
   const [totalsOrderStatusInput,setTotalsOrderStatusInput]=useState<string>("IN STOCK");
   const [totalsBackorderedInput,setTotalsBackorderedInput]=useState<boolean>(false);
   const [supplySourceInput,setSupplySourceInput]=useState<string>("VENDOR");
+  const [priceInput,setPriceInput]=useState<string>("");
+  const [expirationInput,setExpirationInput]=useState<string>("");
   const [pendingTotalsAction,setPendingTotalsAction]=useState<null|{kind:"SET";value:number}|{kind:"ADJUST";delta:number}|{kind:"SET_ACTIVE";is_active:boolean}>(null);
   const [areaListOpen,setAreaListOpen]=useState(false);
   const [areaInv,setAreaInv]=useState<AreaInvRow[]>([]);
@@ -368,7 +370,7 @@ export default function InventoryPage() {
 
   useEffect(()=>{loadLocations();},[]);// eslint-disable-line
 
-  async function loadTotals(){setTotalsLoading(true);setTotalsError("");try{const{data,error}=await supabase.from("building_inventory_sheet_view").select("item_id,name,reference_number,vendor,category,total_on_hand,par_level,low_level,unit,notes,is_active,order_status,backordered").order("name",{ascending:true});if(error)throw error;const rows=(data as BuildingTotalRow[])??[];const ids=rows.map((r)=>r.item_id);if(ids.length>0){const{data:srcData}=await supabase.from("items").select("id,supply_source").in("id",ids);if(srcData){const map=Object.fromEntries(srcData.map((r:any)=>[r.id,r.supply_source]));rows.forEach((r)=>{r.supply_source=map[r.item_id]??null;});}}setTotals(rows);}catch(e:any){setTotals([]);setTotalsError(e?.message??"Failed to load totals");}finally{setTotalsLoading(false);}}
+  async function loadTotals(){setTotalsLoading(true);setTotalsError("");try{const{data,error}=await supabase.from("building_inventory_sheet_view").select("item_id,name,reference_number,vendor,category,total_on_hand,par_level,low_level,unit,notes,is_active,order_status,backordered").order("name",{ascending:true});if(error)throw error;const rows=(data as BuildingTotalRow[])??[];const ids=rows.map((r)=>r.item_id);if(ids.length>0){const{data:srcData}=await supabase.from("items").select("id,supply_source,price,expiration_date").in("id",ids);if(srcData){const map=Object.fromEntries(srcData.map((r:any)=>[r.id,r]));rows.forEach((r)=>{r.supply_source=map[r.item_id]?.supply_source??null;r.price=map[r.item_id]?.price??null;r.expiration_date=map[r.item_id]?.expiration_date??null;});}}setTotals(rows);}catch(e:any){setTotals([]);setTotalsError(e?.message??"Failed to load totals");}finally{setTotalsLoading(false);}}
   useEffect(()=>{if(tab!=="Totals")return;if(totals.length===0)loadTotals();},[tab]);// eslint-disable-line
 
   async function loadAreaInventory(){if(!areaId)return;setAreaInvLoading(true);setAreaInvError("");try{const{data,error}=await supabase.from("storage_inventory_area_view").select("storage_area_id,storage_area_name,item_id,item_name,on_hand,par_level,low_level,unit,vendor,category,reference_number,notes,order_status,backordered").eq("storage_area_id",areaId).order("item_name",{ascending:true});if(error)throw error;setAreaInv((data as AreaInvRow[])??[]);pushAudit({action:"AREA_LIST_LOAD",details:`Area=${selectedAreaName} Rows=${(data as any[])?.length??0}`});}catch(e:any){setAreaInv([]);setAreaInvError(e?.message??"Failed to load area list");}finally{setAreaInvLoading(false);}}
@@ -402,7 +404,7 @@ export default function InventoryPage() {
 
   async function loadOrderRowsForItem(itemId:string,mode2:"modal"|"totals"="modal"){if(mode2==="modal"){setOrderStatusLoading(true);setOrderStatusRows([]);}else{setTotalsOrderLoading(true);setTotalsOrderRows([]);}try{const{data,error}=await supabase.from("purchase_order_items").select("id,qty_ordered,qty_received,status,notes,purchase_orders(id,po_number,vendor,status,expected_date,order_date,notes)").eq("item_id",itemId).order("created_at",{ascending:false});if(error)throw error;if(mode2==="modal")setOrderStatusRows((data as OrderStatusRow[])??[]);else setTotalsOrderRows((data as OrderStatusRow[])??[]);}catch(e:any){if(mode2==="modal"){alert(`Order status failed: ${e?.message??"unknown error"}`);setOrderStatusOpen(false);}else setTotalsOrderRows([]);}finally{if(mode2==="modal")setOrderStatusLoading(false);else setTotalsOrderLoading(false);}}
   async function openOrderStatus(){if(!item?.id)return;setOrderStatusOpen(true);await loadOrderRowsForItem(item.id,"modal");}
-  async function openTotalsEditor(row:BuildingTotalRow){setTotalsEditRow(row);setSetOnHandInput(String(row.total_on_hand??0));setDeltaInput("");setParInput(String(row.par_level??0));setVendorInput(row.vendor??"");setCategoryInput(row.category??"");setUnitInput(row.unit??"");setNotesInput(row.notes??"");setTotalsLowInput(String(row.low_level??0));setRefInput(row.reference_number??"");setTotalsOrderStatusInput(row.order_status||"IN STOCK");setTotalsBackorderedInput(!!row.backordered);setSupplySourceInput(row.supply_source||"VENDOR");setTotalsEditOpen(true);loadOrderRowsForItem(row.item_id,"totals").catch(()=>{});}
+  async function openTotalsEditor(row:BuildingTotalRow){setTotalsEditRow(row);setSetOnHandInput(String(row.total_on_hand??0));setDeltaInput("");setParInput(String(row.par_level??0));setVendorInput(row.vendor??"");setCategoryInput(row.category??"");setUnitInput(row.unit??"");setNotesInput(row.notes??"");setTotalsLowInput(String(row.low_level??0));setRefInput(row.reference_number??"");setTotalsOrderStatusInput(row.order_status||"IN STOCK");setTotalsBackorderedInput(!!row.backordered);setSupplySourceInput(row.supply_source||"VENDOR");setPriceInput(row.price!=null?String(row.price):"");setExpirationInput(row.expiration_date||"");setTotalsEditOpen(true);loadOrderRowsForItem(row.item_id,"totals").catch(()=>{});}
   function parseIntSafe(raw:string):number|null{const cleaned=raw.trim();if(!cleaned||!/^-?\d+$/.test(cleaned))return null;const n=Number(cleaned);return Number.isFinite(n)?n:null;}
 
   async function doTotalsSet(row:BuildingTotalRow,value:number,pinAlreadyPassed=false){if(locked&&!pinAlreadyPassed){setPendingTotalsAction({kind:"SET",value});openPin("totalsEdit");return;}const res=await fetch("/api/building-inventory/update",{method:"POST",headers:{"Content-Type":"application/json"},cache:"no-store",body:JSON.stringify({item_id:row.item_id,action:"SET",value})});const json=await res.json();if(!json.ok){alert(`Update failed: ${json.error}`);return;}pushAudit({action:"TOTALS_SET",details:`Item=${row.name} Set=${value}`});setTotalsEditOpen(false);await loadTotals();}
@@ -673,6 +675,7 @@ export default function InventoryPage() {
                   const oh=r.total_on_hand??0;const low=r.low_level??0;const par=r.par_level??0;
                   const zeroSetup=par===0||low===0;const isLow=low>0&&oh<=low;
                   const src=supplySourceLabel(r.supply_source);
+                  const expDiff=r.expiration_date?Math.ceil((new Date(r.expiration_date).getTime()-Date.now())/(1000*60*60*24)):null;
                   return (
                     <button key={`${r.item_id}-${r.reference_number??""}`} onClick={()=>openTotalsEditor(r)} className={`item-card ${isLow?"low":zeroSetup?"warn":"ok"}`}>
                       <div className="fxb">
@@ -682,6 +685,8 @@ export default function InventoryPage() {
                           <div style={{display:"flex",alignItems:"center",gap:6,marginTop:3,flexWrap:"wrap"}}>
                             <span className="i-status">Status: {r.order_status||"IN STOCK"}{r.backordered?" · BACKORDERED":""}</span>
                             <span className={src.cls}>{src.label}</span>
+                            {expDiff!==null&&expDiff<0&&<span style={{fontSize:9,fontWeight:800,color:"#fca5a5",background:"rgba(239,68,68,0.15)",border:"1px solid rgba(239,68,68,0.3)",borderRadius:4,padding:"1px 6px"}}>EXPIRED</span>}
+                            {expDiff!==null&&expDiff>=0&&expDiff<=30&&<span style={{fontSize:9,fontWeight:800,color:"#fcd34d",background:"rgba(245,158,11,0.1)",border:"1px solid rgba(245,158,11,0.3)",borderRadius:4,padding:"1px 6px"}}>EXP {expDiff}d</span>}
                           </div>
                         </div>
                         <div className={`oh-badge ${isLow?"low":"ok"}`}>
@@ -778,13 +783,27 @@ export default function InventoryPage() {
             </div>
             <div className="field"><label className="f-lbl">Unit</label><input value={unitInput} onChange={(e)=>setUnitInput(e.target.value)} className="inp" /></div>
             <div className="field">
+              <label className="f-lbl">Price per Unit ($)</label>
+              <input value={priceInput} onChange={(e)=>setPriceInput(e.target.value.replace(/[^0-9.]/g,""))} className="inp" placeholder="e.g., 24.99" inputMode="decimal" />
+            </div>
+            <div className="field">
+              <label className="f-lbl">Expiration Date</label>
+              <input value={expirationInput} onChange={(e)=>setExpirationInput(e.target.value)} className="inp" type="date" />
+              {expirationInput && (()=>{
+                const exp=new Date(expirationInput);const now=new Date();const diff=Math.ceil((exp.getTime()-now.getTime())/(1000*60*60*24));
+                if(diff<0)return <div style={{fontSize:11,color:"#fca5a5",marginTop:4,fontWeight:700}}>⚠️ EXPIRED {Math.abs(diff)} days ago</div>;
+                if(diff<=30)return <div style={{fontSize:11,color:"#fcd34d",marginTop:4,fontWeight:700}}>⚠️ Expires in {diff} days</div>;
+                return <div style={{fontSize:11,color:"#6ee7b7",marginTop:4}}>✅ Good for {diff} more days</div>;
+              })()}
+            </div>
+            <div className="field">
               <label className="f-lbl">Supply Source</label>
               <select value={supplySourceInput} onChange={(e)=>setSupplySourceInput(e.target.value)} className="inp inp-sel">
                 {SUPPLY_SOURCE_OPTIONS.map((opt)=><option key={opt.value} value={opt.value}>{opt.label}</option>)}
               </select>
             </div>
             <div className="field"><label className="f-lbl">Notes</label><textarea value={notesInput} onChange={(e)=>setNotesInput(e.target.value)} className="inp inp-ta" /></div>
-            <button onClick={async()=>{const low=parseIntSafe(totalsLowInput);if(low===null||low<0)return alert("Enter a valid low level.");const res=await fetch("/api/building-inventory/update",{method:"POST",headers:{"Content-Type":"application/json"},cache:"no-store",body:JSON.stringify({item_id:totalsEditRow.item_id,action:"SAVE_ITEM_META",vendor:vendorInput,category:categoryInput,unit:unitInput,notes:notesInput,low_level:low,reference_number_new:refInput,supply_source:supplySourceInput})});const json=await res.json();if(!json.ok)return alert(`Save failed: ${json.error}`);pushAudit({action:"TOTALS_ADJUST",details:`Meta Save Item=${totalsEditRow.name} Source=${supplySourceInput}`});setTotalsEditOpen(false);await loadTotals();}} className="btn btn-ac btn-full" style={{fontSize:13}}>Save Item Details</button>
+            <button onClick={async()=>{const low=parseIntSafe(totalsLowInput);if(low===null||low<0)return alert("Enter a valid low level.");const res=await fetch("/api/building-inventory/update",{method:"POST",headers:{"Content-Type":"application/json"},cache:"no-store",body:JSON.stringify({item_id:totalsEditRow.item_id,action:"SAVE_ITEM_META",vendor:vendorInput,category:categoryInput,unit:unitInput,notes:notesInput,low_level:low,reference_number_new:refInput,supply_source:supplySourceInput,price:priceInput.trim()?Number(priceInput):null,expiration_date:expirationInput||null})});const json=await res.json();if(!json.ok)return alert(`Save failed: ${json.error}`);pushAudit({action:"TOTALS_ADJUST",details:`Meta Save Item=${totalsEditRow.name} Source=${supplySourceInput} Price=$${priceInput||"—"}`});setTotalsEditOpen(false);await loadTotals();}} className="btn btn-ac btn-full" style={{fontSize:13}}>Save Item Details</button>
           </div>
           <div className="c-panel mb3">
             <div className="s-title">Set exact on-hand</div>
