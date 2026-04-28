@@ -158,14 +158,19 @@ export default function ItemsPage() {
     if (!selectedArea) return showMsg("err", "Select a storage area.");
     setLoading(true);
     try {
-      const { error } = await supabase.from("storage_inventory").upsert({
-        storage_area_id: selectedArea,
-        item_id: selectedItem.id,
-        on_hand: Number(areaOnHand) || 0,
-        par_level: areaPar ? Number(areaPar) : 0,
-        low_level: areaLow ? Number(areaLow) : 0,
-      }, { onConflict: "storage_area_id,item_id" });
-      if (error) throw error;
+      const res = await fetch("/api/items/add-to-area", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          storage_area_id: selectedArea,
+          item_id: selectedItem.id,
+          on_hand: Number(areaOnHand) || 0,
+          par_level: areaPar ? Number(areaPar) : 0,
+          low_level: areaLow ? Number(areaLow) : 0,
+        }),
+      });
+      const json = await res.json();
+      if (!json.ok) throw new Error(json.error);
       const areaName = areas.find(a => a.id === selectedArea)?.name ?? selectedArea;
       showMsg("ok", `✅ "${selectedItem.name}" added to ${areaName}!`);
       setSelectedItem(null); setItemSearch(""); setAreaPar(""); setAreaLow(""); setAreaOnHand("0");
