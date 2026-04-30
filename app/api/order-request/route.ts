@@ -1,7 +1,17 @@
 import { NextResponse } from "next/server";
 import { Resend } from "resend";
+import { createClient } from "@supabase/supabase-js";
 
 const resend = new Resend(process.env.RESEND_API_KEY);
+
+function getServiceClient() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY ||
+              process.env.SUPABASE_SERVICE_KEY ||
+              process.env.SUPABASE_SERVICE_ROLE;
+  if (!url || !key) throw new Error("Missing service role key");
+  return createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
+}
 
 type OrderItem = {
   name: string;
@@ -11,6 +21,8 @@ type OrderItem = {
   qty: number;
 };
 
+const APP_URL = "https://nextjs-with-supabase-gamma-rosy.vercel.app";
+
 export async function POST(req: Request) {
   try {
     const { items, requested_by } = await req.json() as { items: OrderItem[]; requested_by: string };
@@ -19,23 +31,53 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: "No items provided" });
     }
 
+    const supabase = getServiceClient();
+
+    // Save each item to order_requests table
+    const orderRows = items.map(item => ({
+      requested_by: requested_by || "Staff",
+      item_name: item.name,
+      reference_number: item.reference_number || null,
+      vendor: item.vendor || null,
+      unit: item.unit || null,
+      qty_requested: item.qty,
+      status: "PENDING",
+    }));
+
+    const { data: savedOrders, error: saveError } = await supabase
+      .from("order_requests")
+      .insert(orderRows)
+      .select();
+
+    if (saveError) {
+      return NextResponse.json({ ok: false, error: saveError.message });
+    }
+
     const now = new Date().toLocaleString("en-US", {
       month: "long", day: "numeric", year: "numeric",
       hour: "2-digit", minute: "2-digit",
     });
 
-    const rows = items.map((item) => `
-      <tr style="border-bottom:1px solid #e2e8f0;">
-        <td style="padding:12px 14px;font-size:14px;color:#1e293b;font-weight:600;">${item.name}</td>
-        <td style="padding:12px 14px;font-size:13px;color:#475569;">${item.reference_number || "—"}</td>
-        <td style="padding:12px 14px;font-size:13px;color:#475569;">${item.vendor || "—"}</td>
-        <td style="padding:12px 14px;font-size:13px;color:#475569;text-align:center;">${item.unit || "—"}</td>
-        <td style="padding:12px 14px;font-size:14px;color:#2563eb;font-weight:800;text-align:center;">${item.qty}</td>
-      </tr>
-    `).join("");
+    // Build confirm buttons for each item
+    const rows = items.map((item, i) => {
+      const orderId = savedOrders?.[i]?.id ?? "";
+      const confirmUrl = `${APP_URL}/api/orders/confirm?id=${orderId}&by=Brooklyn`;
+      return `
+        <tr style="border-bottom:1px solid #e2e8f0;">
+          <td style="padding:12px 14px;font-size:14px;color:#1e293b;font-weight:600;">${item.name}</td>
+          <td style="padding:12px 14px;font-size:13px;color:#475569;">${item.reference_number || "—"}</td>
+          <td style="padding:12px 14px;font-size:13px;color:#475569;">${item.vendor || "—"}</td>
+          <td style="padding:12px 14px;font-size:13px;color:#475569;text-align:center;">${item.unit || "—"}</td>
+          <td style="padding:12px 14px;font-size:14px;color:#2563eb;font-weight:800;text-align:center;">${item.qty}</td>
+          <td style="padding:12px 14px;text-align:center;">
+            <a href="${confirmUrl}" style="background:#10b981;color:#fff;padding:6px 14px;border-radius:6px;font-size:12px;font-weight:700;text-decoration:none;display:inline-block;">✅ Confirm Ordered</a>
+          </td>
+        </tr>
+      `;
+    }).join("");
 
     const html = `
-      <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:620px;margin:0 auto;background:#fff;">
+      <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:680px;margin:0 auto;background:#fff;">
         <div style="background:linear-gradient(135deg,#1e40af,#3b82f6);padding:28px 32px;border-radius:12px 12px 0 0;">
           <div style="font-size:22px;font-weight:900;color:#fff;letter-spacing:-0.5px;">⚕️ Baxter ASC</div>
           <div style="font-size:14px;color:rgba(255,255,255,0.8);margin-top:4px;">Supply Order Request</div>
@@ -44,16 +86,20 @@ export async function POST(req: Request) {
           <table style="width:100%;border-collapse:collapse;background:#fff;border-radius:8px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,0.1);">
             <thead>
               <tr style="background:#f1f5f9;">
-                <th style="padding:12px 14px;text-align:left;font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;">Item</th>
-                <th style="padding:12px 14px;text-align:left;font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;">Ref #</th>
-                <th style="padding:12px 14px;text-align:left;font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;">Vendor</th>
-                <th style="padding:12px 14px;text-align:center;font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;">Unit</th>
-                <th style="padding:12px 14px;text-align:center;font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;">Qty to Order</th>
+                <th style="padding:12px 14px;text-align:left;font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;">Item</th>
+                <th style="padding:12px 14px;text-align:left;font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;">Ref #</th>
+                <th style="padding:12px 14px;text-align:left;font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;">Vendor</th>
+                <th style="padding:12px 14px;text-align:center;font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;">Unit</th>
+                <th style="padding:12px 14px;text-align:center;font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;">Qty</th>
+                <th style="padding:12px 14px;text-align:center;font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;">Confirm</th>
               </tr>
             </thead>
             <tbody>${rows}</tbody>
           </table>
-          <div style="margin-top:24px;padding:16px;background:#fff;border:1px solid #e2e8f0;border-radius:8px;">
+          <div style="margin-top:20px;padding:14px;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;font-size:13px;color:#92400e;">
+            ⚡ Click <strong>"Confirm Ordered"</strong> next to each item once you've placed the order. This will update the status in the app automatically.
+          </div>
+          <div style="margin-top:16px;padding:16px;background:#fff;border:1px solid #e2e8f0;border-radius:8px;">
             <div style="font-size:12px;color:#94a3b8;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">Requested by</div>
             <div style="font-size:15px;font-weight:700;color:#1e293b;">${requested_by}</div>
             <div style="font-size:12px;color:#94a3b8;margin-top:4px;">${now}</div>
