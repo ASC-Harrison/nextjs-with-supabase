@@ -18,7 +18,7 @@ type Order = {
   vendor: string | null;
   unit: string | null;
   qty_requested: number;
-  status: "PENDING" | "ORDERED" | "RECEIVED";
+  status: "PENDING" | "ORDERED" | "BACKORDERED" | "RECEIVED";
   confirmed_by: string | null;
   confirmed_at: string | null;
   received_at: string | null;
@@ -51,7 +51,8 @@ const CSS = `
   .badge{display:inline-flex;align-items:center;padding:3px 10px;border-radius:9999px;font-size:10px;font-weight:800;letter-spacing:0.3px;}
   .badge-pending{background:rgba(245,158,11,0.15);color:#fcd34d;border:1px solid rgba(245,158,11,0.3);}
   .badge-ordered{background:rgba(59,130,246,0.15);color:#93c5fd;border:1px solid rgba(59,130,246,0.3);}
-  .badge-received{background:rgba(16,185,129,0.15);color:#6ee7b7;border:1px solid rgba(16,185,129,0.3);}
+  .badge-backordered{background:rgba(239,68,68,0.15);color:#fca5a5;border:1px solid rgba(239,68,68,0.3);}
+  .order-card.BACKORDERED::before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px;background:#ef4444;}
   .btn{border-radius:8px;padding:8px 14px;font-size:12px;font-weight:800;cursor:pointer;border:none;font-family:inherit;transition:all 0.18s;}
   .btn-ac{background:#3b82f6;color:#fff;}
   .btn-ok{background:#10b981;color:#fff;}
@@ -64,7 +65,7 @@ const CSS = `
   .refresh-btn{background:#1e2d42;border:1px solid #1e3a5f;border-radius:8px;color:#94a3b8;padding:8px 14px;cursor:pointer;font-size:12px;font-weight:700;font-family:inherit;margin-left:auto;display:block;margin-bottom:12px;}
 `;
 
-const STATUS_FILTERS = ["ALL", "PENDING", "ORDERED", "RECEIVED"];
+const STATUS_FILTERS = ["ALL", "PENDING", "ORDERED", "BACKORDERED", "RECEIVED"];
 
 export default function OrdersPage() {
   const router = useRouter();
@@ -87,6 +88,10 @@ export default function OrdersPage() {
   }
 
   useEffect(() => { loadOrders(); }, []);
+  useEffect(() => {
+    const interval = setInterval(loadOrders, 15000);
+    return () => clearInterval(interval);
+  }, []);
 
   async function updateStatus(id: string, status: string) {
     setUpdating(id);
@@ -105,7 +110,7 @@ export default function OrdersPage() {
   const ordered = orders.filter(o => o.status === "ORDERED").length;
   const received = orders.filter(o => o.status === "RECEIVED").length;
 
-  function formatTime(ts: string) {
+  const backordered = orders.filter(o => o.status === "BACKORDERED").length;
     return new Date(ts).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
   }
 
@@ -118,7 +123,7 @@ export default function OrdersPage() {
           <div className="title">Order Management</div>
           <div className="sub">Track all order requests — pending, ordered, and received.</div>
 
-          <div className="stats-row">
+          <div className="stats-row" style={{gridTemplateColumns:"repeat(4,1fr)"}}>
             <div className="stat">
               <div className="stat-val" style={{color:"#fcd34d"}}>{pending}</div>
               <div className="stat-lbl">Pending</div>
@@ -126,6 +131,10 @@ export default function OrdersPage() {
             <div className="stat">
               <div className="stat-val" style={{color:"#93c5fd"}}>{ordered}</div>
               <div className="stat-lbl">Ordered</div>
+            </div>
+            <div className="stat">
+              <div className="stat-val" style={{color:"#fca5a5"}}>{backordered}</div>
+              <div className="stat-lbl">Backordered</div>
             </div>
             <div className="stat">
               <div className="stat-val" style={{color:"#6ee7b7"}}>{received}</div>
@@ -177,13 +186,18 @@ export default function OrdersPage() {
                       {updating === order.id ? "Updating…" : "✅ Mark as Ordered"}
                     </button>
                   )}
-                  {order.status === "ORDERED" && (
+                  {order.status === "PENDING" && (
+                    <button onClick={() => updateStatus(order.id, "BACKORDERED")} disabled={updating === order.id} className="btn" style={{background:"rgba(239,68,68,0.15)",color:"#fca5a5",border:"1px solid rgba(239,68,68,0.3)"}}>
+                      🔴 Backordered
+                    </button>
+                  )}
+                  {(order.status === "ORDERED" || order.status === "BACKORDERED") && (
                     <button onClick={() => updateStatus(order.id, "RECEIVED")} disabled={updating === order.id} className="btn btn-ok">
                       {updating === order.id ? "Updating…" : "📦 Mark as Received"}
                     </button>
                   )}
                   {order.status === "PENDING" && (
-                    <button onClick={() => updateStatus(order.id, "RECEIVED")} disabled={updating === order.id} className="btn btn-ok" style={{fontSize:11}}>
+                    <button onClick={() => updateStatus(order.id, "RECEIVED")} disabled={updating === order.id} className="btn btn-gh" style={{fontSize:11}}>
                       Skip to Received
                     </button>
                   )}
