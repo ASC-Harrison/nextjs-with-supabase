@@ -62,6 +62,7 @@ export async function POST(req: Request) {
     const rows = items.map((item, i) => {
       const orderId = savedOrders?.[i]?.id ?? "";
       const confirmUrl = `${APP_URL}/api/orders/confirm?id=${orderId}&by=Brooklyn`;
+      const backorderUrl = `${APP_URL}/api/orders/confirm?id=${orderId}&by=Brooklyn&status=BACKORDERED`;
       return `
         <tr style="border-bottom:1px solid #e2e8f0;">
           <td style="padding:12px 14px;font-size:14px;color:#1e293b;font-weight:600;">${item.name}</td>
@@ -70,7 +71,8 @@ export async function POST(req: Request) {
           <td style="padding:12px 14px;font-size:13px;color:#475569;text-align:center;">${item.unit || "—"}</td>
           <td style="padding:12px 14px;font-size:14px;color:#2563eb;font-weight:800;text-align:center;">${item.qty}</td>
           <td style="padding:12px 14px;text-align:center;">
-            <a href="${confirmUrl}" style="background:#10b981;color:#fff;padding:6px 14px;border-radius:6px;font-size:12px;font-weight:700;text-decoration:none;display:inline-block;">✅ Confirm Ordered</a>
+            <a href="${confirmUrl}" style="background:#10b981;color:#fff;padding:6px 14px;border-radius:6px;font-size:12px;font-weight:700;text-decoration:none;display:inline-block;margin-bottom:6px;">✅ Ordered</a><br/>
+            <a href="${backorderUrl}" style="background:#ef4444;color:#fff;padding:6px 14px;border-radius:6px;font-size:12px;font-weight:700;text-decoration:none;display:inline-block;">🔴 Backordered</a>
           </td>
         </tr>
       `;
