@@ -18,11 +18,11 @@ export async function GET(req: Request) {
     const { searchParams } = new URL(req.url);
     const id = searchParams.get("id");
     const by = searchParams.get("by") || "Brooklyn";
+    const status = searchParams.get("status") || "ORDERED";
+    const isBackorder = status === "BACKORDERED";
 
     if (!id) {
-      return new Response("<html><body style='font-family:sans-serif;padding:40px;text-align:center'><h2>❌ Invalid link</h2></body></html>", {
-        headers: { "Content-Type": "text/html" },
-      });
+      return new Response(errorPage("Invalid link"), { headers: { "Content-Type": "text/html" } });
     }
 
     const supabase = getServiceClient();
@@ -34,70 +34,104 @@ export async function GET(req: Request) {
       .single();
 
     if (fetchErr || !order) {
-      return new Response("<html><body style='font-family:sans-serif;padding:40px;text-align:center'><h2>❌ Order not found</h2></body></html>", {
-        headers: { "Content-Type": "text/html" },
-      });
+      return new Response(errorPage("Order not found"), { headers: { "Content-Type": "text/html" } });
     }
 
-    if (order.status === "ORDERED" || order.status === "RECEIVED") {
-      return new Response(`<html><body style='font-family:sans-serif;padding:40px;text-align:center;background:#0a0f1e;color:#f0f6ff'><div style='max-width:400px;margin:0 auto;background:#162032;border-radius:16px;padding:32px;border:1px solid #1e3a5f'><div style='font-size:48px;margin-bottom:16px'>✅</div><h2 style='color:#6ee7b7'>Already Confirmed</h2><p style='color:#64748b'>${order.item_name} was already marked as ${order.status}.</p></div></body></html>`, {
-        headers: { "Content-Type": "text/html" },
-      });
+    if (order.status === "RECEIVED") {
+      return new Response(alreadyDonePage(order.item_name, order.status), { headers: { "Content-Type": "text/html" } });
     }
 
-    // Update status to ORDERED
+    // Update status
+    const update: any = {
+      status: isBackorder ? "BACKORDERED" : "ORDERED",
+      confirmed_by: by,
+      confirmed_at: new Date().toISOString(),
+    };
+
     const { error: updateErr } = await supabase
       .from("order_requests")
-      .update({ status: "ORDERED", confirmed_by: by, confirmed_at: new Date().toISOString() })
+      .update(update)
       .eq("id", id);
 
     if (updateErr) throw updateErr;
 
-    // Send notification email to admin
+    // Also update item backordered status if backordered
+    if (isBackorder) {
+      await supabase.from("items")
+        .update({ backordered: true, order_status: "BACKORDER" })
+        .eq("name", order.item_name);
+    }
+
+    // Send notification to admin
+    const emoji = isBackorder ? "🔴" : "✅";
+    const label = isBackorder ? "BACKORDERED" : "Order Confirmed";
+    const color = isBackorder ? "#ef4444" : "#059669";
+
     await resend.emails.send({
       from: "Baxter ASC <orders@ascinventory.com>",
       to: ["hogstud800@gmail.com"],
-      subject: `✅ Order Confirmed — ${order.item_name}`,
+      subject: `${emoji} ${label} — ${order.item_name}`,
       html: `
         <div style="font-family:sans-serif;max-width:500px;margin:0 auto;background:#fff;padding:32px;border-radius:12px;">
-          <div style="font-size:36px;margin-bottom:12px">✅</div>
-          <h2 style="color:#059669;margin:0 0 16px">Order Confirmed!</h2>
+          <div style="font-size:36px;margin-bottom:12px">${emoji}</div>
+          <h2 style="color:${color};margin:0 0 16px">${label}</h2>
           <p style="color:#475569;font-size:14px;line-height:1.6">
-            <strong>${by}</strong> confirmed that the following item has been ordered:
+            <strong>${by}</strong> marked the following item as <strong>${isBackorder ? "backordered" : "ordered"}:</strong>
           </p>
           <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:16px;margin:16px 0;">
             <div style="font-size:16px;font-weight:700;color:#1e293b;">${order.item_name}</div>
             <div style="font-size:13px;color:#64748b;margin-top:4px;">Ref: ${order.reference_number || "—"} · Vendor: ${order.vendor || "—"}</div>
-            <div style="font-size:13px;color:#2563eb;font-weight:700;margin-top:8px;">Qty Ordered: ${order.qty_requested} ${order.unit || ""}</div>
+            <div style="font-size:13px;color:#2563eb;font-weight:700;margin-top:8px;">Qty: ${order.qty_requested} ${order.unit || ""}</div>
           </div>
-          <p style="font-size:12px;color:#94a3b8;">Confirmed at ${new Date().toLocaleString()}</p>
+          ${isBackorder ? '<p style="color:#ef4444;font-size:13px;font-weight:700;">⚠️ Item status has been updated to BACKORDERED in the app.</p>' : ''}
+          <p style="font-size:12px;color:#94a3b8;">Updated at ${new Date().toLocaleString()}</p>
         </div>
       `,
     });
 
-    return new Response(`
-      <html>
-        <head><meta name="viewport" content="width=device-width,initial-scale=1"></head>
-        <body style='font-family:-apple-system,sans-serif;background:#0a0f1e;color:#f0f6ff;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;padding:16px;box-sizing:border-box'>
-          <div style='max-width:400px;width:100%;background:#162032;border-radius:16px;padding:32px;border:1px solid #1e3a5f;text-align:center;position:relative;overflow:hidden'>
-            <div style='position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,#10b981,#3b82f6)'></div>
-            <div style='font-size:56px;margin-bottom:16px'>✅</div>
-            <h2 style='color:#6ee7b7;margin:0 0 8px;font-size:22px'>Order Confirmed!</h2>
-            <p style='color:#94a3b8;font-size:14px;line-height:1.6;margin:0 0 20px'><strong style='color:#f0f6ff'>${order.item_name}</strong> has been marked as ordered.</p>
-            <div style='background:rgba(16,185,129,0.1);border:1px solid rgba(16,185,129,0.3);border-radius:10px;padding:14px;font-size:13px;color:#6ee7b7;margin-bottom:20px'>
-              Qty: ${order.qty_requested} ${order.unit || ""}<br/>
-              Confirmed by: ${by}<br/>
-              ${new Date().toLocaleString()}
-            </div>
-            <p style='font-size:12px;color:#334155'>The status has been updated in the app. You can close this tab.</p>
-          </div>
-        </body>
-      </html>
-    `, { headers: { "Content-Type": "text/html" } });
-
-  } catch (e: any) {
-    return new Response(`<html><body style='font-family:sans-serif;padding:40px;text-align:center'><h2>❌ Error: ${e?.message}</h2></body></html>`, {
+    return new Response(successPage(order.item_name, order.qty_requested, order.unit, by, isBackorder), {
       headers: { "Content-Type": "text/html" },
     });
+
+  } catch (e: any) {
+    return new Response(errorPage(e?.message ?? "Unknown error"), { headers: { "Content-Type": "text/html" } });
   }
+}
+
+function successPage(name: string, qty: number, unit: string | null, by: string, isBackorder: boolean) {
+  const emoji = isBackorder ? "🔴" : "✅";
+  const title = isBackorder ? "Marked as Backordered" : "Order Confirmed!";
+  const color = isBackorder ? "#fca5a5" : "#6ee7b7";
+  const bg = isBackorder ? "rgba(239,68,68,0.1)" : "rgba(16,185,129,0.1)";
+  const border = isBackorder ? "rgba(239,68,68,0.3)" : "rgba(16,185,129,0.3)";
+  const gradColor = isBackorder ? "#ef4444" : "#10b981";
+
+  return `
+    <html>
+      <head><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+      <body style='font-family:-apple-system,sans-serif;background:#0a0f1e;color:#f0f6ff;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;padding:16px;box-sizing:border-box'>
+        <div style='max-width:400px;width:100%;background:#162032;border-radius:16px;padding:32px;border:1px solid #1e3a5f;text-align:center;position:relative;overflow:hidden'>
+          <div style='position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,${gradColor},#3b82f6)'></div>
+          <div style='font-size:56px;margin-bottom:16px'>${emoji}</div>
+          <h2 style='color:${color};margin:0 0 8px;font-size:22px'>${title}</h2>
+          <p style='color:#94a3b8;font-size:14px;line-height:1.6;margin:0 0 20px'><strong style='color:#f0f6ff'>${name}</strong> has been updated.</p>
+          <div style='background:${bg};border:1px solid ${border};border-radius:10px;padding:14px;font-size:13px;color:${color};margin-bottom:20px'>
+            Qty: ${qty} ${unit || ""}<br/>
+            Updated by: ${by}<br/>
+            ${new Date().toLocaleString()}
+          </div>
+          ${isBackorder ? '<p style="font-size:12px;color:#fca5a5;font-weight:700;">⚠️ Item status updated to BACKORDERED in the app.</p>' : ''}
+          <p style='font-size:12px;color:#334155'>You can close this tab.</p>
+        </div>
+      </body>
+    </html>
+  `;
+}
+
+function errorPage(msg: string) {
+  return `<html><body style='font-family:sans-serif;background:#0a0f1e;color:#f0f6ff;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0'><div style='text-align:center;padding:40px'><div style='font-size:48px'>❌</div><h2 style='color:#fca5a5'>${msg}</h2></div></body></html>`;
+}
+
+function alreadyDonePage(name: string, status: string) {
+  return `<html><body style='font-family:sans-serif;background:#0a0f1e;color:#f0f6ff;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0'><div style='text-align:center;padding:40px;background:#162032;border-radius:16px;border:1px solid #1e3a5f;max-width:400px;margin:16px auto'><div style='font-size:48px'>✅</div><h2 style='color:#6ee7b7'>Already ${status}</h2><p style='color:#64748b'>${name} was already marked as ${status}.</p></div></body></html>`;
 }
