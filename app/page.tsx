@@ -21,6 +21,9 @@ export default function Home() {
           <Link href="/admin" className="block w-full rounded-2xl bg-white/10 text-white font-semibold py-4 text-center ring-1 ring-white/15">
             Admin Inventory (Table View)
           </Link>
+          <Link href="/orders" className="block w-full rounded-2xl bg-yellow-600/20 text-yellow-300 font-semibold py-4 text-center ring-1 ring-yellow-500/30">
+            📋 Order Management
+          </Link>
           <Link href="/staff-activity" className="block w-full rounded-2xl bg-blue-600/20 text-blue-300 font-semibold py-4 text-center ring-1 ring-blue-500/30">
             👥 Staff Activity
           </Link>
