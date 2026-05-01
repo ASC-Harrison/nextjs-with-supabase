@@ -2,6 +2,12 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { createClient } from "@supabase/supabase-js";
+
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+);
 
 export default function LoginPage() {
   const router = useRouter();
@@ -18,13 +24,19 @@ export default function LoginPage() {
     setLoading(true);
     setError("");
     try {
-      const res = await fetch("/api/auth/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: email.trim(), password }),
+      // Sign in directly with Supabase client — no server route needed
+      const { data, error: authError } = await supabase.auth.signInWithPassword({
+        email: email.trim(),
+        password,
       });
-      const json = await res.json();
-      if (!json.ok) { setError(json.error ?? "Invalid email or password"); setLoading(false); return; }
+      if (authError) {
+        setError(authError.message);
+        setLoading(false);
+        return;
+      }
+      // Store user info in localStorage for quick access
+      localStorage.setItem("asc_user_email", data.user.email ?? "");
+      localStorage.setItem("asc_user_name", data.user.user_metadata?.full_name || data.user.email || "");
       router.push("/");
       router.refresh();
     } catch (e: any) {
@@ -37,7 +49,7 @@ export default function LoginPage() {
     <div style={{ minHeight:"100vh", background:"#0a0f1e", display:"flex", alignItems:"center", justifyContent:"center", padding:16, fontFamily:"-apple-system,BlinkMacSystemFont,'SF Pro Display','Segoe UI',sans-serif" }}>
       <div style={{ width:"100%", maxWidth:400, background:"#162032", border:"1px solid #1e3a5f", borderRadius:20, padding:32, position:"relative", overflow:"hidden" }}>
         <div style={{ position:"absolute", top:0, left:0, right:0, height:2, background:"linear-gradient(90deg,#3b82f6,#8b5cf6,#10b981)" }} />
-        <div style={{ width:48, height:48, background:"linear-gradient(135deg,#3b82f6,#1d4ed8)", borderRadius:12, display:"flex", alignItems:"center", justifyContent:"center", fontSize:24, marginBottom:16, boxShadow:"0 0 24px rgba(59,130,246,0.3)" }}>⚕️</div>
+        <div style={{ width:48, height:48, background:"linear-gradient(135deg,#3b82f6,#1d4ed8)", borderRadius:12, display:"flex", alignItems:"center", justifyContent:"center", fontSize:24, marginBottom:16 }}>⚕️</div>
         <div style={{ fontSize:24, fontWeight:900, color:"#f0f6ff", letterSpacing:-0.5, marginBottom:4 }}>Baxter ASC</div>
         <div style={{ fontSize:13, color:"#64748b", marginBottom:28 }}>Sign in to access the inventory system</div>
 
@@ -61,7 +73,7 @@ export default function LoginPage() {
           <input value={password} onChange={e => setPassword(e.target.value)} type="password" placeholder="••••••••" required autoComplete="current-password"
             style={{ width:"100%", borderRadius:10, border:"1px solid #1e3a5f", background:"#111827", color:"#f0f6ff", padding:"12px 14px", fontSize:14, fontFamily:"inherit", outline:"none", marginBottom:20, boxSizing:"border-box" }} />
           <button type="submit" disabled={loading}
-            style={{ width:"100%", borderRadius:10, padding:13, fontSize:15, fontWeight:800, cursor:loading?"not-allowed":"pointer", border:"none", background:"linear-gradient(135deg,#3b82f6,#1d4ed8)", color:"#fff", fontFamily:"inherit", boxShadow:"0 4px 20px rgba(59,130,246,0.3)", opacity:loading?0.6:1 }}>
+            style={{ width:"100%", borderRadius:10, padding:13, fontSize:15, fontWeight:800, cursor:loading?"not-allowed":"pointer", border:"none", background:"linear-gradient(135deg,#3b82f6,#1d4ed8)", color:"#fff", fontFamily:"inherit", opacity:loading?0.6:1 }}>
             {loading ? "Signing in…" : "Sign In"}
           </button>
         </form>
