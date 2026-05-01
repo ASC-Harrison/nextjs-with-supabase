@@ -1,38 +1,26 @@
 import { NextResponse } from "next/server";
-import { createServerClient } from "@supabase/ssr";
+import { createClient } from "@supabase/supabase-js";
 
 export async function POST(req: Request) {
   try {
     const { email, password } = await req.json();
     if (!email || !password) return NextResponse.json({ ok: false, error: "Email and password required" });
 
-    const response = NextResponse.json({ ok: true });
-
-    const supabase = createServerClient(
+    const supabase = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-      {
-        cookies: {
-          getAll() { return []; },
-          setAll(cookiesToSet) {
-            cookiesToSet.forEach(({ name, value, options }) => {
-              response.cookies.set(name, value, {
-                ...options,
-                httpOnly: true,
-                secure: process.env.NODE_ENV === "production",
-                sameSite: "lax",
-                path: "/",
-              });
-            });
-          },
-        },
-      }
+      { auth: { persistSession: false } }
     );
 
     const { data, error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) return NextResponse.json({ ok: false, error: error.message });
 
-    return NextResponse.json({ ok: true, user: { email: data.user.email } }, { headers: response.headers });
+    return NextResponse.json({ 
+      ok: true, 
+      user: { email: data.user.email, id: data.user.id },
+      access_token: data.session.access_token,
+      refresh_token: data.session.refresh_token,
+    });
   } catch (e: any) {
     return NextResponse.json({ ok: false, error: e?.message ?? "Unknown error" });
   }
