@@ -20,8 +20,9 @@ export async function POST(req: Request) {
 
     const supabase = getServiceClient();
 
-    // Check if row already exists
+    // Check if row already exists in storage_inventory table
     const { data: existing } = await supabase
+      .schema("public")
       .from("storage_inventory")
       .select("storage_area_id, item_id")
       .eq("storage_area_id", storage_area_id)
@@ -29,8 +30,8 @@ export async function POST(req: Request) {
       .maybeSingle();
 
     if (existing) {
-      // Update existing row
       const { error } = await supabase
+        .schema("public")
         .from("storage_inventory")
         .update({
           on_hand: on_hand ?? 0,
@@ -42,8 +43,8 @@ export async function POST(req: Request) {
 
       if (error) return NextResponse.json({ ok: false, error: error.message });
     } else {
-      // Insert new row
       const { error } = await supabase
+        .schema("public")
         .from("storage_inventory")
         .insert({
           storage_area_id,
