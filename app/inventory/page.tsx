@@ -269,8 +269,6 @@ export default function InventoryPage() {
   const router = useRouter();
   useSessionTimeout();
 
-  const [sessionLoading] = useState(false);
-
   const [tab,setTab]=useState<Tab>("Transaction");
   const [mode,setMode]=useState<Mode>("USE");
   const [qty,setQty]=useState(1);
