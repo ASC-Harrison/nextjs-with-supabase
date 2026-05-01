@@ -1,5 +1,4 @@
 "use client";
-
 import { useEffect, useRef } from "react";
 import { createClient } from "@supabase/supabase-js";
 
@@ -8,7 +7,7 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 );
 
-const TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
+const TIMEOUT_MS = 30 * 60 * 1000;
 
 export function useSessionTimeout() {
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -23,10 +22,10 @@ export function useSessionTimeout() {
 
   useEffect(() => {
     const events = ["mousemove", "keydown", "click", "scroll", "touchstart"];
-    events.forEach((e) => window.addEventListener(e, resetTimer, { passive: true }));
+    events.forEach(e => window.addEventListener(e, resetTimer, { passive: true }));
     resetTimer();
     return () => {
-      events.forEach((e) => window.removeEventListener(e, resetTimer));
+      events.forEach(e => window.removeEventListener(e, resetTimer));
       if (timerRef.current) clearTimeout(timerRef.current);
     };
   }, []);
