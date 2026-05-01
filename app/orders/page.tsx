@@ -100,13 +100,18 @@ export default function OrdersPage() {
   async function updateStatus(id: string, status: string) {
     setUpdating(id);
     try {
-      const update: Record<string, string> = { status };
+      const update: Record<string, string | null> = { status };
       if (status === "ORDERED" || status === "BACKORDERED") {
         update.confirmed_by = "Admin";
         update.confirmed_at = new Date().toISOString();
       }
       if (status === "RECEIVED") {
         update.received_at = new Date().toISOString();
+      }
+      if (status === "PENDING") {
+        update.confirmed_by = null;
+        update.confirmed_at = null;
+        update.received_at = null;
       }
       await supabase.from("order_requests").update(update).eq("id", id);
       setOrders(prev => prev.map(o => o.id === id ? { ...o, ...update } as Order : o));
@@ -224,6 +229,9 @@ export default function OrdersPage() {
                       Skip to Received
                     </button>
                   )}
+                  <button onClick={() => updateStatus(order.id, "PENDING")} disabled={updating === order.id} className="btn btn-gh" style={{ fontSize: 11 }}>
+                    ↩️ Reset
+                  </button>
                 </div>
               </div>
             ))
