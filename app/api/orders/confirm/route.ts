@@ -1,8 +1,5 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { Resend } from "resend";
-
-const resend = new Resend(process.env.RESEND_API_KEY);
 
 function getServiceClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -62,33 +59,7 @@ export async function GET(req: Request) {
         .eq("name", order.item_name);
     }
 
-    // Send notification to admin
-    const emoji = isBackorder ? "🔴" : "✅";
-    const label = isBackorder ? "BACKORDERED" : "Order Confirmed";
-    const color = isBackorder ? "#ef4444" : "#059669";
-
-    await resend.emails.send({
-      from: "Baxter ASC <orders@ascinventory.com>",
-      to: ["hogstud800@gmail.com"],
-      subject: `${emoji} ${label} — ${order.item_name}`,
-      html: `
-        <div style="font-family:sans-serif;max-width:500px;margin:0 auto;background:#fff;padding:32px;border-radius:12px;">
-          <div style="font-size:36px;margin-bottom:12px">${emoji}</div>
-          <h2 style="color:${color};margin:0 0 16px">${label}</h2>
-          <p style="color:#475569;font-size:14px;line-height:1.6">
-            <strong>${by}</strong> marked the following item as <strong>${isBackorder ? "backordered" : "ordered"}:</strong>
-          </p>
-          <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:16px;margin:16px 0;">
-            <div style="font-size:16px;font-weight:700;color:#1e293b;">${order.item_name}</div>
-            <div style="font-size:13px;color:#64748b;margin-top:4px;">Ref: ${order.reference_number || "—"} · Vendor: ${order.vendor || "—"}</div>
-            <div style="font-size:13px;color:#2563eb;font-weight:700;margin-top:8px;">Qty: ${order.qty_requested} ${order.unit || ""}</div>
-          </div>
-          ${isBackorder ? '<p style="color:#ef4444;font-size:13px;font-weight:700;">⚠️ Item status has been updated to BACKORDERED in the app.</p>' : ''}
-          <p style="font-size:12px;color:#94a3b8;">Updated at ${new Date().toLocaleString()}</p>
-        </div>
-      `,
-    });
-
+    // Status updated — no email notification needed
     return new Response(successPage(order.item_name, order.qty_requested, order.unit, by, isBackorder), {
       headers: { "Content-Type": "text/html" },
     });
