@@ -20,15 +20,41 @@ export async function POST(req: Request) {
 
     const supabase = getServiceClient();
 
-    const { error } = await supabase.from("storage_inventory").upsert({
-      storage_area_id,
-      item_id,
-      on_hand: on_hand ?? 0,
-      par_level: par_level ?? 0,
-      low_level: low_level ?? 0,
-    }, { onConflict: "storage_area_id,item_id" });
+    // Check if row already exists
+    const { data: existing } = await supabase
+      .from("storage_inventory")
+      .select("storage_area_id, item_id")
+      .eq("storage_area_id", storage_area_id)
+      .eq("item_id", item_id)
+      .maybeSingle();
 
-    if (error) return NextResponse.json({ ok: false, error: error.message });
+    if (existing) {
+      // Update existing row
+      const { error } = await supabase
+        .from("storage_inventory")
+        .update({
+          on_hand: on_hand ?? 0,
+          par_level: par_level ?? 0,
+          low_level: low_level ?? 0,
+        })
+        .eq("storage_area_id", storage_area_id)
+        .eq("item_id", item_id);
+
+      if (error) return NextResponse.json({ ok: false, error: error.message });
+    } else {
+      // Insert new row
+      const { error } = await supabase
+        .from("storage_inventory")
+        .insert({
+          storage_area_id,
+          item_id,
+          on_hand: on_hand ?? 0,
+          par_level: par_level ?? 0,
+          low_level: low_level ?? 0,
+        });
+
+      if (error) return NextResponse.json({ ok: false, error: error.message });
+    }
 
     return NextResponse.json({ ok: true });
   } catch (e: any) {
