@@ -2,8 +2,8 @@ import { createServerClient } from "@supabase/ssr";
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
-const PUBLIC_PATHS = ["/login", "/api/"];
-const ADMIN_ONLY_PATHS = ["/admin", "/staff-activity", "/admin-users", "/reports", "/labels"];
+const PUBLIC_PATHS = ["/login", "/api/", "/", "/inventory"];
+const ADMIN_ONLY_PATHS = ["/admin", "/staff-activity", "/admin-users", "/reports", "/labels", "/orders", "/items"];
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL ?? "hogstud800@gmail.com";
 
 export async function middleware(request: NextRequest) {
