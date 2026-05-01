@@ -1,50 +1,31 @@
-import { createServerClient } from "@supabase/ssr";
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
-const PUBLIC_PATHS = ["/login", "/api/", "/", "/inventory"];
+// Admin-only pages — everything else is open
 const ADMIN_ONLY_PATHS = ["/admin", "/staff-activity", "/admin-users", "/reports", "/labels", "/orders", "/items"];
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL ?? "hogstud800@gmail.com";
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  if (PUBLIC_PATHS.some((p) => pathname.startsWith(p))) return NextResponse.next();
-  if (pathname.startsWith("/_next") || pathname.startsWith("/favicon") || pathname.includes(".")) return NextResponse.next();
+  // Allow static files
+  if (pathname.startsWith("/_next") || pathname.startsWith("/favicon") || pathname.includes(".")) {
+    return NextResponse.next();
+  }
 
-  const response = NextResponse.next({ request: { headers: request.headers } });
+  // For admin-only paths, check the session cookie directly
+  if (ADMIN_ONLY_PATHS.some((p) => pathname.startsWith(p))) {
+    // Check for supabase session cookie
+    const hasSession = request.cookies.getAll().some(c => 
+      c.name.includes("sb-") && c.name.includes("-auth-token")
+    );
 
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() { return request.cookies.getAll(); },
-        setAll(cookiesToSet) {
-          cookiesToSet.forEach(({ name, value, options }) => {
-            request.cookies.set(name, value);
-            response.cookies.set(name, value, options);
-          });
-        },
-      },
+    if (!hasSession) {
+      return NextResponse.redirect(new URL("/login", request.url));
     }
-  );
-
-  const { data: { session } } = await supabase.auth.getSession();
-
-  if (!session) {
-    const loginUrl = new URL("/login", request.url);
-    return NextResponse.redirect(loginUrl);
   }
 
-  const userEmail = session.user.email ?? "";
-  const isAdmin = userEmail.toLowerCase() === ADMIN_EMAIL.toLowerCase();
-
-  if (!isAdmin && ADMIN_ONLY_PATHS.some((p) => pathname.startsWith(p))) {
-    return NextResponse.redirect(new URL("/inventory", request.url));
-  }
-
-  return response;
+  return NextResponse.next();
 }
 
 export const config = {
