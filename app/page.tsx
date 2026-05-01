@@ -18,11 +18,7 @@ export default function Home() {
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
-      if (!data.session) {
-        router.replace("/login");
-        return;
-      }
-      setUserEmail(data.session.user.email ?? null);
+      setUserEmail(data.session?.user.email ?? null);
       setLoading(false);
     });
   }, []);
@@ -34,7 +30,7 @@ export default function Home() {
     router.push("/login");
   }
 
-  const isAdmin = userEmail?.toLowerCase() === ADMIN_EMAIL.toLowerCase();
+  const isAdmin = true; // Login deactivated — show all buttons
 
   if (loading) {
     return (
