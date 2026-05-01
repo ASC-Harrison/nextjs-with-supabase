@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { BrowserMultiFormatReader } from "@zxing/browser";
 import { createClient } from "@supabase/supabase-js";
+import { useSessionTimeout } from "@/lib/use-session-timeout";
 
 type Tab        = "Transaction" | "Totals" | "Audit" | "Settings";
 type Mode       = "USE" | "RESTOCK";
@@ -266,6 +267,7 @@ function QtyBtn({onClick,children}:{onClick:()=>void;children:React.ReactNode}){
 
 export default function InventoryPage() {
   const router = useRouter();
+  useSessionTimeout();
 
   const [sessionLoading] = useState(false);
 
@@ -355,8 +357,17 @@ export default function InventoryPage() {
   const filteredTotals=useMemo(()=>{const q=totalsSearch.trim().toLowerCase();let list=totals.filter((r)=>totalsShowInactive?!r.is_active:!!r.is_active);if(q)list=list.filter((r)=>(r.name||"").toLowerCase().includes(q)||(r.vendor||"").toLowerCase().includes(q)||(r.category||"").toLowerCase().includes(q)||(r.reference_number||"").toLowerCase().includes(q)||(r.order_status||"").toLowerCase().includes(q));if(totalsLowOnly)list=list.filter((r)=>{const oh=r.total_on_hand??0;const low=r.low_level??0;return low>0&&oh<=low;});if(totalsZeroOnly)list=list.filter((r)=>(r.par_level??0)===0||(r.low_level??0)===0);return list;},[totals,totalsSearch,totalsLowOnly,totalsZeroOnly,totalsShowInactive]);
   const filteredAreaInv=useMemo(()=>{const q=areaInvSearch.trim().toLowerCase();let list=areaInv;if(q)list=list.filter((r)=>(r.item_name||"").toLowerCase().includes(q)||(r.vendor||"").toLowerCase().includes(q)||(r.category||"").toLowerCase().includes(q)||(r.reference_number||"").toLowerCase().includes(q)||(r.order_status||"").toLowerCase().includes(q));if(areaParOnly)list=list.filter((r)=>(r.par_level??0)>0);if(areaLowOnly)list=list.filter((r)=>{const oh=r.on_hand??0;const low=r.low_level??0;return low>0&&oh<=low;});return list;},[areaInv,areaInvSearch,areaParOnly,areaLowOnly]);
 
+  // Check session on load
+  const [sessionLoading, setSessionLoading] = useState(true);
+
   useEffect(()=>{
-    try{setLocked(!getSessionUnlocked());const savedArea=localStorage.getItem(LS.AREA);if(savedArea)setAreaId(savedArea);setStaffName(localStorage.getItem(LS.STAFF)||"");setAudit(safeJsonParse<AuditEvent[]>(localStorage.getItem(LS.AUDIT),[]));setLastTx(safeJsonParse<LastTx|null>(localStorage.getItem(LS.LAST_TX),null));}catch{}
+    supabase.auth.getUser().then(({data})=>{
+      if(!data.user){router.replace("/login");return;}
+      const name = data.user.user_metadata?.full_name || data.user.email || "Unknown";
+      setStaffName(name);
+      setSessionLoading(false);
+    });
+    try{setLocked(!getSessionUnlocked());const savedArea=localStorage.getItem(LS.AREA);if(savedArea)setAreaId(savedArea);setAudit(safeJsonParse<AuditEvent[]>(localStorage.getItem(LS.AUDIT),[]));setLastTx(safeJsonParse<LastTx|null>(localStorage.getItem(LS.LAST_TX),null));}catch{}
   },[]);// eslint-disable-line
 
   useEffect(()=>{try{if(areaId)localStorage.setItem(LS.AREA,areaId);}catch{}},[areaId]);
@@ -420,6 +431,8 @@ export default function InventoryPage() {
 
   const staffMissing=!staffName.trim();
   const sc=statusClass(status);
+
+  if(sessionLoading){return(<><style dangerouslySetInnerHTML={{__html:PREMIUM_CSS}}/><div style={{minHeight:"100vh",background:"#0a0f1e",display:"flex",alignItems:"center",justifyContent:"center"}}><div style={{color:"#64748b",fontSize:14}}>Loading…</div></div></>);}
 
   return (
     <>
@@ -712,12 +725,15 @@ export default function InventoryPage() {
             <div className="c-card anim">
               <div style={{marginBottom:18}}>
                 <div style={{fontSize:18,fontWeight:900,color:"var(--text)",letterSpacing:"-0.5px",marginBottom:4}}>Audit Log</div>
-                <div style={{fontSize:12,color:"var(--text2)",lineHeight:1.5}}>Set staff name (saved on this device). Actions are logged below.</div>
+                <div style={{fontSize:12,color:"var(--text2)",lineHeight:1.5}}>All actions logged under your verified account.</div>
               </div>
-              <div className="field"><label className="f-lbl">Staff Name</label><input value={staffName} onChange={(e)=>setStaffName(e.target.value)} className="inp" placeholder="e.g., Jeremy Johnson" /></div>
+              <div style={{background:"rgba(59,130,246,0.08)",border:"1px solid rgba(59,130,246,0.2)",borderRadius:10,padding:"10px 14px",fontSize:13,color:"#93c5fd",marginBottom:16,display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,flexWrap:"wrap"}}>
+                <span>Signed in as: <strong>{staffName}</strong></span>
+                <button onClick={async()=>{await supabase.auth.signOut();router.push("/login");}} style={{background:"rgba(239,68,68,0.15)",border:"1px solid rgba(239,68,68,0.3)",borderRadius:8,color:"#fca5a5",padding:"4px 12px",cursor:"pointer",fontSize:11,fontFamily:"inherit",fontWeight:700}}>Sign Out</button>
+              </div>
               <div className="g2 mt3">
                 <button onClick={()=>{setAudit([]);try{localStorage.removeItem(LS.AUDIT);}catch{}}} className="btn btn-gh" style={{fontSize:13}}>Clear device log</button>
-                <button onClick={()=>{const text=JSON.stringify(audit,null,2);navigator.clipboard?.writeText(text).then(()=>alert("Audit log copied ✅")).catch(()=>alert("Copy failed (iOS may block clipboard)."));}} className="btn btn-ac" style={{fontSize:13}}>Copy log</button>
+                <button onClick={()=>{const text=JSON.stringify(audit,null,2);navigator.clipboard?.writeText(text).then(()=>alert("Audit log copied ✅")).catch(()=>alert("Copy failed."));}} className="btn btn-ac" style={{fontSize:13}}>Copy log</button>
               </div>
               <div className="divider" />
               <div className="s-lbl">Recent Events</div>
