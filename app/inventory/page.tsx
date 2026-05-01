@@ -356,16 +356,14 @@ export default function InventoryPage() {
   const filteredAreaInv=useMemo(()=>{const q=areaInvSearch.trim().toLowerCase();let list=areaInv;if(q)list=list.filter((r)=>(r.item_name||"").toLowerCase().includes(q)||(r.vendor||"").toLowerCase().includes(q)||(r.category||"").toLowerCase().includes(q)||(r.reference_number||"").toLowerCase().includes(q)||(r.order_status||"").toLowerCase().includes(q));if(areaParOnly)list=list.filter((r)=>(r.par_level??0)>0);if(areaLowOnly)list=list.filter((r)=>{const oh=r.on_hand??0;const low=r.low_level??0;return low>0&&oh<=low;});return list;},[areaInv,areaInvSearch,areaParOnly,areaLowOnly]);
 
   // Check session on load
-  const [sessionLoading, setSessionLoading] = useState(true);
-
   useEffect(()=>{
-    supabase.auth.getUser().then(({data})=>{
-      if(!data.user){router.replace("/login");return;}
-      const name = data.user.user_metadata?.full_name || data.user.email || "Unknown";
-      setStaffName(name);
-      setSessionLoading(false);
-    });
     try{setLocked(!getSessionUnlocked());const savedArea=localStorage.getItem(LS.AREA);if(savedArea)setAreaId(savedArea);setAudit(safeJsonParse<AuditEvent[]>(localStorage.getItem(LS.AUDIT),[]));setLastTx(safeJsonParse<LastTx|null>(localStorage.getItem(LS.LAST_TX),null));}catch{}
+    supabase.auth.getUser().then(({data})=>{
+      if(data.user){
+        const name = data.user.user_metadata?.full_name || data.user.email || "";
+        if(name) setStaffName(name);
+      }
+    });
   },[]);// eslint-disable-line
 
   useEffect(()=>{try{if(areaId)localStorage.setItem(LS.AREA,areaId);}catch{}},[areaId]);
@@ -429,8 +427,6 @@ export default function InventoryPage() {
 
   const staffMissing=!staffName.trim();
   const sc=statusClass(status);
-
-  if(sessionLoading){return(<><style dangerouslySetInnerHTML={{__html:PREMIUM_CSS}}/><div style={{minHeight:"100vh",background:"#0a0f1e",display:"flex",alignItems:"center",justifyContent:"center"}}><div style={{color:"#64748b",fontSize:14}}>Loading…</div></div></>);}
 
   return (
     <>
