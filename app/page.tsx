@@ -17,18 +17,20 @@ export default function Home() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    supabase.auth.getUser().then(({ data }) => {
-      if (!data.user) {
+    supabase.auth.getSession().then(({ data }) => {
+      if (!data.session) {
         router.replace("/login");
         return;
       }
-      setUserEmail(data.user?.email ?? null);
+      setUserEmail(data.session.user.email ?? null);
       setLoading(false);
     });
   }, []);
 
   async function handleLogout() {
     await supabase.auth.signOut();
+    localStorage.removeItem("asc_user_email");
+    localStorage.removeItem("asc_user_name");
     router.push("/login");
   }
 
@@ -42,12 +44,11 @@ export default function Home() {
     );
   }
 
-  const btnStyle = (color: string): React.CSSProperties => ({
-    display:"block", width:"100%", borderRadius:16, padding:16, fontSize:15,
-    fontWeight:700, border:"none", cursor:"pointer", textAlign:"center",
-    fontFamily:"inherit", transition:"all 0.18s", marginBottom:10,
-    background: color,
-  });
+  const btnBase: React.CSSProperties = {
+    display:"block", width:"100%", borderRadius:16, padding:16,
+    fontSize:15, fontWeight:700, border:"none", cursor:"pointer",
+    textAlign:"center", fontFamily:"inherit", marginBottom:10,
+  };
 
   return (
     <main style={{ minHeight:"100vh", width:"100%", background:"#000", color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", padding:16 }}>
@@ -55,40 +56,36 @@ export default function Home() {
         <div style={{ fontSize:36, fontWeight:900, lineHeight:1.2, marginBottom:8 }}>Baxter ASC<br />Inventory</div>
         <div style={{ color:"rgba(255,255,255,0.5)", fontSize:13, marginBottom:16 }}>Cabinet tracking + building totals + low stock alerts</div>
 
-        {userEmail && (
-          <div style={{ background:"rgba(59,130,246,0.1)", border:"1px solid rgba(59,130,246,0.2)", borderRadius:10, padding:"10px 14px", fontSize:12, color:"#93c5fd", display:"flex", alignItems:"center", justifyContent:"space-between", gap:8, marginBottom:20 }}>
-            <span>Signed in as <strong>{userEmail}</strong>{isAdmin ? " 👑" : ""}</span>
-            <button onClick={handleLogout} style={{ background:"rgba(239,68,68,0.15)", border:"1px solid rgba(239,68,68,0.3)", borderRadius:8, color:"#fca5a5", padding:"3px 10px", cursor:"pointer", fontSize:11, fontFamily:"inherit", fontWeight:700 }}>Sign Out</button>
-          </div>
-        )}
+        <div style={{ background:"rgba(59,130,246,0.1)", border:"1px solid rgba(59,130,246,0.2)", borderRadius:10, padding:"10px 14px", fontSize:12, color:"#93c5fd", display:"flex", alignItems:"center", justifyContent:"space-between", gap:8, marginBottom:20, flexWrap:"wrap" }}>
+          <span>Signed in as <strong>{userEmail}</strong>{isAdmin ? " 👑" : ""}</span>
+          <button onClick={handleLogout} style={{ background:"rgba(239,68,68,0.15)", border:"1px solid rgba(239,68,68,0.3)", borderRadius:8, color:"#fca5a5", padding:"3px 10px", cursor:"pointer", fontSize:11, fontFamily:"inherit", fontWeight:700 }}>Sign Out</button>
+        </div>
 
-        {/* Everyone sees Launch App */}
-        <button onClick={() => router.push("/inventory")} style={{ ...btnStyle("rgba(255,255,255,1)"), color:"#000" }}>
+        <button onClick={() => router.push("/inventory")} style={{ ...btnBase, background:"#fff", color:"#000" }}>
           Launch App
         </button>
 
-        {/* Admin only */}
         {isAdmin && (
           <>
-            <button onClick={() => router.push("/orders")} style={{ ...btnStyle("rgba(234,179,8,0.2)"), color:"#fcd34d", border:"1px solid rgba(234,179,8,0.3)" }}>
+            <button onClick={() => router.push("/orders")} style={{ ...btnBase, background:"rgba(234,179,8,0.2)", color:"#fcd34d", border:"1px solid rgba(234,179,8,0.3)" }}>
               📋 Order Management
             </button>
-            <button onClick={() => router.push("/items")} style={{ ...btnStyle("rgba(99,102,241,0.2)"), color:"#a5b4fc", border:"1px solid rgba(99,102,241,0.3)" }}>
+            <button onClick={() => router.push("/items")} style={{ ...btnBase, background:"rgba(99,102,241,0.2)", color:"#a5b4fc", border:"1px solid rgba(99,102,241,0.3)" }}>
               ➕ Add / Manage Items
             </button>
-            <button onClick={() => router.push("/reports")} style={{ ...btnStyle("rgba(16,185,129,0.2)"), color:"#6ee7b7", border:"1px solid rgba(16,185,129,0.3)" }}>
+            <button onClick={() => router.push("/reports")} style={{ ...btnBase, background:"rgba(16,185,129,0.2)", color:"#6ee7b7", border:"1px solid rgba(16,185,129,0.3)" }}>
               📊 Usage Reports
             </button>
-            <button onClick={() => router.push("/staff-activity")} style={{ ...btnStyle("rgba(59,130,246,0.2)"), color:"#93c5fd", border:"1px solid rgba(59,130,246,0.3)" }}>
+            <button onClick={() => router.push("/staff-activity")} style={{ ...btnBase, background:"rgba(59,130,246,0.2)", color:"#93c5fd", border:"1px solid rgba(59,130,246,0.3)" }}>
               👥 Staff Activity
             </button>
-            <button onClick={() => router.push("/labels")} style={{ ...btnStyle("rgba(168,85,247,0.2)"), color:"#d8b4fe", border:"1px solid rgba(168,85,247,0.3)" }}>
+            <button onClick={() => router.push("/labels")} style={{ ...btnBase, background:"rgba(168,85,247,0.2)", color:"#d8b4fe", border:"1px solid rgba(168,85,247,0.3)" }}>
               🏷️ Print QR Labels
             </button>
-            <button onClick={() => router.push("/admin")} style={{ ...btnStyle("rgba(255,255,255,0.1)"), color:"#fff", border:"1px solid rgba(255,255,255,0.15)" }}>
+            <button onClick={() => router.push("/admin")} style={{ ...btnBase, background:"rgba(255,255,255,0.1)", color:"#fff", border:"1px solid rgba(255,255,255,0.15)" }}>
               Admin Inventory (Table View)
             </button>
-            <button onClick={() => router.push("/admin-users")} style={{ ...btnStyle("rgba(16,185,129,0.15)"), color:"#6ee7b7", border:"1px solid rgba(16,185,129,0.25)" }}>
+            <button onClick={() => router.push("/admin-users")} style={{ ...btnBase, background:"rgba(16,185,129,0.15)", color:"#6ee7b7", border:"1px solid rgba(16,185,129,0.25)" }}>
               🔐 User Management
             </button>
           </>
