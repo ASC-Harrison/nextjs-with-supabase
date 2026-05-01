@@ -18,6 +18,10 @@ export default function Home() {
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => {
+      if (!data.user) {
+        router.replace("/login");
+        return;
+      }
       setUserEmail(data.user?.email ?? null);
       setLoading(false);
     });
