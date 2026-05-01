@@ -20,42 +20,20 @@ export async function POST(req: Request) {
 
     const supabase = getServiceClient();
 
-    // Check if row already exists in storage_inventory table
-    const { data: existing } = await supabase
-      .schema("public")
-      .from("storage_inventory")
-      .select("storage_area_id, item_id")
-      .eq("storage_area_id", storage_area_id)
-      .eq("item_id", item_id)
-      .maybeSingle();
+    // Use raw SQL to bypass view routing issues
+    const onHand = on_hand ?? 0;
+    const parLevel = par_level ?? 0;
+    const lowLevel = low_level ?? 0;
 
-    if (existing) {
-      const { error } = await supabase
-        .schema("public")
-        .from("storage_inventory")
-        .update({
-          on_hand: on_hand ?? 0,
-          par_level: par_level ?? 0,
-          low_level: low_level ?? 0,
-        })
-        .eq("storage_area_id", storage_area_id)
-        .eq("item_id", item_id);
+    const { error } = await supabase.rpc("upsert_storage_inventory", {
+      p_storage_area_id: storage_area_id,
+      p_item_id: item_id,
+      p_on_hand: onHand,
+      p_par_level: parLevel,
+      p_low_level: lowLevel,
+    });
 
-      if (error) return NextResponse.json({ ok: false, error: error.message });
-    } else {
-      const { error } = await supabase
-        .schema("public")
-        .from("storage_inventory")
-        .insert({
-          storage_area_id,
-          item_id,
-          on_hand: on_hand ?? 0,
-          par_level: par_level ?? 0,
-          low_level: low_level ?? 0,
-        });
-
-      if (error) return NextResponse.json({ ok: false, error: error.message });
-    }
+    if (error) return NextResponse.json({ ok: false, error: error.message });
 
     return NextResponse.json({ ok: true });
   } catch (e: any) {
