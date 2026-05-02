@@ -349,6 +349,7 @@ export default function InventoryPage() {
   const [orderReqLowOnly, setOrderReqLowOnly] = useState(false);
   const [namePromptOpen, setNamePromptOpen] = useState(false);
   const [nameInput, setNameInput] = useState("");
+  const videoRef=useRef<HTMLVideoElement|null>(null);
   const readerRef=useRef<BrowserMultiFormatReader|null>(null);
   const lastScanRef=useRef<string>("");
   const scanCooldownRef=useRef<number>(0);
