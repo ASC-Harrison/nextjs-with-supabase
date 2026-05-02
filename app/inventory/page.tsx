@@ -347,7 +347,8 @@ export default function InventoryPage() {
   const [orderReqDone, setOrderReqDone] = useState(false);
   const [orderReqSearch, setOrderReqSearch] = useState("");
   const [orderReqLowOnly, setOrderReqLowOnly] = useState(false);
-  const videoRef=useRef<HTMLVideoElement|null>(null);
+  const [namePromptOpen, setNamePromptOpen] = useState(false);
+  const [nameInput, setNameInput] = useState("");
   const readerRef=useRef<BrowserMultiFormatReader|null>(null);
   const lastScanRef=useRef<string>("");
   const scanCooldownRef=useRef<number>(0);
@@ -357,16 +358,28 @@ export default function InventoryPage() {
 
   // Check session on load
   useEffect(()=>{
-    try{setLocked(!getSessionUnlocked());const savedArea=localStorage.getItem(LS.AREA);if(savedArea)setAreaId(savedArea);setAudit(safeJsonParse<AuditEvent[]>(localStorage.getItem(LS.AUDIT),[]));setLastTx(safeJsonParse<LastTx|null>(localStorage.getItem(LS.LAST_TX),null));}catch{}
-    supabase.auth.getUser().then(({data})=>{
-      if(data.user){
-        const name = data.user.user_metadata?.full_name || data.user.email || "";
-        if(name) setStaffName(name);
+    try{
+      setLocked(!getSessionUnlocked());
+      const savedArea=localStorage.getItem(LS.AREA);
+      if(savedArea)setAreaId(savedArea);
+      const savedName=localStorage.getItem(LS.STAFF)||"";
+      setStaffName(savedName);
+      if(!savedName.trim())setNamePromptOpen(true);
+      setAudit(safeJsonParse<AuditEvent[]>(localStorage.getItem(LS.AUDIT),[]));
+      setLastTx(safeJsonParse<LastTx|null>(localStorage.getItem(LS.LAST_TX),null));
+    }catch{}
+    supabase.auth.getSession().then(({data})=>{
+      if(data.session?.user?.email){
+        const savedName=localStorage.getItem(LS.STAFF)||"";
+        if(!savedName.trim()){
+          setNamePromptOpen(true);
+        }
       }
     });
   },[]);// eslint-disable-line
 
   useEffect(()=>{try{if(areaId)localStorage.setItem(LS.AREA,areaId);}catch{}},[areaId]);
+  useEffect(()=>{try{localStorage.setItem(LS.STAFF,staffName);}catch{}},[staffName]);
   useEffect(()=>{try{localStorage.setItem(LS.STAFF,staffName);}catch{}},[staffName]);
   useEffect(()=>{try{localStorage.setItem(LS.AUDIT,JSON.stringify(audit.slice(0,500)));}catch{}},[audit]);
   useEffect(()=>{try{localStorage.setItem(LS.LAST_TX,JSON.stringify(lastTx));}catch{}},[lastTx]);
@@ -719,11 +732,11 @@ export default function InventoryPage() {
             <div className="c-card anim">
               <div style={{marginBottom:18}}>
                 <div style={{fontSize:18,fontWeight:900,color:"var(--text)",letterSpacing:"-0.5px",marginBottom:4}}>Audit Log</div>
-                <div style={{fontSize:12,color:"var(--text2)",lineHeight:1.5}}>All actions logged under your verified account.</div>
+                <div style={{fontSize:12,color:"var(--text2)",lineHeight:1.5}}>All actions logged under your name.</div>
               </div>
-              <div style={{background:"rgba(59,130,246,0.08)",border:"1px solid rgba(59,130,246,0.2)",borderRadius:10,padding:"10px 14px",fontSize:13,color:"#93c5fd",marginBottom:16,display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,flexWrap:"wrap"}}>
-                <span>Signed in as: <strong>{staffName}</strong></span>
-                <button onClick={async()=>{await supabase.auth.signOut();router.push("/login");}} style={{background:"rgba(239,68,68,0.15)",border:"1px solid rgba(239,68,68,0.3)",borderRadius:8,color:"#fca5a5",padding:"4px 12px",cursor:"pointer",fontSize:11,fontFamily:"inherit",fontWeight:700}}>Sign Out</button>
+              <div style={{background:"rgba(16,185,129,0.08)",border:"1px solid rgba(16,185,129,0.2)",borderRadius:10,padding:"10px 14px",fontSize:13,color:"#6ee7b7",marginBottom:16,display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,flexWrap:"wrap"}}>
+                <span>🟢 Online as: <strong>{staffName||"Not set"}</strong></span>
+                <button onClick={()=>{setNameInput(staffName);setNamePromptOpen(true);}} style={{background:"rgba(59,130,246,0.15)",border:"1px solid rgba(59,130,246,0.3)",borderRadius:8,color:"#93c5fd",padding:"4px 12px",cursor:"pointer",fontSize:11,fontFamily:"inherit",fontWeight:700}}>Change Name</button>
               </div>
               <div className="g2 mt3">
                 <button onClick={()=>{setAudit([]);try{localStorage.removeItem(LS.AUDIT);}catch{}}} className="btn btn-gh" style={{fontSize:13}}>Clear device log</button>
@@ -939,6 +952,30 @@ export default function InventoryPage() {
                 </div>
               </>
             )}
+          </div>
+        </div>
+      )}
+      {namePromptOpen && (
+        <div className="modal-ov">
+          <div className="modal anim" style={{maxWidth:360}}>
+            <div className="modal-title">👋 Welcome to Baxter ASC</div>
+            <div style={{fontSize:13,color:"var(--text2)",marginBottom:16,lineHeight:1.6}}>Please enter your first and last name to get started. This is used to track all activity in the app.</div>
+            <input
+              value={nameInput}
+              onChange={e=>setNameInput(e.target.value)}
+              className="inp"
+              placeholder="e.g., Brooklyn Carter"
+              autoFocus
+              onKeyDown={e=>{if(e.key==="Enter"&&nameInput.trim().length>=2){setStaffName(nameInput.trim());try{localStorage.setItem(LS.STAFF,nameInput.trim());}catch{}setNamePromptOpen(false);}}}
+            />
+            <div style={{fontSize:11,color:"var(--text4)",marginTop:6,marginBottom:16}}>Must be at least 2 characters. This is saved on your device.</div>
+            <button
+              onClick={()=>{if(nameInput.trim().length<2)return alert("Please enter your full name.");setStaffName(nameInput.trim());try{localStorage.setItem(LS.STAFF,nameInput.trim());}catch{}setNamePromptOpen(false);}}
+              className="btn btn-submit btn-full btn-lg"
+              disabled={nameInput.trim().length<2}
+            >
+              Start Using App
+            </button>
           </div>
         </div>
       )}
