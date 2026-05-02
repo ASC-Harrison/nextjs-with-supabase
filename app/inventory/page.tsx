@@ -384,7 +384,15 @@ export default function InventoryPage() {
   useEffect(()=>{try{localStorage.setItem(LS.AUDIT,JSON.stringify(audit.slice(0,500)));}catch{}},[audit]);
   useEffect(()=>{try{localStorage.setItem(LS.LAST_TX,JSON.stringify(lastTx));}catch{}},[lastTx]);
 
-  // Send presence heartbeat every 30 seconds
+  // When staff name changes, clean up old presence row
+  useEffect(()=>{
+    if(!staffName.trim())return;
+    const prevName = typeof localStorage !== "undefined" ? localStorage.getItem("asc_prev_staff_name") : null;
+    if(prevName && prevName !== staffName.trim()){
+      Promise.resolve(supabase.from("staff_presence").delete().eq("staff", prevName)).catch(()=>{});
+    }
+    try{localStorage.setItem("asc_prev_staff_name", staffName.trim());}catch{}
+  },[staffName]);// eslint-disable-line
   useEffect(()=>{
     if(!staffName.trim())return;
     async function sendHeartbeat(){
