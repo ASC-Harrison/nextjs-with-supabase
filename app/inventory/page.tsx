@@ -381,7 +381,6 @@ export default function InventoryPage() {
 
   useEffect(()=>{try{if(areaId)localStorage.setItem(LS.AREA,areaId);}catch{}},[areaId]);
   useEffect(()=>{try{localStorage.setItem(LS.STAFF,staffName);}catch{}},[staffName]);
-  useEffect(()=>{try{localStorage.setItem(LS.STAFF,staffName);}catch{}},[staffName]);
   useEffect(()=>{try{localStorage.setItem(LS.AUDIT,JSON.stringify(audit.slice(0,500)));}catch{}},[audit]);
   useEffect(()=>{try{localStorage.setItem(LS.LAST_TX,JSON.stringify(lastTx));}catch{}},[lastTx]);
 
@@ -399,7 +398,9 @@ export default function InventoryPage() {
     sendHeartbeat();
     const interval=setInterval(sendHeartbeat,30000);
     return()=>clearInterval(interval);
-  },[staffName,selectedAreaName]);// eslint-disable-lineev:Omit<AuditEvent,"id"|"ts"|"staff">){const staff=(staffName||"").trim()||"Unknown";const ts=nowIso();setAudit((prev)=>[{id:uid(),ts,staff,action:ev.action,details:ev.details},...prev].slice(0,500));Promise.resolve(supabase.from("audit_log").insert({staff,action:ev.action,details:ev.details??null,area_name:selectedAreaName??null,device_info:typeof navigator!=="undefined"?navigator.userAgent.slice(0,120):null})).then(()=>{}).catch(()=>{});}
+  },[staffName,selectedAreaName]);// eslint-disable-line
+
+  function pushAudit(ev:Omit<AuditEvent,"id"|"ts"|"staff">){const staff=(staffName||"").trim()||"Unknown";const ts=nowIso();setAudit((prev)=>[{id:uid(),ts,staff,action:ev.action,details:ev.details},...prev].slice(0,500));Promise.resolve(supabase.from("audit_log").insert({staff,action:ev.action,details:ev.details??null,area_name:selectedAreaName??null,device_info:typeof navigator!=="undefined"?navigator.userAgent.slice(0,120):null})).then(()=>{}).catch(()=>{});}
 
   async function loadLocations(){setAreasLoading(true);try{const res=await fetch("/api/locations",{method:"GET",cache:"no-store",headers:{"Cache-Control":"no-cache"}});const json=await res.json();if(!json.ok){setStatus(`Locations error: ${json.error}`);setAreas([]);setAreaId("");return;}const list:Area[]=json.locations??[];setAreas(list);setAreaId((prev)=>{if(!list.length)return"";return list.some((a)=>a.id===prev)?prev:list[0].id;});setStatus("");}catch(e:any){setStatus(`Locations fetch failed: ${e?.message??"unknown"}`);setAreas([]);setAreaId("");}finally{setAreasLoading(false);}}
 
