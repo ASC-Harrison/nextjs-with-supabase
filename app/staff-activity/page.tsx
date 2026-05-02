@@ -16,6 +16,8 @@ type PresenceRow = {
   area_name: string | null;
   device_info: string | null;
 };
+
+type LogRow = {
   id: string;
   created_at: string;
   staff: string;
