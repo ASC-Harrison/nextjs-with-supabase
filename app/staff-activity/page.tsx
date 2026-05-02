@@ -9,7 +9,13 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 );
 
-type LogRow = {
+type PresenceRow = {
+  id: string;
+  staff: string;
+  last_seen: string;
+  area_name: string | null;
+  device_info: string | null;
+};
   id: string;
   created_at: string;
   staff: string;
@@ -122,6 +128,18 @@ export default function StaffActivityPage() {
   const [selectedStaff, setSelectedStaff] = useState<string | null>(null);
   const [autoRefresh, setAutoRefresh] = useState(true);
 
+  const [presence, setPresence] = useState<PresenceRow[]>([]);
+
+  async function loadPresence() {
+    try {
+      const { data } = await supabase
+        .from("staff_presence")
+        .select("id,staff,last_seen,area_name,device_info")
+        .order("last_seen", { ascending: false });
+      setPresence((data as PresenceRow[]) ?? []);
+    } catch {}
+  }
+
   async function loadLogs() {
     try {
       const { data, error } = await supabase
@@ -136,11 +154,12 @@ export default function StaffActivityPage() {
 
   useEffect(() => {
     loadLogs();
+    loadPresence();
   }, []);
 
   useEffect(() => {
     if (!autoRefresh) return;
-    const interval = setInterval(loadLogs, 15000);
+    const interval = setInterval(() => { loadLogs(); loadPresence(); }, 15000);
     return () => clearInterval(interval);
   }, [autoRefresh]);
 
@@ -241,7 +260,31 @@ export default function StaffActivityPage() {
             </div>
           </div>
 
-          {/* Staff Cards */}
+          {/* Live Presence */}
+          <div className="section-title">🟢 Currently Online</div>
+          {presence.length === 0 ? (
+            <div style={{fontSize:13,color:"var(--text3)",marginBottom:20}}>Nobody is currently in the app.</div>
+          ) : (
+            <div className="staff-grid" style={{marginBottom:20}}>
+              {presence.map(p => {
+                const diffMin = Math.floor((Date.now() - new Date(p.last_seen).getTime()) / 60000);
+                const isOnline = diffMin < 2;
+                const isIdle = diffMin >= 2 && diffMin < 10;
+                return (
+                  <div key={p.id} className="staff-card" style={{border:`1px solid ${isOnline?"rgba(16,185,129,0.4)":isIdle?"rgba(245,158,11,0.3)":"var(--border)"}`}}>
+                    <div className="staff-name">
+                      <span style={{width:8,height:8,borderRadius:"50%",background:isOnline?"#10b981":isIdle?"#f59e0b":"#475569",display:"inline-block",marginRight:6}} />
+                      {p.staff}
+                    </div>
+                    <div className="staff-last">{isOnline?"Active now":isIdle?`Idle ${diffMin}m`:`Last seen ${diffMin}m ago`}</div>
+                    {p.area_name && <div className="staff-last">📍 {p.area_name}</div>}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          <div className="divider" />
           {staffList.length > 0 && (
             <>
               <div className="section-title">Staff Overview</div>
