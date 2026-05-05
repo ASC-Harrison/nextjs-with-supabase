@@ -165,7 +165,18 @@ export default function AdminUsersPage() {
             </form>
           </div>
 
-          {/* Add new staff */}
+          {/* Set Full Name */}
+          <div className="card">
+            <div className="card-title">👤 Set Staff Full Name</div>
+            <div className="card-sub">Set the display name for any staff account. This shows in Staff Activity and audit logs.</div>
+            <form onSubmit={async(e)=>{e.preventDefault();const emailEl=e.currentTarget.querySelector('[name=nameEmail]') as HTMLInputElement;const nameEl=e.currentTarget.querySelector('[name=fullName]') as HTMLInputElement;if(!emailEl.value||!nameEl.value)return;setMsg(null);try{const res=await fetch("/api/admin/update-name",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({email:emailEl.value,full_name:nameEl.value})});const json=await res.json();if(!json.ok)setMsg({type:"err",text:json.error});else{setMsg({type:"ok",text:`✅ Name updated for ${emailEl.value}`});emailEl.value="";nameEl.value="";}}catch(e:any){setMsg({type:"err",text:e?.message});}}}>
+              <label className="label">Staff Email</label>
+              <input name="nameEmail" type="email" className="inp" placeholder="staff@example.com" required />
+              <label className="label">Full Name</label>
+              <input name="fullName" className="inp" placeholder="e.g., Brooklyn Carter" required />
+              <button type="submit" className="btn btn-ac btn-full">Set Full Name</button>
+            </form>
+          </div>
           <div className="card">
             <div className="card-title">➕ Add New Staff Member</div>
             <div className="card-sub">They can log in immediately with these credentials</div>
