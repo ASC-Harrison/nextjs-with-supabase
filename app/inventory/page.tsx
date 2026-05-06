@@ -363,17 +363,19 @@ export default function InventoryPage() {
       setLocked(!getSessionUnlocked());
       const savedArea=localStorage.getItem(LS.AREA);
       if(savedArea)setAreaId(savedArea);
-      const savedName=localStorage.getItem(LS.STAFF)||"";
-      setStaffName(savedName);
-      if(!savedName.trim())setNamePromptOpen(true);
       setAudit(safeJsonParse<AuditEvent[]>(localStorage.getItem(LS.AUDIT),[]));
       setLastTx(safeJsonParse<LastTx|null>(localStorage.getItem(LS.LAST_TX),null));
     }catch{}
     supabase.auth.getSession().then(({data})=>{
-      if(data.session?.user?.email){
-        const savedName=localStorage.getItem(LS.STAFF)||"";
-        if(!savedName.trim()){
-          setNamePromptOpen(true);
+      if(data.session?.user){
+        const name = data.session.user.user_metadata?.full_name || data.session.user.email || "";
+        if(name){
+          setStaffName(name);
+          try{localStorage.setItem(LS.STAFF,name);}catch{}
+        } else {
+          const savedName=localStorage.getItem(LS.STAFF)||"";
+          setStaffName(savedName);
+          if(!savedName.trim())setNamePromptOpen(true);
         }
       }
     });
