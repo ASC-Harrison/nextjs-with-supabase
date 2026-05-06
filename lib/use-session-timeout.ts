@@ -7,7 +7,7 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 );
 
-const TIMEOUT_MS = 30 * 60 * 1000;
+const TIMEOUT_MS = 8 * 60 * 60 * 1000; // 8 hours
 
 export function useSessionTimeout() {
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
