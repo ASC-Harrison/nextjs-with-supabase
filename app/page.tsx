@@ -18,7 +18,11 @@ export default function Home() {
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
-      setUserEmail(data.session?.user.email ?? null);
+      if (!data.session) {
+        router.replace("/login");
+        return;
+      }
+      setUserEmail(data.session.user.email ?? null);
       setLoading(false);
     });
   }, []);
@@ -27,10 +31,10 @@ export default function Home() {
     await supabase.auth.signOut();
     localStorage.removeItem("asc_user_email");
     localStorage.removeItem("asc_user_name");
-    router.push("/login");
+    setUserEmail(null);
   }
 
-  const isAdmin = true; // Login deactivated — show all buttons
+  const isAdmin = userEmail?.toLowerCase() === ADMIN_EMAIL.toLowerCase();
 
   if (loading) {
     return (
