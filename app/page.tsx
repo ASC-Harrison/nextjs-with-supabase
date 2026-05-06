@@ -79,9 +79,7 @@ export default function Home() {
   }
 
   function goToArea(areaId: string) {
-    // Store area ID and go to inventory
-    localStorage.setItem("asc_area_id_v1", areaId);
-    router.push("/inventory?tab=area");
+    router.push(`/areas/${areaId}`);
   }
 
   const isAdmin = userEmail?.toLowerCase() === ADMIN_EMAIL.toLowerCase();
