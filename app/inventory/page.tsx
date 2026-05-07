@@ -341,7 +341,10 @@ export default function InventoryPage() {
   const [itemStatusSaving,setItemStatusSaving]=useState(false);
   const [itemStatusDraft,setItemStatusDraft]=useState<{order_status:string;backordered:boolean}>({order_status:"IN STOCK",backordered:false});
   const [pendingItemStatusSave,setPendingItemStatusSave]=useState<null|{item_id:string;order_status:string;backordered:boolean;item_name?:string;}>(null);
-  const [orderReqOpen, setOrderReqOpen] = useState(false);
+  const [orderPinOpen, setOrderPinOpen] = useState(false);
+  const [orderPinInput, setOrderPinInput] = useState("");
+  const [orderPinError, setOrderPinError] = useState(false);
+  const ORDER_PIN = "1620";
   const [orderReqItems, setOrderReqItems] = useState<Record<string,number|string>>({});
   const [orderReqSending, setOrderReqSending] = useState(false);
   const [orderReqDone, setOrderReqDone] = useState(false);
@@ -714,7 +717,7 @@ export default function InventoryPage() {
                 <button onClick={loadTotals} className="btn btn-gh" style={{fontSize:13}}>Refresh</button>
                 <button onClick={()=>{setTotalsLowOnly(false);setTotalsZeroOnly(false);setTotalsSearch("");}} className="btn btn-gh" style={{fontSize:13}}>Clear</button>
               </div>
-              <button onClick={()=>{setOrderReqItems({});setOrderReqDone(false);setOrderReqSearch("");setOrderReqLowOnly(false);setOrderReqOpen(true);}} className="btn btn-ac btn-full mb3" style={{fontSize:13}}>📦 Request Order</button>
+              <button onClick={()=>{setOrderPinInput("");setOrderPinError(false);setOrderPinOpen(true);}} className="btn btn-ac btn-full mb3" style={{fontSize:13}}>📦 Request Order</button>
               {totalsError && <div style={{color:"#fca5a5",fontSize:12,marginBottom:10,wordBreak:"break-word"}}>{totalsError}</div>}
               <div className="sp">
                 {filteredTotals.map((r)=>{
@@ -874,6 +877,38 @@ export default function InventoryPage() {
             </div>
           </div>
         </AscModal>
+      )}
+
+      {orderPinOpen && (
+        <div className="modal-ov">
+          <div className="modal anim" style={{maxWidth:340}}>
+            <div className="modal-title">🔐 Enter Order PIN</div>
+            <div style={{fontSize:13,color:"var(--text2)",marginBottom:14,lineHeight:1.5}}>Enter the 4-digit PIN to place an order request.</div>
+            <input
+              value={orderPinInput}
+              onChange={e=>{setOrderPinInput(e.target.value.replace(/\D/g,"").slice(0,4));setOrderPinError(false);}}
+              inputMode="numeric"
+              type="password"
+              className="pin-inp"
+              placeholder="••••"
+              autoFocus
+              onKeyDown={e=>{
+                if(e.key==="Enter"){
+                  if(orderPinInput===ORDER_PIN){setOrderPinOpen(false);setOrderReqItems({});setOrderReqDone(false);setOrderReqSearch("");setOrderReqLowOnly(false);setOrderReqOpen(true);}
+                  else setOrderPinError(true);
+                }
+              }}
+            />
+            {orderPinError && <div style={{fontSize:12,color:"#fca5a5",marginTop:8,textAlign:"center"}}>❌ Wrong PIN. Try again.</div>}
+            <div className="modal-footer">
+              <button onClick={()=>setOrderPinOpen(false)} className="btn btn-gh" style={{flex:1}}>Cancel</button>
+              <button onClick={()=>{
+                if(orderPinInput===ORDER_PIN){setOrderPinOpen(false);setOrderReqItems({});setOrderReqDone(false);setOrderReqSearch("");setOrderReqLowOnly(false);setOrderReqOpen(true);}
+                else setOrderPinError(true);
+              }} className="btn btn-ac" style={{flex:1}}>Submit</button>
+            </div>
+          </div>
+        </div>
       )}
 
       {orderReqOpen && (
