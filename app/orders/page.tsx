@@ -18,6 +18,8 @@ type Order = {
   vendor: string | null;
   unit: string | null;
   qty_requested: number;
+  qty_actual_ordered: number | null;
+  qty_actual_received: number | null;
   status: "PENDING" | "ORDERED" | "BACKORDERED" | "RECEIVED";
   confirmed_by: string | null;
   confirmed_at: string | null;
@@ -78,6 +80,8 @@ export default function OrdersPage() {
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState("ALL");
   const [updating, setUpdating] = useState<string | null>(null);
+  const [receivingId, setReceivingId] = useState<string | null>(null);
+  const [qtyReceivedInput, setQtyReceivedInput] = useState<string>("");
 
   async function loadOrders() {
     try {
@@ -193,7 +197,14 @@ export default function OrdersPage() {
                     <div className="order-name">{order.item_name}</div>
                     <div className="order-meta">
                       {"Ref: " + (order.reference_number || "—") + " · Vendor: " + (order.vendor || "—") + " · " + (order.unit || "—")}<br />
-                      {"Qty: "}<strong style={{ color: "#f0f6ff" }}>{order.qty_requested}</strong>{" · By: " + order.requested_by}<br />
+                      {"Requested: "}<strong style={{ color: "#f0f6ff" }}>{order.qty_requested}</strong>
+                      {order.qty_actual_ordered && order.qty_actual_ordered !== order.qty_requested && (
+                        <span style={{ color:"#fcd34d" }}>{" → Actual: "}<strong>{order.qty_actual_ordered}</strong></span>
+                      )}
+                      {order.qty_actual_received && (
+                        <span style={{ color:"#6ee7b7" }}>{" · Received: "}<strong>{order.qty_actual_received}</strong></span>
+                      )}
+                      {" · By: " + order.requested_by}<br />
                       <span style={{ fontSize: 10, color: "#334155" }}>{formatTime(order.created_at)}</span>
                     </div>
                     {order.confirmed_by && order.status === "ORDERED" && (
@@ -208,6 +219,44 @@ export default function OrdersPage() {
                   </div>
                   <span className={getBadgeClass(order.status)}>{order.status}</span>
                 </div>
+
+                {/* Qty received input when marking as received */}
+                {receivingId === order.id && (
+                  <div style={{ marginTop:10, background:"rgba(16,185,129,0.08)", border:"1px solid rgba(16,185,129,0.2)", borderRadius:10, padding:"12px" }}>
+                    <div style={{ fontSize:12, color:"#6ee7b7", fontWeight:700, marginBottom:8 }}>Enter actual quantity received:</div>
+                    <div style={{ display:"flex", gap:8, alignItems:"center" }}>
+                      <input
+                        type="number"
+                        value={qtyReceivedInput}
+                        onChange={e => setQtyReceivedInput(e.target.value)}
+                        placeholder={String(order.qty_actual_ordered || order.qty_requested)}
+                        min="1"
+                        style={{ flex:1, borderRadius:8, border:"1px solid rgba(16,185,129,0.3)", background:"#111827", color:"#f0f6ff", padding:"10px 12px", fontSize:15, fontWeight:800, textAlign:"center", fontFamily:"inherit", outline:"none" }}
+                      />
+                      <button
+                        onClick={async () => {
+                          setUpdating(order.id);
+                          try {
+                            const update: any = { status: "RECEIVED", received_at: new Date().toISOString() };
+                            if (qtyReceivedInput && Number(qtyReceivedInput) > 0) {
+                              update.qty_actual_received = Number(qtyReceivedInput);
+                            }
+                            await supabase.from("order_requests").update(update).eq("id", order.id);
+                            setOrders(prev => prev.map(o => o.id === order.id ? { ...o, ...update } as Order : o));
+                            setReceivingId(null);
+                            setQtyReceivedInput("");
+                          } catch {}
+                          finally { setUpdating(null); }
+                        }}
+                        disabled={updating === order.id}
+                        className="btn btn-ok"
+                      >
+                        {updating === order.id ? "…" : "Confirm"}
+                      </button>
+                      <button onClick={() => { setReceivingId(null); setQtyReceivedInput(""); }} className="btn btn-gh">Cancel</button>
+                    </div>
+                  </div>
+                )}
                 <div className="action-row">
                   {order.status === "PENDING" && (
                     <button onClick={() => updateStatus(order.id, "ORDERED")} disabled={updating === order.id} className="btn btn-ac">
@@ -219,9 +268,9 @@ export default function OrdersPage() {
                       {updating === order.id ? "Updating…" : "🔴 Backordered"}
                     </button>
                   )}
-                  {(order.status === "ORDERED" || order.status === "BACKORDERED") && (
-                    <button onClick={() => updateStatus(order.id, "RECEIVED")} disabled={updating === order.id} className="btn btn-ok">
-                      {updating === order.id ? "Updating…" : "📦 Mark Received"}
+                  {(order.status === "ORDERED" || order.status === "BACKORDERED") && receivingId !== order.id && (
+                    <button onClick={() => { setReceivingId(order.id); setQtyReceivedInput(String(order.qty_actual_ordered || order.qty_requested)); }} disabled={updating === order.id} className="btn btn-ok">
+                      📦 Mark Received
                     </button>
                   )}
                   {order.status === "PENDING" && (
