@@ -345,6 +345,7 @@ export default function InventoryPage() {
   const [orderPinInput, setOrderPinInput] = useState("");
   const [orderPinError, setOrderPinError] = useState(false);
   const ORDER_PIN = "1620";
+  const [orderReqOpen, setOrderReqOpen] = useState(false);
   const [orderReqItems, setOrderReqItems] = useState<Record<string,number|string>>({});
   const [orderReqSending, setOrderReqSending] = useState(false);
   const [orderReqDone, setOrderReqDone] = useState(false);
