@@ -9,7 +9,7 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 );
 
-const ADMIN_EMAIL = "hogstud800@gmail.com";
+const ADMIN_EMAILS = ["hogstud800@gmail.com", "brooklyncarter.0716@gmail.com"];
 
 type Area = {
   id: string;
@@ -82,7 +82,7 @@ export default function Home() {
     router.push(`/areas/${areaId}`);
   }
 
-  const isAdmin = userEmail?.toLowerCase() === ADMIN_EMAIL.toLowerCase();
+  const isAdmin = ADMIN_EMAILS.includes(userEmail?.toLowerCase() ?? "");
 
   if (loading) {
     return (
