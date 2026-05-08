@@ -26,13 +26,28 @@ export default function Home() {
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
-      if (!data.session) {
-        router.replace("/login");
+      if (data.session) {
+        setUserEmail(data.session.user.email ?? null);
+        setLoading(false);
+        loadAreas();
         return;
       }
-      setUserEmail(data.session.user.email ?? null);
-      setLoading(false);
-      loadAreas();
+      // Fallback — check localStorage token
+      const token = localStorage.getItem("asc_session_token");
+      const email = localStorage.getItem("asc_user_email");
+      if (token && email) {
+        supabase.auth.setSession({ access_token: token, refresh_token: "" }).then(({ data: d }) => {
+          if (d.session) {
+            setUserEmail(d.session.user.email ?? null);
+            setLoading(false);
+            loadAreas();
+          } else {
+            router.replace("/login");
+          }
+        });
+        return;
+      }
+      router.replace("/login");
     });
   }, []);
 
