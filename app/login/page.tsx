@@ -24,7 +24,6 @@ export default function LoginPage() {
     setLoading(true);
     setError("");
     try {
-      // Sign in directly with Supabase client — no server route needed
       const { data, error: authError } = await supabase.auth.signInWithPassword({
         email: email.trim(),
         password,
@@ -34,11 +33,13 @@ export default function LoginPage() {
         setLoading(false);
         return;
       }
-      // Store user info in localStorage for quick access
+      // Store session manually for PWA compatibility
       localStorage.setItem("asc_user_email", data.user.email ?? "");
       localStorage.setItem("asc_user_name", data.user.user_metadata?.full_name || data.user.email || "");
-      router.push("/");
-      router.refresh();
+      localStorage.setItem("asc_session_token", data.session.access_token);
+      // Small delay to ensure session is saved before redirect
+      await new Promise(r => setTimeout(r, 500));
+      window.location.href = "/";
     } catch (e: any) {
       setError(e?.message ?? "Login failed");
       setLoading(false);
