@@ -1,31 +1,32 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
-const ADMIN_ONLY_PATHS = ["/admin", "/staff-activity", "/admin-users", "/reports", "/labels", "/orders", "/items"];
-const ADMIN_EMAIL = process.env.ADMIN_EMAIL ?? "hogstud800@gmail.com";
-
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
+  // Allow everything through except admin-only paths
   if (pathname.startsWith("/_next") || pathname.startsWith("/favicon") || pathname.includes(".")) {
     return NextResponse.next();
   }
 
-  // Allow login and API routes through
+  // Always allow login and API
   if (pathname.startsWith("/login") || pathname.startsWith("/api/")) {
     return NextResponse.next();
   }
 
-  // Check for session cookie
-  const hasSession = request.cookies.getAll().some(c =>
-    c.name.includes("sb-") && c.name.includes("-auth-token")
-  );
+  // Check for any supabase auth cookie
+  const cookies = request.cookies.getAll();
+  const hasAuth = cookies.some(c => c.name.includes("sb-") || c.name.includes("supabase"));
 
-  // Not logged in — redirect to login
-  if (!hasSession) {
+  // Only block admin pages if no auth — let home and inventory through
+  const ADMIN_ONLY = ["/admin", "/staff-activity", "/admin-users", "/reports", "/labels", "/orders", "/items", "/areas"];
+  const isAdminPath = ADMIN_ONLY.some(p => pathname.startsWith(p));
+
+  if (isAdminPath && !hasAuth) {
     return NextResponse.redirect(new URL("/login", request.url));
   }
 
+  // For home and inventory — let through, the pages handle their own auth check
   return NextResponse.next();
 }
 
