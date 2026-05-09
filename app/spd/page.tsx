@@ -79,6 +79,8 @@ export default function SPDPage() {
   const [showLowOnly, setShowLowOnly] = useState(false);
   const [areas, setAreas] = useState<string[]>([]);
 
+  const SPD_AREA_ID = "ed062f99-290a-4ac4-87ea-519b6e34fcbc";
+
   useEffect(() => {
     loadItems();
   }, []);
@@ -89,8 +91,9 @@ export default function SPDPage() {
       const { data } = await supabase
         .from("storage_inventory_area_view")
         .select("item_id,item_name,storage_area_name,storage_area_id,on_hand,par_level,low_level,unit,vendor,category,reference_number,order_status,backordered")
+        .eq("storage_area_id", SPD_AREA_ID)
         .gt("par_level", 0)
-        .order("storage_area_name", { ascending: true });
+        .order("item_name", { ascending: true });
 
       if (data) {
         setItems(data as Item[]);
@@ -180,52 +183,48 @@ export default function SPDPage() {
           <div className="count">Showing {filtered.length} of {items.length} items</div>
 
           {loading ? (
-            <div className="loading">Loading inventory…</div>
+            <div className="loading">Loading SPD inventory…</div>
           ) : filtered.length === 0 ? (
-            <div className="empty">No items match your filter.</div>
+            <div className="empty">
+              {items.length === 0
+                ? "No items in SPD yet. Go to Add / Manage Items → Add to Area and assign items to the SPD area."
+                : "No items match your filter."}
+            </div>
           ) : (
-            Object.entries(grouped).map(([areaName, areaItems]) => (
-              <div key={areaName}>
-                <div className="section-title">
-                  <span>📍 {areaName}</span>
-                  <span style={{ fontSize:10, color:"#334155" }}>{areaItems.length} items · {areaItems.filter(i=>(i.low_level??0)>0&&(i.on_hand??0)<=(i.low_level??0)).length} low</span>
-                </div>
-                {areaItems.map(item => {
-                  const oh = item.on_hand ?? 0;
-                  const par = item.par_level ?? 0;
-                  const low = item.low_level ?? 0;
-                  const isLow = low > 0 && oh <= low;
-                  return (
-                    <div key={`${item.storage_area_id}-${item.item_id}`} className={"item-card " + (isLow ? "low" : "ok")}>
-                      <div style={{ display:"flex", alignItems:"flex-start", justifyContent:"space-between" }}>
-                        <div style={{ minWidth:0, flex:1 }}>
-                          <div className="item-name">{item.item_name}</div>
-                          <div className="item-meta">
-                            {item.vendor || "—"} · {item.category || "—"}
-                            {item.reference_number ? ` · Ref: ${item.reference_number}` : ""}
-                          </div>
-                          <div className="pills">
-                            <div className="pill">PAR <span>{par}</span></div>
-                            <div className="pill">LOW <span style={{ color: low === 0 ? "#fcd34d" : "#f0f6ff" }}>{low}</span></div>
-                            {item.unit && <div className="pill">UNIT <span>{item.unit}</span></div>}
-                            {item.order_status && item.order_status !== "IN STOCK" && (
-                              <div className="pill" style={{ borderColor:"rgba(59,130,246,0.3)", color:"#93c5fd" }}>{item.order_status}</div>
-                            )}
-                            {item.backordered && (
-                              <div className="pill" style={{ borderColor:"rgba(239,68,68,0.3)", color:"#fca5a5" }}>BACKORDERED</div>
-                            )}
-                          </div>
-                        </div>
-                        <div className={"oh-badge " + (isLow ? "low" : "ok")}>
-                          <div className={"oh-num " + (isLow ? "low" : "ok")}>{oh}</div>
-                          <div className="oh-unit">on hand</div>
-                        </div>
+            filtered.map(item => {
+              const oh = item.on_hand ?? 0;
+              const par = item.par_level ?? 0;
+              const low = item.low_level ?? 0;
+              const isLow = low > 0 && oh <= low;
+              return (
+                <div key={item.item_id} className={"item-card " + (isLow ? "low" : "ok")}>
+                  <div style={{ display:"flex", alignItems:"flex-start", justifyContent:"space-between" }}>
+                    <div style={{ minWidth:0, flex:1 }}>
+                      <div className="item-name">{item.item_name}</div>
+                      <div className="item-meta">
+                        {item.vendor || "—"} · {item.category || "—"}
+                        {item.reference_number ? ` · Ref: ${item.reference_number}` : ""}
+                      </div>
+                      <div className="pills">
+                        <div className="pill">PAR <span>{par}</span></div>
+                        <div className="pill">LOW <span style={{ color: low === 0 ? "#fcd34d" : "#f0f6ff" }}>{low}</span></div>
+                        {item.unit && <div className="pill">UNIT <span>{item.unit}</span></div>}
+                        {item.order_status && item.order_status !== "IN STOCK" && (
+                          <div className="pill" style={{ borderColor:"rgba(59,130,246,0.3)", color:"#93c5fd" }}>{item.order_status}</div>
+                        )}
+                        {item.backordered && (
+                          <div className="pill" style={{ borderColor:"rgba(239,68,68,0.3)", color:"#fca5a5" }}>BACKORDERED</div>
+                        )}
                       </div>
                     </div>
-                  );
-                })}
-              </div>
-            ))
+                    <div className={"oh-badge " + (isLow ? "low" : "ok")}>
+                      <div className={"oh-num " + (isLow ? "low" : "ok")}>{oh}</div>
+                      <div className="oh-unit">on hand</div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })
           )}
         </div>
       </div>
