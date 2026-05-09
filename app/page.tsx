@@ -182,8 +182,12 @@ export default function Home() {
           )}
         </div>
 
-        <button onClick={() => router.push("/inventory")} style={{ ...btnBase, background:"#fff", color:"#000", fontSize:15, padding:16, borderRadius:16, marginBottom:10 }}>
+        <button onClick={() => router.push("/inventory")} style={{ ...btnBase, background:"#fff", color:"#000", fontSize:15, padding:16, borderRadius:16, marginBottom:8 }}>
           🚀 Launch App
+        </button>
+
+        <button onClick={() => router.push("/spd")} style={{ ...btnBase, background:"rgba(99,102,241,0.15)", color:"#a5b4fc", border:"1px solid rgba(99,102,241,0.3)", marginBottom:10 }}>
+          🔬 SPD Inventory View
         </button>
 
         {isAdmin && (
