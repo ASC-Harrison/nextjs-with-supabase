@@ -20,6 +20,7 @@ export async function POST(req: Request) {
     const payload = {
       name: body.name.trim(),
       reference_number: body.reference_number || null,
+      item_number: body.item_number || null,
       vendor: body.vendor || null,
       category: body.category || null,
       unit: body.unit || null,
