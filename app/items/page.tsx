@@ -72,6 +72,7 @@ export default function ItemsPage() {
   // New item fields
   const [name, setName] = useState("");
   const [refNumber, setRefNumber] = useState("");
+  const [itemNumber, setItemNumber] = useState("");
   const [vendor, setVendor] = useState("");
   const [category, setCategory] = useState("");
   const [unit, setUnit] = useState("");
@@ -116,7 +117,7 @@ export default function ItemsPage() {
   }
 
   function resetNewItem() {
-    setName(""); setRefNumber(""); setVendor(""); setCategory("");
+    setName(""); setRefNumber(""); setItemNumber(""); setVendor(""); setCategory("");
     setUnit(""); setParLevel(""); setLowLevel(""); setPrice("");
     setSupplySource("VENDOR"); setNotes(""); setExpirationDate("");
   }
@@ -131,6 +132,7 @@ export default function ItemsPage() {
         body: JSON.stringify({
           name: name.trim(),
           reference_number: refNumber.trim() || null,
+          item_number: itemNumber.trim() || null,
           vendor: vendor.trim() || null,
           category: category.trim() || null,
           unit: unit.trim() || null,
@@ -214,16 +216,21 @@ export default function ItemsPage() {
                   <input value={refNumber} onChange={e=>setRefNumber(e.target.value)} className="inp" placeholder="e.g., AR-1234" />
                 </div>
                 <div>
-                  <label className="lbl">Vendor</label>
-                  <input value={vendor} onChange={e=>setVendor(e.target.value)} className="inp" placeholder="e.g., Arthrex" />
+                  <label className="lbl">Item Number</label>
+                  <input value={itemNumber} onChange={e=>setItemNumber(e.target.value)} className="inp" placeholder="e.g., SPD-001" />
                 </div>
               </div>
 
               <div className="g2">
                 <div>
+                  <label className="lbl">Vendor</label>
+                  <input value={vendor} onChange={e=>setVendor(e.target.value)} className="inp" placeholder="e.g., Arthrex" />
+                </div>
+                <div>
                   <label className="lbl">Category</label>
                   <input value={category} onChange={e=>setCategory(e.target.value)} className="inp" placeholder="e.g., Implants" />
                 </div>
+              </div>
                 <div>
                   <label className="lbl">Unit</label>
                   <input value={unit} onChange={e=>setUnit(e.target.value)} className="inp" placeholder="e.g., Each, Bx" />
