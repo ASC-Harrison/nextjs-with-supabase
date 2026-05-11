@@ -231,11 +231,9 @@ export default function ItemsPage() {
                   <input value={category} onChange={e=>setCategory(e.target.value)} className="inp" placeholder="e.g., Implants" />
                 </div>
               </div>
-                <div>
-                  <label className="lbl">Unit</label>
-                  <input value={unit} onChange={e=>setUnit(e.target.value)} className="inp" placeholder="e.g., Each, Bx" />
-                </div>
-              </div>
+
+              <label className="lbl">Unit</label>
+              <input value={unit} onChange={e=>setUnit(e.target.value)} className="inp" placeholder="e.g., Each, Bx" />
 
               <div className="g2">
                 <div>
