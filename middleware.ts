@@ -1,27 +1,8 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
-const ADMIN_ONLY = ["/admin", "/staff-activity", "/admin-users", "/reports", "/labels", "/orders", "/items", "/areas"];
-
 export async function middleware(request: NextRequest) {
-  const { pathname } = request.nextUrl;
-
-  if (pathname.startsWith("/_next") || pathname.startsWith("/favicon") || pathname.includes(".")) {
-    return NextResponse.next();
-  }
-
-  if (pathname.startsWith("/login") || pathname.startsWith("/api/")) {
-    return NextResponse.next();
-  }
-
-  const cookies = request.cookies.getAll();
-  const hasAuth = cookies.some(c => c.name.includes("sb-") || c.name.includes("supabase"));
-  const isAdminPath = ADMIN_ONLY.some(p => pathname.startsWith(p));
-
-  if (isAdminPath && !hasAuth) {
-    return NextResponse.redirect(new URL("/login", request.url));
-  }
-
+  // Let everything through — individual pages handle their own auth
   return NextResponse.next();
 }
 
