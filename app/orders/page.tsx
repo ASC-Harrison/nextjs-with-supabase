@@ -21,7 +21,7 @@ type Order = {
   item_id?: string | null;
   qty_actual_ordered: number | null;
   qty_actual_received: number | null;
-  status: "PENDING" | "ORDERaED" | "BACKORDERED" | "RECEIVED";
+  status: "PENDING" | "ORDERED" | "BACKORDERED" | "RECEIVED";
   confirmed_by: string | null;
   confirmed_at: string | null;
   received_at: string | null;
@@ -245,11 +245,11 @@ export default function OrdersPage() {
 
                             // Add to MAIN SUPPLY inventory if item_id exists
                             if ((order as any).item_id && qtyReceived > 0) {
-                              await supabase.rpc("add_stock", {
+                              await Promise.resolve(supabase.rpc("add_stock", {
                                 p_item_id: (order as any).item_id,
                                 p_area_id: "a09eb27b-e4a1-449a-8d2e-c45b24d6514f",
                                 p_qty: qtyReceived,
-                              }).catch(() => {});
+                              })).catch(() => {});
                             }
 
                             setOrders(prev => prev.map(o => o.id === order.id ? { ...o, ...update } as Order : o));
