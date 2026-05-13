@@ -263,7 +263,7 @@ function AscModal({title,children,okText,onOk,onCancel}:{title:string;children:R
 function PinSetter({onSave}:{onSave:(pin:string)=>void}){const[pin,setPin]=useState("");return(<div><input value={pin} onChange={(e)=>setPin(e.target.value.replace(/\D/g,"").slice(0,6))} className="pin-inp" placeholder="New password" inputMode="numeric" type="password"/><button onClick={()=>onSave(pin)} className="btn btn-submit btn-full btn-lg" style={{marginTop:14}}>Save Password</button></div>);}
 function TabBtn({active,onClick,children}:{active:boolean;onClick:()=>void;children:React.ReactNode}){return <button onClick={onClick} className={`tab-btn ${active?"on":"off"}`}>{children}</button>;}
 function ModeBtn({active,danger,onClick,children}:{active:boolean;danger?:boolean;onClick:()=>void;children:React.ReactNode}){return <button onClick={onClick} className={`mode-btn ${danger?"mode-use":"mode-rst"} ${active?"on":"off"}`}>{children}</button>;}
-function QtyBtn({onClick,children}:{onClick:()=>void;children:React.ReactNode}){return <button type="button" onClick={onClick} className="qty-btn">{children}</button>;}
+function QtyBtn({onClick,children}:{onClick:()=>void;children:React.ReactNode}){return <button type="button" onClick={(e)=>{e.preventDefault();e.stopPropagation();onClick();}} className="qty-btn">{children}</button>;}
 
 export default function InventoryPage() {
   const router = useRouter();
@@ -645,7 +645,14 @@ export default function InventoryPage() {
                         <div style={{fontSize:11,fontWeight:800,color:"var(--ac-bright)",marginBottom:10,letterSpacing:"0.3px"}}>{mode==="USE"?"USE — removes from on-hand":"RESTOCK — adds to on-hand"}</div>
                         <div className="qty-row" style={{marginTop:0}}>
                           <QtyBtn onClick={()=>setQty((q)=>Math.max(1,q-1))}>−</QtyBtn>
-                          <div className="qty-disp">{qty}</div>
+                          <input
+                            type="number"
+                            min={1}
+                            value={qty}
+                            onChange={e=>setQty(Math.max(1,Number(e.target.value)||1))}
+                            className="qty-disp"
+                            style={{textAlign:"center",border:"1px solid var(--border)",background:"var(--surface)",color:"var(--text)",fontWeight:800,fontSize:20,borderRadius:"var(--r-md)",padding:"12px 8px"}}
+                          />
                           <QtyBtn onClick={()=>setQty((q)=>q+1)}>+</QtyBtn>
                         </div>
                         <button className="btn btn-submit btn-full btn-lg" style={{marginTop:12}} disabled={submitting} onClick={submit}>{submitting?"Submitting…":mode==="USE"?`USE ${qty} — Submit`:`RESTOCK ${qty} — Submit`}</button>
