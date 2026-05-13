@@ -83,6 +83,7 @@ export default function OrdersPage() {
   const [updating, setUpdating] = useState<string | null>(null);
   const [receivingId, setReceivingId] = useState<string | null>(null);
   const [qtyReceivedInput, setQtyReceivedInput] = useState<string>("");
+  const [addedToInventory, setAddedToInventory] = useState<Set<string>>(new Set());
 
   async function loadOrders() {
     try {
@@ -217,6 +218,30 @@ export default function OrdersPage() {
                     {order.received_at && (
                       <div className="received-note">{"📦 Received · " + formatTime(order.received_at)}</div>
                     )}
+                    {order.status === "RECEIVED" && (order as any).item_id && order.qty_actual_received && !addedToInventory.has(order.id) && (
+                      <button
+                        onClick={async () => {
+                          if(!confirm(`Add ${order.qty_actual_received} to MAIN SUPPLY inventory for "${order.item_name}"?`)) return;
+                          setUpdating(order.id);
+                          try {
+                            await Promise.resolve(supabase.rpc("add_stock", {
+                              p_item_id: (order as any).item_id,
+                              p_area_id: "a09eb27b-e4a1-449a-8d2e-c45b24d6514f",
+                              p_qty: order.qty_actual_received,
+                            }));
+                            setAddedToInventory(prev => new Set([...prev, order.id]));
+                          } catch(e:any) { alert(`Failed: ${e?.message}`); }
+                          finally { setUpdating(null); }
+                        }}
+                        disabled={updating === order.id}
+                        style={{ marginTop:8, background:"rgba(16,185,129,0.15)", border:"1px solid rgba(16,185,129,0.3)", borderRadius:8, color:"#6ee7b7", padding:"6px 14px", cursor:"pointer", fontSize:12, fontFamily:"inherit", fontWeight:700, display:"block" }}
+                      >
+                        {updating === order.id ? "Adding…" : `➕ Add ${order.qty_actual_received} to Inventory`}
+                      </button>
+                    )}
+                    {addedToInventory.has(order.id) && (
+                      <div style={{ fontSize:11, color:"#6ee7b7", marginTop:6, fontWeight:700 }}>✅ Added to MAIN SUPPLY inventory</div>
+                    )}
                   </div>
                   <span className={getBadgeClass(order.status)}>{order.status}</span>
                 </div>
@@ -243,16 +268,6 @@ export default function OrdersPage() {
                             if(!qtyReceived || qtyReceived <= 0) { alert("Please enter a valid quantity received."); setUpdating(null); return; }
                             const update: any = { status: "RECEIVED", received_at: new Date().toISOString(), qty_actual_received: qtyReceived };
                             await supabase.from("order_requests").update(update).eq("id", order.id);
-
-                            // Add to MAIN SUPPLY inventory if item_id exists
-                            if ((order as any).item_id && qtyReceived > 0) {
-                              await Promise.resolve(supabase.rpc("add_stock", {
-                                p_item_id: (order as any).item_id,
-                                p_area_id: "a09eb27b-e4a1-449a-8d2e-c45b24d6514f",
-                                p_qty: qtyReceived,
-                              })).catch(() => {});
-                            }
-
                             setOrders(prev => prev.map(o => o.id === order.id ? { ...o, ...update } as Order : o));
                             setReceivingId(null);
                             setQtyReceivedInput("");
