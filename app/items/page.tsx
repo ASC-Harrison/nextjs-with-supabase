@@ -176,8 +176,8 @@ export default function ItemsPage() {
       const json = await res.json();
       if (!json.ok) throw new Error(json.error);
       const areaName = areas.find(a => a.id === selectedArea)?.name ?? selectedArea;
-      showMsg("ok", `✅ "${selectedItem.name}" added to ${areaName}!`);
-      setSelectedItem(null); setItemSearch(""); setAreaPar(""); setAreaLow(""); setAreaOnHand("0");
+      showMsg("ok", `✅ "${selectedItem.name}" added to ${areaName}! Go to that area to verify it shows up.`);
+      setSelectedItem(null); setItemSearch(""); setAreaPar(""); setAreaLow(""); setAreaOnHand("0"); setSelectedArea("");
     } catch (e:any) {
       showMsg("err", e?.message ?? "Failed to add item to area.");
     } finally {
