@@ -21,6 +21,7 @@ type Item = {
   vendor: string | null;
   category: string | null;
   reference_number: string | null;
+  item_number?: string | null;
   order_status: string | null;
   backordered: boolean | null;
 };
@@ -96,8 +97,19 @@ export default function SPDPage() {
         .order("item_name", { ascending: true });
 
       if (data) {
-        setItems(data as Item[]);
-        const uniqueAreas = Array.from(new Set(data.map((i: any) => i.storage_area_name))).sort() as string[];
+        // Fetch item numbers separately
+        const itemIds = data.map((i: any) => i.item_id);
+        const { data: itemData } = await supabase
+          .from("items")
+          .select("id, item_number")
+          .in("id", itemIds);
+
+        const itemNumMap: Record<string, string | null> = {};
+        if (itemData) itemData.forEach((i: any) => { itemNumMap[i.id] = i.item_number; });
+
+        const merged = data.map((i: any) => ({ ...i, item_number: itemNumMap[i.item_id] ?? null }));
+        setItems(merged as Item[]);
+        const uniqueAreas = Array.from(new Set(merged.map((i: any) => i.storage_area_name))).sort() as string[];
         setAreas(uniqueAreas);
       }
     } catch {}
@@ -204,6 +216,7 @@ export default function SPDPage() {
                       <div className="item-meta">
                         {item.vendor || "—"} · {item.category || "—"}
                         {item.reference_number ? ` · Ref: ${item.reference_number}` : ""}
+                        {item.item_number ? ` · Item#: ${item.item_number}` : ""}
                       </div>
                       <div className="pills">
                         <div className="pill">PAR <span>{par}</span></div>
