@@ -21,7 +21,7 @@ type Order = {
   item_id?: string | null;
   qty_actual_ordered: number | null;
   qty_actual_received: number | null;
-  status: "PENDING" | "ORDERED" | "BACKORDERED" | "RECEIVED";
+  status: "PENDING" | "ORDERaED" | "BACKORDERED" | "RECEIVED";
   confirmed_by: string | null;
   confirmed_at: string | null;
   received_at: string | null;
