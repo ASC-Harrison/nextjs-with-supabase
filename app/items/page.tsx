@@ -184,6 +184,8 @@ export default function ItemsPage() {
     } catch {}
     finally { setCheckingExisting(false); }
   }
+
+  async function handleAddToArea() {
     if (!selectedItem) return showMsg("err", "Select an item first.");
     if (!selectedArea) return showMsg("err", "Select a storage area.");
     setLoading(true);
