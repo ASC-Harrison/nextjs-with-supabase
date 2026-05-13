@@ -15,6 +15,7 @@ function getServiceClient() {
 
 type OrderItem = {
   name: string;
+  item_id: string | null;
   reference_number: string | null;
   vendor: string | null;
   unit: string | null;
@@ -37,6 +38,7 @@ export async function POST(req: Request) {
     const orderRows = items.map(item => ({
       requested_by: requested_by || "Staff",
       item_name: item.name,
+      item_id: item.item_id || null,
       reference_number: item.reference_number || null,
       vendor: item.vendor || null,
       unit: item.unit || null,
