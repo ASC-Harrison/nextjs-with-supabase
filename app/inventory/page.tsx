@@ -333,6 +333,7 @@ export default function InventoryPage() {
   const [pendingAreaRowSave,setPendingAreaRowSave]=useState<null|{storage_area_id:string;item_id:string;on_hand:number|null;par_level:number|null;low_level:number|null;}>(null);
   const [lastTx,setLastTx]=useState<LastTx|null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [undoBusy,setUndoBusy]=useState(false);
   const [orderStatusOpen,setOrderStatusOpen]=useState(false);
   const [orderStatusLoading,setOrderStatusLoading]=useState(false);
   const [orderStatusRows,setOrderStatusRows]=useState<OrderStatusRow[]>([]);
