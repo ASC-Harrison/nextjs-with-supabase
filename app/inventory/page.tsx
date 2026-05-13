@@ -1004,7 +1004,7 @@ export default function InventoryPage() {
                     className="btn btn-ac"
                     style={{flex:1}}
                     onClick={async()=>{
-                      const selectedItems=totals.filter(r=>orderReqItems[r.item_id]!==undefined).map(r=>({name:r.name,reference_number:r.reference_number||null,vendor:r.vendor||null,unit:r.unit||null,qty:Number(orderReqItems[r.item_id])||1}));
+                      const selectedItems=totals.filter(r=>orderReqItems[r.item_id]!==undefined).map(r=>({name:r.name,item_id:r.item_id,reference_number:r.reference_number||null,vendor:r.vendor||null,unit:r.unit||null,qty:Number(orderReqItems[r.item_id])||1}));
                       if(!selectedItems.length)return;
                       setOrderReqSending(true);
                       try{
