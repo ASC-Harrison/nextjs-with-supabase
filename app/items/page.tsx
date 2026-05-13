@@ -157,7 +157,33 @@ export default function ItemsPage() {
     }
   }
 
-  async function handleAddToArea() {
+  const [existingValues, setExistingValues] = useState<{on_hand:number;par_level:number;low_level:number}|null>(null);
+  const [checkingExisting, setCheckingExisting] = useState(false);
+
+  async function checkExisting(itemId: string, areaId: string) {
+    if (!itemId || !areaId) return;
+    setCheckingExisting(true);
+    try {
+      const { data } = await supabase
+        .from("storage_inventory")
+        .select("on_hand, par_level, low_level")
+        .eq("item_id", itemId)
+        .eq("storage_area_id", areaId)
+        .maybeSingle();
+      if (data) {
+        setExistingValues(data);
+        setAreaOnHand(String(data.on_hand ?? 0));
+        setAreaPar(String(data.par_level ?? 0));
+        setAreaLow(String(data.low_level ?? 0));
+      } else {
+        setExistingValues(null);
+        setAreaOnHand("0");
+        setAreaPar("");
+        setAreaLow("");
+      }
+    } catch {}
+    finally { setCheckingExisting(false); }
+  }
     if (!selectedItem) return showMsg("err", "Select an item first.");
     if (!selectedArea) return showMsg("err", "Select a storage area.");
     setLoading(true);
@@ -287,7 +313,7 @@ export default function ItemsPage() {
               {itemSuggestions.length > 0 && (
                 <div className="suggest-list">
                   {itemSuggestions.map(item => (
-                    <div key={item.id} className="suggest-item" onClick={()=>{setSelectedItem(item);setItemSearch("");setItemSuggestions([]);}}>
+                    <div key={item.id} className="suggest-item" onClick={()=>{setSelectedItem(item);setItemSearch("");setItemSuggestions([]);if(selectedArea) checkExisting(item.id, selectedArea);}}>  
                       <div className="suggest-name">{item.name}</div>
                       <div className="suggest-meta">{item.vendor||"—"} · Ref: {item.reference_number||"—"} · {item.unit||"—"}</div>
                     </div>
@@ -305,8 +331,15 @@ export default function ItemsPage() {
 
               <div className="divider" />
 
+              {checkingExisting && <div style={{fontSize:12,color:"#64748b",marginBottom:10}}>Checking existing values…</div>}
+              {existingValues && !checkingExisting && (
+                <div style={{background:"rgba(59,130,246,0.08)",border:"1px solid rgba(59,130,246,0.2)",borderRadius:10,padding:"10px 14px",fontSize:12,color:"#93c5fd",marginBottom:12}}>
+                  ℹ️ This item is already in this area. Current values loaded — edit and save to update.
+                </div>
+              )}
+
               <label className="lbl">Storage Area *</label>
-              <select value={selectedArea} onChange={e=>setSelectedArea(e.target.value)} className="inp inp-sel">
+              <select value={selectedArea} onChange={e=>{setSelectedArea(e.target.value);if(selectedItem && e.target.value) checkExisting(selectedItem.id, e.target.value);}} className="inp inp-sel">
                 <option value="">Select area…</option>
                 {areas.map(a=><option key={a.id} value={a.id}>{a.name}</option>)}
               </select>
