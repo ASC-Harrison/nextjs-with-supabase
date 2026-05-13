@@ -219,25 +219,42 @@ export default function OrdersPage() {
                       <div className="received-note">{"📦 Received · " + formatTime(order.received_at)}</div>
                     )}
                     {order.status === "RECEIVED" && (order as any).item_id && order.qty_actual_received && !addedToInventory.has(order.id) && (
-                      <button
-                        onClick={async () => {
-                          if(!confirm(`Add ${order.qty_actual_received} to MAIN SUPPLY inventory for "${order.item_name}"?`)) return;
-                          setUpdating(order.id);
-                          try {
-                            await Promise.resolve(supabase.rpc("add_stock", {
-                              p_item_id: (order as any).item_id,
-                              p_area_id: "a09eb27b-e4a1-449a-8d2e-c45b24d6514f",
-                              p_qty: order.qty_actual_received,
-                            }));
-                            setAddedToInventory(prev => new Set([...prev, order.id]));
-                          } catch(e:any) { alert(`Failed: ${e?.message}`); }
-                          finally { setUpdating(null); }
-                        }}
-                        disabled={updating === order.id}
-                        style={{ marginTop:8, background:"rgba(16,185,129,0.15)", border:"1px solid rgba(16,185,129,0.3)", borderRadius:8, color:"#6ee7b7", padding:"6px 14px", cursor:"pointer", fontSize:12, fontFamily:"inherit", fontWeight:700, display:"block" }}
-                      >
-                        {updating === order.id ? "Adding…" : `➕ Add ${order.qty_actual_received} to Inventory`}
-                      </button>
+                      <div style={{ marginTop:8, background:"rgba(16,185,129,0.08)", border:"1px solid rgba(16,185,129,0.2)", borderRadius:10, padding:"10px 12px" }}>
+                        <div style={{ fontSize:11, color:"#6ee7b7", fontWeight:700, marginBottom:6 }}>Add to MAIN SUPPLY inventory:</div>
+                        <div style={{ display:"flex", gap:8, alignItems:"center" }}>
+                          <input
+                            type="number"
+                            min={1}
+                            defaultValue={order.qty_actual_received}
+                            id={`inv-qty-${order.id}`}
+                            style={{ width:70, borderRadius:8, border:"1px solid rgba(16,185,129,0.3)", background:"#111827", color:"#f0f6ff", padding:"6px 10px", fontSize:14, fontWeight:800, textAlign:"center", fontFamily:"inherit", outline:"none" }}
+                          />
+                          <button
+                            onClick={async () => {
+                              const input = document.getElementById(`inv-qty-${order.id}`) as HTMLInputElement;
+                              const qty = Number(input?.value) || order.qty_actual_received;
+                              if(!qty || qty <= 0) return alert("Enter a valid quantity.");
+                              if(!confirm(`Add ${qty} to MAIN SUPPLY inventory for "${order.item_name}"?`)) return;
+                              setUpdating(order.id);
+                              try {
+                                await Promise.resolve(supabase.rpc("add_stock", {
+                                  p_item_id: (order as any).item_id,
+                                  p_area_id: "a09eb27b-e4a1-449a-8d2e-c45b24d6514f",
+                                  p_qty: qty,
+                                }));
+                                setAddedToInventory(prev => new Set([...prev, order.id]));
+                              } catch(e:any) { alert(`Failed: ${e?.message}`); }
+                              finally { setUpdating(null); }
+                            }}
+                            disabled={updating === order.id}
+                            className="btn btn-ok"
+                            style={{ fontSize:12 }}
+                          >
+                            {updating === order.id ? "Adding…" : "➕ Add to Inventory"}
+                          </button>
+                        </div>
+                        <div style={{ fontSize:10, color:"#334155", marginTop:5 }}>Change qty if needed before adding</div>
+                      </div>
                     )}
                     {addedToInventory.has(order.id) && (
                       <div style={{ fontSize:11, color:"#6ee7b7", marginTop:6, fontWeight:700 }}>✅ Added to MAIN SUPPLY inventory</div>
