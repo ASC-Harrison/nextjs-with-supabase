@@ -313,7 +313,7 @@ export default function ItemsPage() {
               {itemSuggestions.length > 0 && (
                 <div className="suggest-list">
                   {itemSuggestions.map(item => (
-                    <div key={item.id} className="suggest-item" onClick={()=>{setSelectedItem(item);setItemSearch("");setItemSuggestions([]);if(selectedArea) checkExisting(item.id, selectedArea);}}>  
+                    <div key={item.id} className="suggest-item" onClick={()=>{setSelectedItem(item);setItemSearch("");setItemSuggestions([]);if(selectedArea) checkExisting(item.id, selectedArea);}}>
                       <div className="suggest-name">{item.name}</div>
                       <div className="suggest-meta">{item.vendor||"—"} · Ref: {item.reference_number||"—"} · {item.unit||"—"}</div>
                     </div>
