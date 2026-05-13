@@ -263,7 +263,7 @@ function AscModal({title,children,okText,onOk,onCancel}:{title:string;children:R
 function PinSetter({onSave}:{onSave:(pin:string)=>void}){const[pin,setPin]=useState("");return(<div><input value={pin} onChange={(e)=>setPin(e.target.value.replace(/\D/g,"").slice(0,6))} className="pin-inp" placeholder="New password" inputMode="numeric" type="password"/><button onClick={()=>onSave(pin)} className="btn btn-submit btn-full btn-lg" style={{marginTop:14}}>Save Password</button></div>);}
 function TabBtn({active,onClick,children}:{active:boolean;onClick:()=>void;children:React.ReactNode}){return <button onClick={onClick} className={`tab-btn ${active?"on":"off"}`}>{children}</button>;}
 function ModeBtn({active,danger,onClick,children}:{active:boolean;danger?:boolean;onClick:()=>void;children:React.ReactNode}){return <button onClick={onClick} className={`mode-btn ${danger?"mode-use":"mode-rst"} ${active?"on":"off"}`}>{children}</button>;}
-function QtyBtn({onClick,children}:{onClick:()=>void;children:React.ReactNode}){return <button onClick={onClick} className="qty-btn">{children}</button>;}
+function QtyBtn({onClick,children}:{onClick:()=>void;children:React.ReactNode}){return <button type="button" onClick={onClick} className="qty-btn">{children}</button>;}
 
 export default function InventoryPage() {
   const router = useRouter();
