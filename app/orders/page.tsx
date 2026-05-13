@@ -236,11 +236,12 @@ export default function OrdersPage() {
                       />
                       <button
                         onClick={async () => {
+                          if(updating) return;
                           setUpdating(order.id);
                           try {
-                            const update: any = { status: "RECEIVED", received_at: new Date().toISOString() };
-                            const qtyReceived = Number(qtyReceivedInput) || order.qty_actual_ordered || order.qty_requested;
-                            if (qtyReceived > 0) update.qty_actual_received = qtyReceived;
+                            const qtyReceived = qtyReceivedInput.trim() ? Number(qtyReceivedInput) : (order.qty_actual_ordered || order.qty_requested);
+                            if(!qtyReceived || qtyReceived <= 0) { alert("Please enter a valid quantity received."); setUpdating(null); return; }
+                            const update: any = { status: "RECEIVED", received_at: new Date().toISOString(), qty_actual_received: qtyReceived };
                             await supabase.from("order_requests").update(update).eq("id", order.id);
 
                             // Add to MAIN SUPPLY inventory if item_id exists
