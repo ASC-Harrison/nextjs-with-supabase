@@ -18,6 +18,7 @@ type Order = {
   vendor: string | null;
   unit: string | null;
   qty_requested: number;
+  item_id?: string | null;
   qty_actual_ordered: number | null;
   qty_actual_received: number | null;
   status: "PENDING" | "ORDERED" | "BACKORDERED" | "RECEIVED";
@@ -87,7 +88,7 @@ export default function OrdersPage() {
     try {
       const { data } = await supabase
         .from("order_requests")
-        .select("*")
+        .select("*,item_id")
         .order("created_at", { ascending: false })
         .limit(200);
       setOrders((data as Order[]) ?? []);
@@ -238,10 +239,19 @@ export default function OrdersPage() {
                           setUpdating(order.id);
                           try {
                             const update: any = { status: "RECEIVED", received_at: new Date().toISOString() };
-                            if (qtyReceivedInput && Number(qtyReceivedInput) > 0) {
-                              update.qty_actual_received = Number(qtyReceivedInput);
-                            }
+                            const qtyReceived = Number(qtyReceivedInput) || order.qty_actual_ordered || order.qty_requested;
+                            if (qtyReceived > 0) update.qty_actual_received = qtyReceived;
                             await supabase.from("order_requests").update(update).eq("id", order.id);
+
+                            // Add to MAIN SUPPLY inventory if item_id exists
+                            if ((order as any).item_id && qtyReceived > 0) {
+                              await supabase.rpc("add_stock", {
+                                p_item_id: (order as any).item_id,
+                                p_area_id: "a09eb27b-e4a1-449a-8d2e-c45b24d6514f",
+                                p_qty: qtyReceived,
+                              }).catch(() => {});
+                            }
+
                             setOrders(prev => prev.map(o => o.id === order.id ? { ...o, ...update } as Order : o));
                             setReceivingId(null);
                             setQtyReceivedInput("");
