@@ -155,8 +155,7 @@ export default function SPDPage() {
 
           <div className="header">
             <div className="header-title">SPD Inventory View</div>
-            <div className="header-sub">Sterile Processing Department — read-only inventory overview</div>
-            <div className="read-only-badge">👁 View Only — No editing</div>
+            <div className="header-sub">Sterile Processing Department inventory</div>
           </div>
 
           <div className="stats-row">
@@ -230,9 +229,33 @@ export default function SPDPage() {
                         )}
                       </div>
                     </div>
-                    <div className={"oh-badge " + (isLow ? "low" : "ok")}>
-                      <div className={"oh-num " + (isLow ? "low" : "ok")}>{oh}</div>
-                      <div className="oh-unit">on hand</div>
+                    <div style={{ display:"flex", flexDirection:"column", alignItems:"flex-end", gap:6 }}>
+                      <div className={"oh-badge " + (isLow ? "low" : "ok")}>
+                        <div className={"oh-num " + (isLow ? "low" : "ok")}>{oh}</div>
+                        <div className="oh-unit">on hand</div>
+                      </div>
+                      <button
+                        onClick={async () => {
+                          if(!confirm(`Remove "${item.item_name}" from SPD?`)) return;
+                          try {
+                            await fetch("/api/items/add-to-area", {
+                              method: "POST",
+                              headers: { "Content-Type": "application/json" },
+                              body: JSON.stringify({
+                                storage_area_id: "ed062f99-290a-4ac4-87ea-519b6e34fcbc",
+                                item_id: item.item_id,
+                                on_hand: 0,
+                                par_level: 0,
+                                low_level: 0,
+                              }),
+                            });
+                            setItems(prev => prev.filter(i => i.item_id !== item.item_id));
+                          } catch {}
+                        }}
+                        style={{ background:"rgba(239,68,68,0.12)", border:"1px solid rgba(239,68,68,0.3)", borderRadius:6, color:"#fca5a5", padding:"3px 8px", cursor:"pointer", fontSize:10, fontFamily:"inherit", fontWeight:700, whiteSpace:"nowrap" }}
+                      >
+                        Remove
+                      </button>
                     </div>
                   </div>
                 </div>
