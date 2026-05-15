@@ -141,6 +141,8 @@ export default function ReportsPage() {
 
   const totalCost = useMemo(() => costByItem.reduce((sum,[,v])=>sum+v.cost,0), [costByItem]);
   const maxCost = Math.max(...costByItem.map(([,v])=>v.cost),1);
+
+  const topItems = useMemo(() => {
     const map: Record<string, number> = {};
     filtered.forEach(l => {
       const item = parseDetail(l.details, "Item");
