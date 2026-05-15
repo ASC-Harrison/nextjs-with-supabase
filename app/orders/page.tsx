@@ -324,7 +324,7 @@ export default function OrdersPage() {
                   <button onClick={() => updateStatus(order.id, "PENDING")} disabled={updating === order.id} className="btn btn-gh" style={{ fontSize: 11 }}>
                     ↩️ Reset
                   </button>
-                  <button onClick={async () => { if(!confirm("Delete this order request permanently?")) return; setUpdating(order.id); try { await supabase.from("order_requests").delete().eq("id", order.id); setOrders(prev => prev.filter(o => o.id !== order.id)); } catch {} finally { setUpdating(null); } }} disabled={updating === order.id} className="btn" style={{ fontSize:11, background:"rgba(239,68,68,0.15)", color:"#fca5a5", border:"1px solid rgba(239,68,68,0.3)" }}>
+                  <button onClick={async () => { if(!confirm("Delete this order request permanently?")) return; setUpdating(order.id); try { const res = await fetch("/api/orders/delete", { method:"DELETE", headers:{"Content-Type":"application/json"}, body:JSON.stringify({id:order.id}) }); const json = await res.json(); if(json.ok) setOrders(prev => prev.filter(o => o.id !== order.id)); else alert(`Failed: ${json.error}`); } catch {} finally { setUpdating(null); } }} disabled={updating === order.id} className="btn" style={{ fontSize:11, background:"rgba(239,68,68,0.15)", color:"#fca5a5", border:"1px solid rgba(239,68,68,0.3)" }}>
                     🗑️ Delete
                   </button>
                 </div>
