@@ -266,7 +266,13 @@ export default function OrdersPage() {
                 {/* Qty received input when marking as received */}
                 {receivingId === order.id && (
                   <div style={{ marginTop:10, background:"rgba(16,185,129,0.08)", border:"1px solid rgba(16,185,129,0.2)", borderRadius:10, padding:"12px" }}>
-                    <div style={{ fontSize:12, color:"#6ee7b7", fontWeight:700, marginBottom:8 }}>Enter actual quantity received:</div>
+                    <div style={{ fontSize:12, color:"#6ee7b7", fontWeight:700, marginBottom:4 }}>Enter actual quantity received:</div>
+                    <div style={{ fontSize:11, color:"#64748b", marginBottom:8 }}>
+                      Originally requested: <strong style={{color:"#f0f6ff"}}>{order.qty_requested}</strong>
+                      {order.qty_actual_ordered && order.qty_actual_ordered !== order.qty_requested && (
+                        <span> · Actual ordered: <strong style={{color:"#fcd34d"}}>{order.qty_actual_ordered}</strong></span>
+                      )}
+                    </div>
                     <div style={{ display:"flex", gap:8, alignItems:"center" }}>
                       <input
                         type="number"
