@@ -155,6 +155,8 @@ function parseDetails(action: string, details: string | null | undefined): strin
   }
   return details;
 }
+
+export default function StaffActivityPage() {
   const router = useRouter();
   const [logs, setLogs] = useState<LogRow[]>([]);
   const [loading, setLoading] = useState(true);
