@@ -19,6 +19,7 @@ export default function Home() {
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [areas, setAreas] = useState<Area[]>([]);
+  const [doorClicked, setDoorClicked] = useState(false);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
@@ -83,8 +84,6 @@ export default function Home() {
       </main>
     );
   }
-
-  const [doorClicked, setDoorClicked] = useState(false);
 
   if (isLockedOut) {
     return (
