@@ -10,6 +10,7 @@ const supabase = createClient(
 );
 
 const ADMIN_EMAILS = ["hogstud800@gmail.com", "brooklyncarter.0716@gmail.com"];
+const LOCKED_OUT_EMAILS = ["brooklyncarter.0716@gmail.com"];
 
 type Area = { id: string; name: string; total: number; low: number; };
 
@@ -73,11 +74,31 @@ export default function Home() {
   }
 
   const isAdmin = ADMIN_EMAILS.includes(userEmail?.toLowerCase() ?? "");
+  const isLockedOut = LOCKED_OUT_EMAILS.includes(userEmail?.toLowerCase() ?? "");
 
   if (loading) {
     return (
       <main style={{ minHeight:"100vh", background:"#0a0f1e", display:"flex", alignItems:"center", justifyContent:"center" }}>
         <div style={{ color:"#64748b", fontSize:14 }}>Loading…</div>
+      </main>
+    );
+  }
+
+  if (isLockedOut) {
+    return (
+      <main style={{ minHeight:"100vh", background:"#0a0f1e", display:"flex", alignItems:"center", justifyContent:"center", padding:16, fontFamily:"-apple-system,sans-serif" }}>
+        <div style={{ maxWidth:380, width:"100%", background:"#162032", border:"1px solid #1e3a5f", borderRadius:20, padding:32, textAlign:"center", position:"relative", overflow:"hidden" }}>
+          <div style={{ position:"absolute", top:0, left:0, right:0, height:2, background:"linear-gradient(90deg,#ef4444,#f97316,#ef4444)" }} />
+          <div style={{ fontSize:52, marginBottom:12 }}>🚪</div>
+          <div style={{ fontSize:22, fontWeight:900, color:"#f0f6ff", marginBottom:8 }}>App Closed</div>
+          <div style={{ fontSize:14, color:"#94a3b8", lineHeight:1.8, marginBottom:24 }}>
+            Sorry, the app is currently unavailable.<br />
+            <strong style={{ color:"#fcd34d" }}>Try another day.</strong> 😊
+          </div>
+          <button onClick={handleLogout} style={{ background:"rgba(239,68,68,0.15)", border:"1px solid rgba(239,68,68,0.3)", borderRadius:10, color:"#fca5a5", padding:"10px 20px", cursor:"pointer", fontSize:13, fontFamily:"inherit", fontWeight:700 }}>
+            Sign Out
+          </button>
+        </div>
       </main>
     );
   }
