@@ -120,7 +120,41 @@ const CSS = `
   }
 `;
 
-export default function StaffActivityPage() {
+function parseDetails(action: string, details: string | null | undefined): string {
+  if (!details) return "";
+  const get = (key: string) => {
+    const match = details.match(new RegExp(`${key}=([^\\s]+(?:\\s+[^=\\s]+)*?)(?=\\s+\\w+=|$)`));
+    return match ? match[1] : null;
+  };
+  switch (action) {
+    case "SUBMIT_TX": {
+      const mode = get("Mode");
+      const qty = get("Qty");
+      const item = get("Item");
+      const area = get("Area");
+      if (mode === "USE") return `Used ${qty} × ${item} from ${area}`;
+      if (mode === "RESTOCK") return `Restocked ${qty} × ${item} → ${area}`;
+      break;
+    }
+    case "UNDO_TX": {
+      const qty = get("Qty");
+      const item = get("Item");
+      return `Undid transaction — ${qty} × ${item}`;
+    }
+    case "LOOKUP_FOUND": return `Found: ${get("Item")}`;
+    case "LOOKUP_NOT_FOUND": return `Not found: ${get("Query")}`;
+    case "CHANGE_LOCATION": return `Moved to ${get("To")}`;
+    case "TOTALS_SET": return `Set on-hand for ${get("Item")} to ${get("Set")}`;
+    case "TOTALS_ADJUST": return `Adjusted ${get("Item")} by ${get("Delta")}`;
+    case "UNLOCK": return `Unlocked app in ${get("Area")}`;
+    case "LOCK": return `Locked app in ${get("Area")}`;
+    case "ADD_ITEM": return `Added item: ${get("Item")}`;
+    case "ITEM_INACTIVE": return `Deactivated: ${get("Item")}`;
+    case "ITEM_RESTORED": return `Restored: ${get("Item")}`;
+    case "AREA_LIST_LOAD": return `Viewed ${get("Area")} (${get("Rows")} items)`;
+  }
+  return details;
+}
   const router = useRouter();
   const [logs, setLogs] = useState<LogRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -402,8 +436,11 @@ export default function StaffActivityPage() {
                     </span>
                   </div>
                   <div className="log-details">
-                    {row.details && <div>{row.details}</div>}
-                    {row.area_name && <div style={{ color: "var(--text3)", marginTop: 2 }}>Area: {row.area_name}</div>}
+                    {(row.details || row.area_name) && (
+                      <div style={{fontSize:12,color:"var(--text2)",lineHeight:1.5}}>
+                        {parseDetails(row.action, row.details) || row.details}
+                      </div>
+                    )}
                   </div>
                 </div>
               ))}
