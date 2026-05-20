@@ -157,13 +157,37 @@ export default function StaffActivityPage() {
   useEffect(() => {
     loadLogs();
     loadPresence();
-  }, []);
 
-  useEffect(() => {
-    if (!autoRefresh) return;
-    const interval = setInterval(() => { loadLogs(); loadPresence(); }, 15000);
-    return () => clearInterval(interval);
-  }, [autoRefresh]);
+    // Real-time subscription for new audit log entries
+    const auditChannel = supabase
+      .channel("audit_log_realtime")
+      .on("postgres_changes", {
+        event: "INSERT",
+        schema: "public",
+        table: "audit_log",
+      }, (payload) => {
+        const newLog = payload.new as LogRow;
+        setLogs(prev => [newLog, ...prev].slice(0, 2000));
+      })
+      .subscribe();
+
+    // Real-time subscription for presence updates
+    const presenceChannel = supabase
+      .channel("staff_presence_realtime")
+      .on("postgres_changes", {
+        event: "*",
+        schema: "public",
+        table: "staff_presence",
+      }, () => {
+        loadPresence();
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(auditChannel);
+      supabase.removeChannel(presenceChannel);
+    };
+  }, []);
 
   const staffList = useMemo(() => {
     const map: Record<string, { count: number; last: string; recentAction: string }> = {};
@@ -334,9 +358,10 @@ export default function StaffActivityPage() {
               {actionList.map((a) => <option key={a} value={a}>{a === "ALL" ? "All Actions" : a}</option>)}
             </select>
             <button onClick={loadLogs} className="btn btn-ac">Refresh</button>
-            <button onClick={() => setAutoRefresh((v) => !v)} className="btn btn-gh">
-              {autoRefresh ? "⏸ Auto" : "▶ Auto"}
-            </button>
+            <div style={{fontSize:11,color:"#6ee7b7",background:"rgba(16,185,129,0.1)",border:"1px solid rgba(16,185,129,0.3)",borderRadius:8,padding:"6px 12px",fontWeight:700,display:"flex",alignItems:"center",gap:6}}>
+              <span style={{width:6,height:6,borderRadius:"50%",background:"#10b981",display:"inline-block",animation:"pulse 1.5s infinite"}}/>
+              LIVE
+            </div>
           </div>
 
           <div style={{ fontSize: 12, color: "var(--text3)", marginBottom: 12 }}>
