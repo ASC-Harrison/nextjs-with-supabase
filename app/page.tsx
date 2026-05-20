@@ -84,20 +84,35 @@ export default function Home() {
     );
   }
 
+  const [doorClicked, setDoorClicked] = useState(false);
+
   if (isLockedOut) {
     return (
       <main style={{ minHeight:"100vh", background:"#0a0f1e", display:"flex", alignItems:"center", justifyContent:"center", padding:16, fontFamily:"-apple-system,sans-serif" }}>
-        <div style={{ maxWidth:380, width:"100%", background:"#162032", border:"1px solid #1e3a5f", borderRadius:20, padding:32, textAlign:"center", position:"relative", overflow:"hidden" }}>
+        <div style={{ maxWidth:380, width:"100%", background:"#162032", border:`1px solid ${doorClicked?"rgba(239,68,68,0.5)":"#1e3a5f"}`, borderRadius:20, padding:32, textAlign:"center", position:"relative", overflow:"hidden" }}>
           <div style={{ position:"absolute", top:0, left:0, right:0, height:2, background:"linear-gradient(90deg,#ef4444,#f97316,#ef4444)" }} />
-          <div style={{ fontSize:52, marginBottom:12 }}>🚪</div>
-          <div style={{ fontSize:22, fontWeight:900, color:"#f0f6ff", marginBottom:8 }}>App Closed</div>
-          <div style={{ fontSize:14, color:"#94a3b8", lineHeight:1.8, marginBottom:24 }}>
-            Sorry, the app is currently unavailable.<br />
-            <strong style={{ color:"#fcd34d" }}>Try another day.</strong> 😊
-          </div>
-          <button onClick={handleLogout} style={{ background:"rgba(239,68,68,0.15)", border:"1px solid rgba(239,68,68,0.3)", borderRadius:10, color:"#fca5a5", padding:"10px 20px", cursor:"pointer", fontSize:13, fontFamily:"inherit", fontWeight:700 }}>
-            Sign Out
-          </button>
+          {!doorClicked ? (
+            <>
+              <div style={{ fontSize:14, color:"#64748b", marginBottom:8 }}>App Closed</div>
+              <div
+                onClick={() => setDoorClicked(true)}
+                style={{ fontSize:64, marginBottom:8, cursor:"pointer", display:"inline-block", transition:"transform 0.2s" }}
+                onMouseOver={e => (e.currentTarget.style.transform="scale(1.15)")}
+                onMouseOut={e => (e.currentTarget.style.transform="scale(1)")}
+              >🚪</div>
+              <div style={{ fontSize:13, color:"#64748b", marginBottom:20 }}>Click the door to enter</div>
+              <div style={{ fontSize:12, color:"#94a3b8", lineHeight:1.7 }}>Sorry, the app is currently unavailable.<br /><strong style={{ color:"#d97706" }}>Try another day. 😊</strong></div>
+            </>
+          ) : (
+            <>
+              <div style={{ fontSize:52, marginBottom:12 }}>💀</div>
+              <div style={{ fontSize:20, fontWeight:900, color:"#ef4444", marginBottom:10 }}>Fuck around and find out.</div>
+              <div style={{ fontSize:28, fontWeight:900, color:"#f0f6ff", marginBottom:24 }}>BYE 👋</div>
+              <button onClick={handleLogout} style={{ background:"rgba(239,68,68,0.15)", border:"1px solid rgba(239,68,68,0.3)", borderRadius:10, color:"#fca5a5", padding:"10px 20px", cursor:"pointer", fontSize:13, fontFamily:"inherit", fontWeight:700 }}>
+                Sign Out
+              </button>
+            </>
+          )}
         </div>
       </main>
     );
