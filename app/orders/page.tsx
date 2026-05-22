@@ -325,7 +325,41 @@ export default function OrdersPage() {
                       ✅ Mark Ordered
                     </button>
                   )}
-                  {orderingId === order.id && (
+                  {order.status === "ORDERED" && (
+                    <button onClick={() => { setOrderingId(order.id); setExpectedDeliveryInput(order.expected_delivery_date || ""); }} disabled={updating === order.id} className="btn btn-gh" style={{ fontSize:11 }}>
+                      📅 {order.expected_delivery_date ? "Edit Delivery Date" : "Add Delivery Date"}
+                    </button>
+                  )}
+                  {orderingId === order.id && order.status === "ORDERED" && (
+                    <div style={{ marginTop:10, background:"rgba(59,130,246,0.08)", border:"1px solid rgba(59,130,246,0.2)", borderRadius:10, padding:"12px", width:"100%" }}>
+                      <div style={{ fontSize:12, color:"#93c5fd", fontWeight:700, marginBottom:6 }}>Expected delivery date:</div>
+                      <div style={{ display:"flex", gap:8, alignItems:"center", flexWrap:"wrap" }}>
+                        <input
+                          type="date"
+                          value={expectedDeliveryInput}
+                          onChange={e => setExpectedDeliveryInput(e.target.value)}
+                          style={{ borderRadius:8, border:"1px solid rgba(59,130,246,0.3)", background:"#111827", color:"#f0f6ff", padding:"8px 10px", fontSize:13, fontFamily:"inherit", outline:"none" }}
+                        />
+                        <button
+                          onClick={async () => {
+                            setUpdating(order.id);
+                            try {
+                              await supabase.from("order_requests").update({ expected_delivery_date: expectedDeliveryInput || null }).eq("id", order.id);
+                              setOrders(prev => prev.map(o => o.id === order.id ? { ...o, expected_delivery_date: expectedDeliveryInput || null } as Order : o));
+                              setOrderingId(null);
+                            } catch {}
+                            finally { setUpdating(null); }
+                          }}
+                          disabled={updating === order.id}
+                          className="btn btn-ac"
+                          style={{ fontSize:12 }}
+                        >
+                          {updating === order.id ? "Saving…" : "💾 Save Date"}
+                        </button>
+                        <button onClick={() => setOrderingId(null)} className="btn btn-gh" style={{ fontSize:11 }}>Cancel</button>
+                      </div>
+                    </div>
+                  )}
                     <div style={{ marginTop:10, background:"rgba(59,130,246,0.08)", border:"1px solid rgba(59,130,246,0.2)", borderRadius:10, padding:"12px", width:"100%" }}>
                       <div style={{ fontSize:12, color:"#93c5fd", fontWeight:700, marginBottom:6 }}>Expected delivery date (optional):</div>
                       <div style={{ display:"flex", gap:8, alignItems:"center", flexWrap:"wrap" }}>
