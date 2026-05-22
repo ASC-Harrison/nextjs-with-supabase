@@ -82,7 +82,8 @@ export default function OrdersPage() {
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState("ALL");
   const [updating, setUpdating] = useState<string | null>(null);
-  const [receivingId, setReceivingId] = useState<string | null>(null);
+  const [orderingId, setOrderingId] = useState<string | null>(null);
+  const [expectedDeliveryInput, setExpectedDeliveryInput] = useState<string>("");
   const [qtyReceivedInput, setQtyReceivedInput] = useState<string>("");
   const [addedToInventory, setAddedToInventory] = useState<Set<string>>(new Set());
 
@@ -318,10 +319,43 @@ export default function OrdersPage() {
                   </div>
                 )}
                 <div className="action-row">
-                  {order.status === "PENDING" && (
-                    <button onClick={() => updateStatus(order.id, "ORDERED")} disabled={updating === order.id} className="btn btn-ac">
-                      {updating === order.id ? "Updating…" : "✅ Mark Ordered"}
+                  {order.status === "PENDING" && orderingId !== order.id && (
+                    <button onClick={() => { setOrderingId(order.id); setExpectedDeliveryInput(""); }} disabled={updating === order.id} className="btn btn-ac">
+                      ✅ Mark Ordered
                     </button>
+                  )}
+                  {orderingId === order.id && (
+                    <div style={{ marginTop:10, background:"rgba(59,130,246,0.08)", border:"1px solid rgba(59,130,246,0.2)", borderRadius:10, padding:"12px", width:"100%" }}>
+                      <div style={{ fontSize:12, color:"#93c5fd", fontWeight:700, marginBottom:6 }}>Expected delivery date (optional):</div>
+                      <div style={{ display:"flex", gap:8, alignItems:"center", flexWrap:"wrap" }}>
+                        <input
+                          type="date"
+                          value={expectedDeliveryInput}
+                          onChange={e => setExpectedDeliveryInput(e.target.value)}
+                          style={{ borderRadius:8, border:"1px solid rgba(59,130,246,0.3)", background:"#111827", color:"#f0f6ff", padding:"8px 10px", fontSize:13, fontFamily:"inherit", outline:"none" }}
+                        />
+                        <button
+                          onClick={async () => {
+                            setUpdating(order.id);
+                            try {
+                              const update: any = { status:"ORDERED", confirmed_by:"Admin", confirmed_at:new Date().toISOString() };
+                              if (expectedDeliveryInput) update.expected_delivery_date = expectedDeliveryInput;
+                              await supabase.from("order_requests").update(update).eq("id", order.id);
+                              setOrders(prev => prev.map(o => o.id === order.id ? { ...o, ...update } as Order : o));
+                              setOrderingId(null);
+                              setExpectedDeliveryInput("");
+                            } catch {}
+                            finally { setUpdating(null); }
+                          }}
+                          disabled={updating === order.id}
+                          className="btn btn-ac"
+                          style={{ fontSize:12 }}
+                        >
+                          {updating === order.id ? "Saving…" : "✅ Confirm Ordered"}
+                        </button>
+                        <button onClick={() => setOrderingId(null)} className="btn btn-gh" style={{ fontSize:11 }}>Cancel</button>
+                      </div>
+                    </div>
                   )}
                   {order.status === "PENDING" && (
                     <button onClick={() => updateStatus(order.id, "BACKORDERED")} disabled={updating === order.id} className="btn btn-err">
