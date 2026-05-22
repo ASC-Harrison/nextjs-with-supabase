@@ -84,6 +84,7 @@ export default function OrdersPage() {
   const [updating, setUpdating] = useState<string | null>(null);
   const [orderingId, setOrderingId] = useState<string | null>(null);
   const [expectedDeliveryInput, setExpectedDeliveryInput] = useState<string>("");
+  const [receivingId, setReceivingId] = useState<string | null>(null);
   const [qtyReceivedInput, setQtyReceivedInput] = useState<string>("");
   const [addedToInventory, setAddedToInventory] = useState<Set<string>>(new Set());
 
