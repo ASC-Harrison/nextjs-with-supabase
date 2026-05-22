@@ -52,6 +52,7 @@ export async function POST(req: Request) {
     const status = formData.get("status") as string || "ORDERED";
     const qtyActual = formData.get("qty_actual") as string;
     const qtyReceived = formData.get("qty_received") as string;
+    const expectedDelivery = formData.get("expected_delivery_date") as string;
 
     if (!id) return new Response(errorPage("Invalid submission"), { headers: { "Content-Type": "text/html" } });
 
@@ -70,6 +71,9 @@ export async function POST(req: Request) {
 
     if (qtyActual && Number(qtyActual) > 0) {
       update.qty_actual_ordered = Number(qtyActual);
+    }
+    if (expectedDelivery) {
+      update.expected_delivery_date = expectedDelivery;
     }
     if (qtyReceived && Number(qtyReceived) > 0) {
       update.qty_actual_received = Number(qtyReceived);
@@ -117,14 +121,15 @@ function confirmFormPage(order: any, by: string) {
               <label style='font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:6px'>
                 Actual Qty Ordered <span style='color:#64748b;font-weight:400'>(update if different from requested)</span>
               </label>
-              <input
-                type='number'
-                name='qty_actual'
-                value='${order.qty_requested}'
-                min='1'
-                style='width:100%;border-radius:10px;border:1px solid #1e3a5f;background:#111827;color:#f0f6ff;padding:12px 14px;font-size:16px;font-weight:800;text-align:center;box-sizing:border-box;outline:none'
-              />
+              <input type='number' name='qty_actual' value='${order.qty_requested}' min='1' style='width:100%;border-radius:10px;border:1px solid #1e3a5f;background:#111827;color:#f0f6ff;padding:12px 14px;font-size:16px;font-weight:800;text-align:center;box-sizing:border-box;outline:none' />
               <div style='font-size:11px;color:#334155;margin-top:5px'>Change this if the item only comes in cases or different pack sizes</div>
+            </div>
+
+            <div style='margin-bottom:14px'>
+              <label style='font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:6px'>
+                Expected Delivery Date <span style='color:#64748b;font-weight:400'>(optional)</span>
+              </label>
+              <input type='date' name='expected_delivery_date' style='width:100%;border-radius:10px;border:1px solid #1e3a5f;background:#111827;color:#f0f6ff;padding:12px 14px;font-size:14px;box-sizing:border-box;outline:none' />
             </div>
 
             <div style='display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:8px'>
