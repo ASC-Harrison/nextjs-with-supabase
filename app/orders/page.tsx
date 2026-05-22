@@ -25,6 +25,7 @@ type Order = {
   confirmed_by: string | null;
   confirmed_at: string | null;
   received_at: string | null;
+  expected_delivery_date?: string | null;
   notes: string | null;
 };
 
@@ -210,7 +211,17 @@ export default function OrdersPage() {
                       <span style={{ fontSize: 10, color: "#334155" }}>{formatTime(order.created_at)}</span>
                     </div>
                     {order.confirmed_by && order.status === "ORDERED" && (
-                      <div className="confirmed-note">{"✅ Confirmed by " + order.confirmed_by + (order.confirmed_at ? " · " + formatTime(order.confirmed_at) : "")}</div>
+                      <div className="confirmed-note">
+                        {"✅ Confirmed by " + order.confirmed_by + (order.confirmed_at ? " · " + formatTime(order.confirmed_at) : "")}
+                        {order.expected_delivery_date && (() => {
+                          const today = new Date(); today.setHours(0,0,0,0);
+                          const del = new Date(order.expected_delivery_date + "T00:00:00");
+                          const diff = Math.ceil((del.getTime() - today.getTime()) / (1000*60*60*24));
+                          if (diff < 0) return <span style={{marginLeft:6,fontSize:10,fontWeight:800,color:"#fca5a5",background:"rgba(239,68,68,0.15)",border:"1px solid rgba(239,68,68,0.3)",borderRadius:4,padding:"1px 6px"}}>⚠️ OVERDUE</span>;
+                          if (diff === 0) return <span style={{marginLeft:6,fontSize:10,fontWeight:800,color:"#fcd34d",background:"rgba(245,158,11,0.1)",border:"1px solid rgba(245,158,11,0.3)",borderRadius:4,padding:"1px 6px"}}>📦 DUE TODAY</span>;
+                          return <span style={{marginLeft:6,fontSize:10,color:"#64748b"}}>Due {del.toLocaleDateString()}</span>;
+                        })()}
+                      </div>
                     )}
                     {order.confirmed_by && order.status === "BACKORDERED" && (
                       <div className="backorder-note">{"🔴 Backordered — reported by " + order.confirmed_by + (order.confirmed_at ? " · " + formatTime(order.confirmed_at) : "")}</div>
