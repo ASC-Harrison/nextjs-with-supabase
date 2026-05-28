@@ -9,7 +9,7 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 );
 
-type Item = { id: string; name: string; vendor: string | null; category: string | null; price: number | null; };
+type Item = { id: string; name: string; vendor: string | null; category: string | null; price: number | null; alert_note: string | null; };
 
 const CSS = `
   *,*::before,*::after{box-sizing:border-box;}
@@ -48,6 +48,7 @@ export default function PriceEditorPage() {
   const router = useRouter();
   const [items, setItems] = useState<Item[]>([]);
   const [prices, setPrices] = useState<Record<string, string>>({});
+  const [notes, setNotes] = useState<Record<string, string>>({});
   const [search, setSearch] = useState("");
   const [showUnpriced, setShowUnpriced] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -55,12 +56,17 @@ export default function PriceEditorPage() {
   const [msg, setMsg] = useState<{type:"ok"|"err";text:string}|null>(null);
 
   useEffect(() => {
-    supabase.from("items").select("id,name,vendor,category,price").eq("is_active", true).order("name").then(({ data }) => {
+    supabase.from("items").select("id,name,vendor,category,price,alert_note").eq("is_active", true).order("name").then(({ data }) => {
       if (data) {
         setItems(data as Item[]);
         const p: Record<string,string> = {};
-        data.forEach((i: any) => { p[i.id] = i.price != null ? String(i.price) : ""; });
+        const n: Record<string,string> = {};
+        data.forEach((i: any) => {
+          p[i.id] = i.price != null ? String(i.price) : "";
+          n[i.id] = i.alert_note || "";
+        });
         setPrices(p);
+        setNotes(n);
       }
       setLoading(false);
     });
@@ -87,28 +93,32 @@ export default function PriceEditorPage() {
     setSaving(true);
     setMsg(null);
     try {
-      const updates = Object.entries(prices)
-        .filter(([id, val]) => {
-          const orig = items.find(i => i.id === id);
-          if (!orig) return false;
-          const origPrice = orig.price != null ? String(orig.price) : "";
-          return val !== origPrice;
-        })
-        .map(([id, val]) => ({ id, price: val.trim() ? Number(val) : null }));
+      const allIds = new Set([...Object.keys(prices), ...Object.keys(notes)]);
+      const updates = Array.from(allIds).filter(id => {
+        const orig = items.find(i => i.id === id);
+        if (!orig) return false;
+        const origPrice = orig.price != null ? String(orig.price) : "";
+        const origNote = orig.alert_note || "";
+        return (prices[id] || "") !== origPrice || (notes[id] || "") !== origNote;
+      }).map(id => ({
+        id,
+        price: prices[id]?.trim() ? Number(prices[id]) : null,
+        alert_note: notes[id]?.trim() || null,
+      }));
 
       if (updates.length === 0) { setMsg({ type:"ok", text:"No changes to save." }); setSaving(false); return; }
 
       for (const update of updates) {
-        await supabase.from("items").update({ price: update.price }).eq("id", update.id);
+        await supabase.from("items").update({ price: update.price, alert_note: update.alert_note }).eq("id", update.id);
       }
 
       // Update local state
       setItems(prev => prev.map(i => {
         const u = updates.find(u => u.id === i.id);
-        return u ? { ...i, price: u.price } : i;
+        return u ? { ...i, price: u.price, alert_note: u.alert_note } : i;
       }));
 
-      setMsg({ type:"ok", text:`✅ Saved prices for ${updates.length} items!` });
+      setMsg({ type:"ok", text:`✅ Saved ${updates.length} items!` });
     } catch (e:any) {
       setMsg({ type:"err", text: e?.message ?? "Failed to save" });
     } finally { setSaving(false); }
@@ -144,6 +154,14 @@ export default function PriceEditorPage() {
                 <div className="item-info">
                   <div className="item-name">{item.name}</div>
                   <div className="item-meta">{item.vendor || "—"} · {item.category || "—"}</div>
+                  <input
+                    type="text"
+                    value={notes[item.id] ?? ""}
+                    onChange={e => setNotes(prev => ({ ...prev, [item.id]: e.target.value }))}
+                    placeholder="🏷️ Add promo or alert note…"
+                    style={{ marginTop:6, width:"100%", borderRadius:8, border:"1px solid #1e3a5f", background:"#111827", color:"#f0f6ff", padding:"6px 10px", fontSize:11, fontFamily:"inherit", outline:"none" }}
+                  />
+                  {notes[item.id] && <div style={{ fontSize:10, color:"#fcd34d", marginTop:3 }}>⚡ Alert active</div>}
                 </div>
                 <div style={{ display:"flex", alignItems:"center", gap:4 }}>
                   <span style={{ fontSize:13, color:"#64748b", fontWeight:700 }}>$</span>
