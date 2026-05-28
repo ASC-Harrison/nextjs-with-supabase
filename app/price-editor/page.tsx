@@ -82,11 +82,10 @@ export default function PriceEditorPage() {
   });
 
   const pricedCount = items.filter(i => i.price != null && i.price > 0).length;
-  const changedCount = Object.entries(prices).filter(([id, val]) => {
-    const orig = items.find(i => i.id === id);
-    if (!orig) return false;
-    const origPrice = orig.price != null ? String(orig.price) : "";
-    return val !== origPrice;
+  const changedCount = items.filter(i => {
+    const origPrice = i.price != null ? String(i.price) : "";
+    const origNote = i.alert_note || "";
+    return (prices[i.id] || "") !== origPrice || (notes[i.id] || "") !== origNote;
   }).length;
 
   async function saveAll() {
