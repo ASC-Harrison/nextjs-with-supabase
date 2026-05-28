@@ -20,6 +20,7 @@ type OrderItem = {
   vendor: string | null;
   unit: string | null;
   qty: number;
+  alert_note?: string | null;
 };
 
 const APP_URL = "https://nextjs-with-supabase-gamma-rosy.vercel.app";
@@ -67,7 +68,10 @@ export async function POST(req: Request) {
       const backorderUrl = `${APP_URL}/api/orders/confirm?id=${orderId}&by=Brooklyn&status=BACKORDERED`;
       return `
         <tr style="border-bottom:1px solid #e2e8f0;">
-          <td style="padding:12px 14px;font-size:14px;color:#1e293b;font-weight:600;">${item.name}</td>
+          <td style="padding:12px 14px;font-size:14px;color:#1e293b;font-weight:600;">
+            ${item.name}
+            ${item.alert_note ? `<div style="margin-top:4px;font-size:11px;color:#d97706;background:#fffbeb;border:1px solid #fde68a;border-radius:4px;padding:2px 6px;display:inline-block">⚡ ${item.alert_note}</div>` : ""}
+          </td>
           <td style="padding:12px 14px;font-size:13px;color:#475569;">${item.reference_number || "—"}</td>
           <td style="padding:12px 14px;font-size:13px;color:#475569;">${item.vendor || "—"}</td>
           <td style="padding:12px 14px;font-size:13px;color:#475569;text-align:center;">${item.unit || "—"}</td>
