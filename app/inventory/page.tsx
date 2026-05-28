@@ -12,7 +12,7 @@ type LookupMode = "BARCODE" | "REF" | "NAME";
 type Area = { id: string; name: string };
 type Item = { id: string; name: string; barcode: string; reference_number?: string | null; order_status?: string | null; backordered?: boolean | null; };
 type AuditEvent = { id: string; ts: string; staff: string; action: "SCAN"|"LOOKUP_FOUND"|"LOOKUP_NOT_FOUND"|"ADD_ITEM"|"SUBMIT_TX"|"UNDO_TX"|"CHANGE_LOCATION"|"LOCK"|"UNLOCK"|"MAIN_OVERRIDE_ON"|"MAIN_OVERRIDE_OFF"|"SCANNER_OPEN"|"SCANNER_CLOSE"|"TOTALS_SET"|"TOTALS_ADJUST"|"AREA_LIST_LOAD"|"AREA_LIST_TOGGLE"|"AREA_ROW_EDIT_OPEN"|"AREA_ROW_EDIT_SAVE"|"ITEM_INACTIVE"|"ITEM_RESTORED"|"ITEM_STATUS_SAVE"; details?: string; };
-type BuildingTotalRow = { item_id: string; name: string; reference_number: string | null; vendor: string | null; category: string | null; total_on_hand: number | null; par_level: number | null; low_level: number | null; unit: string | null; notes: string | null; is_active: boolean | null; order_status?: string | null; backordered?: boolean | null; supply_source?: string | null; price?: number | null; expiration_date?: string | null; };
+type BuildingTotalRow = { item_id: string; name: string; reference_number: string | null; vendor: string | null; category: string | null; total_on_hand: number | null; par_level: number | null; low_level: number | null; unit: string | null; notes: string | null; is_active: boolean | null; order_status?: string | null; backordered?: boolean | null; supply_source?: string | null; price?: number | null; expiration_date?: string | null; alert_note?: string | null; };
 type AreaInvRow = { storage_area_id: string; storage_area_name: string; item_id: string; item_name: string; on_hand: number | null; par_level: number | null; low_level: number | null; unit: string | null; vendor: string | null; category: string | null; reference_number: string | null; notes: string | null; order_status?: string | null; backordered?: boolean | null; };
 type LastTx = { storage_area_id: string; mode: Mode; item_id: string; qty: number; mainOverride: boolean; item_name?: string; area_name?: string; ts: string; };
 type OrderStatusRow = { id: string; qty_ordered: number; qty_received: number; status: "ORDERED"|"BACKORDER"|"PARTIAL"|"RECEIVED"|"CANCELLED"; notes: string | null; purchase_orders?: { id?: string|null; po_number?: string|null; vendor?: string|null; status?: string|null; expected_date?: string|null; order_date?: string|null; notes?: string|null; }|null; };
@@ -373,16 +373,19 @@ export default function InventoryPage() {
     }catch{}
     supabase.auth.getSession().then(({data})=>{
       if(data.session?.user){
-        const name = data.session.user.user_metadata?.full_name || data.session.user.email || "";
-        if(name){
-          setStaffName(name);
-          try{localStorage.setItem(LS.STAFF,name);}catch{}
-        } else {
-          const savedName=localStorage.getItem(LS.STAFF)||"";
-          setStaffName(savedName);
-          if(!savedName.trim())setNamePromptOpen(true);
+        const sessionName = data.session.user.user_metadata?.full_name || data.session.user.email || "";
+        if(sessionName){
+          setStaffName(sessionName);
+          try{localStorage.setItem(LS.STAFF, sessionName);}catch{}
+          // Don't show name prompt if we have a session name
+          setNamePromptOpen(false);
+          return;
         }
       }
+      // No session name — fall back to localStorage
+      const savedName = localStorage.getItem(LS.STAFF) || "";
+      setStaffName(savedName);
+      if(!savedName.trim()) setNamePromptOpen(true);
     });
   },[]);// eslint-disable-line
 
@@ -421,7 +424,7 @@ export default function InventoryPage() {
 
   useEffect(()=>{loadLocations();},[]);// eslint-disable-line
 
-  async function loadTotals(){setTotalsLoading(true);setTotalsError("");try{const{data,error}=await supabase.from("building_inventory_sheet_view").select("item_id,name,reference_number,vendor,category,total_on_hand,par_level,low_level,unit,notes,is_active,order_status,backordered").order("name",{ascending:true});if(error)throw error;const rows=(data as BuildingTotalRow[])??[];const ids=rows.map((r)=>r.item_id);if(ids.length>0){const{data:srcData}=await supabase.from("items").select("id,supply_source,price,expiration_date").in("id",ids);if(srcData){const map=Object.fromEntries(srcData.map((r:any)=>[r.id,r]));rows.forEach((r)=>{r.supply_source=map[r.item_id]?.supply_source??null;r.price=map[r.item_id]?.price??null;r.expiration_date=map[r.item_id]?.expiration_date??null;});}}setTotals(rows);}catch(e:any){setTotals([]);setTotalsError(e?.message??"Failed to load totals");}finally{setTotalsLoading(false);}}
+  async function loadTotals(){setTotalsLoading(true);setTotalsError("");try{const{data,error}=await supabase.from("building_inventory_sheet_view").select("item_id,name,reference_number,vendor,category,total_on_hand,par_level,low_level,unit,notes,is_active,order_status,backordered").order("name",{ascending:true});if(error)throw error;const rows=(data as BuildingTotalRow[])??[];const ids=rows.map((r)=>r.item_id);if(ids.length>0){const{data:srcData}=await supabase.from("items").select("id,supply_source,price,expiration_date,alert_note").in("id",ids);if(srcData){const map=Object.fromEntries(srcData.map((r:any)=>[r.id,r]));rows.forEach((r)=>{r.supply_source=map[r.item_id]?.supply_source??null;r.price=map[r.item_id]?.price??null;r.expiration_date=map[r.item_id]?.expiration_date??null;r.alert_note=map[r.item_id]?.alert_note??null;});}}setTotals(rows);}catch(e:any){setTotals([]);setTotalsError(e?.message??"Failed to load totals");}finally{setTotalsLoading(false);}}
   useEffect(()=>{if(tab!=="Totals")return;if(totals.length===0)loadTotals();},[tab]);// eslint-disable-line
 
   async function loadAreaInventory(){if(!areaId)return;setAreaInvLoading(true);setAreaInvError("");try{const{data,error}=await supabase.from("storage_inventory_area_view").select("storage_area_id,storage_area_name,item_id,item_name,on_hand,par_level,low_level,unit,vendor,category,reference_number,notes,order_status,backordered").eq("storage_area_id",areaId).gt("par_level",0).order("item_name",{ascending:true});if(error)throw error;setAreaInv((data as AreaInvRow[])??[]);pushAudit({action:"AREA_LIST_LOAD",details:`Area=${selectedAreaName} Rows=${(data as any[])?.length??0}`});}catch(e:any){setAreaInv([]);setAreaInvError(e?.message??"Failed to load area list");}finally{setAreaInvLoading(false);}}
@@ -981,6 +984,7 @@ export default function InventoryPage() {
                               {isLow && <span style={{fontSize:9,fontWeight:800,color:"#fca5a5",background:"rgba(239,68,68,0.15)",border:"1px solid rgba(239,68,68,0.3)",borderRadius:4,padding:"1px 6px"}}>LOW</span>}
                             </div>
                             <div style={{fontSize:11,color:"var(--text2)",marginTop:2}}>{r.vendor||"—"} · Ref: {r.reference_number||"—"} · {r.unit||"—"}</div>
+                            {r.alert_note && <div style={{fontSize:11,color:"#fcd34d",marginTop:4,background:"rgba(245,158,11,0.08)",border:"1px solid rgba(245,158,11,0.2)",borderRadius:6,padding:"3px 8px"}}>⚡ {r.alert_note}</div>}
                             <div style={{display:"flex",gap:10,marginTop:4}}>
                               <span style={{fontSize:11,fontWeight:700,color:"var(--ok)"}}>On Hand: {r.total_on_hand??0}</span>
                               <span style={{fontSize:11,fontWeight:700,color:"var(--ac-bright)"}}>PAR: {r.par_level??0}</span>
@@ -1004,7 +1008,7 @@ export default function InventoryPage() {
                     className="btn btn-ac"
                     style={{flex:1}}
                     onClick={async()=>{
-                      const selectedItems=totals.filter(r=>orderReqItems[r.item_id]!==undefined).map(r=>({name:r.name,item_id:r.item_id,reference_number:r.reference_number||null,vendor:r.vendor||null,unit:r.unit||null,qty:Number(orderReqItems[r.item_id])||1}));
+                      const selectedItems=totals.filter(r=>orderReqItems[r.item_id]!==undefined).map(r=>({name:r.name,item_id:r.item_id,reference_number:r.reference_number||null,vendor:r.vendor||null,unit:r.unit||null,qty:Number(orderReqItems[r.item_id])||1,alert_note:r.alert_note||null}));
                       if(!selectedItems.length)return;
                       setOrderReqSending(true);
                       try{
