@@ -121,6 +121,10 @@ export async function POST(req: Request) {
         payload.expiration_date = (body as any).expiration_date || null;
       }
 
+      if ((body as any).alert_note !== undefined) {
+        payload.alert_note = (body as any).alert_note || null;
+      }
+
       const { error } = await supabase
         .from("items")
         .update(payload)
