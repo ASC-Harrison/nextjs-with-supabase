@@ -182,8 +182,8 @@ export default function PriceEditorPage() {
 
       <div className="save-bar">
         <span style={{ fontSize:12, color:"#64748b" }}>{changedCount > 0 ? `${changedCount} unsaved` : "All saved"}</span>
-        <button onClick={saveAll} disabled={saving || changedCount === 0} className="btn btn-ac">
-          {saving ? "Saving…" : `💾 Save All Prices`}
+        <button onClick={saveAll} disabled={saving} className="btn btn-ac">
+          {saving ? "Saving…" : `💾 Save All (${changedCount} changes)`}
         </button>
       </div>
     </>
