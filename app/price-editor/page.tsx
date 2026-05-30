@@ -108,7 +108,16 @@ export default function PriceEditorPage() {
       if (updates.length === 0) { setMsg({ type:"ok", text:"No changes to save." }); setSaving(false); return; }
 
       for (const update of updates) {
-        await supabase.from("items").update({ price: update.price, alert_note: update.alert_note }).eq("id", update.id);
+        await fetch("/api/building-inventory/update", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            item_id: update.id,
+            action: "SAVE_ITEM_META",
+            price: update.price,
+            alert_note: update.alert_note,
+          }),
+        });
       }
 
       // Update local state
