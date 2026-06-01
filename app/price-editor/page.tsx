@@ -108,7 +108,7 @@ export default function PriceEditorPage() {
       if (updates.length === 0) { setMsg({ type:"ok", text:"No changes to save." }); setSaving(false); return; }
 
       for (const update of updates) {
-        await fetch("/api/building-inventory/update", {
+        const res = await fetch("/api/building-inventory/update", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -118,6 +118,8 @@ export default function PriceEditorPage() {
             alert_note: update.alert_note,
           }),
         });
+        const json = await res.json();
+        if (!json.ok) throw new Error(`Failed for ${update.id}: ${json.error}`);
       }
 
       // Update local state
