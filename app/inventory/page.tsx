@@ -354,7 +354,8 @@ export default function InventoryPage() {
   const [orderReqLowOnly, setOrderReqLowOnly] = useState(false);
   const [namePromptOpen, setNamePromptOpen] = useState(false);
   const [nameInput, setNameInput] = useState("");
-  const videoRef=useRef<HTMLVideoElement|null>(null);
+  const READONLY_EMAILS = ["brooklyncarter.0716@gmail.com"];
+  const [isReadOnly, setIsReadOnly] = useState(false);
   const readerRef=useRef<BrowserMultiFormatReader|null>(null);
   const lastScanRef=useRef<string>("");
   const scanCooldownRef=useRef<number>(0);
@@ -374,18 +375,18 @@ export default function InventoryPage() {
     supabase.auth.getSession().then(({data})=>{
       if(data.session?.user){
         const sessionName = data.session.user.user_metadata?.full_name || data.session.user.email || "";
+        const email = data.session.user.email || "";
         if(sessionName){
           setStaffName(sessionName);
           try{localStorage.setItem(LS.STAFF, sessionName);}catch{}
-          // Don't show name prompt if we have a session name
           setNamePromptOpen(false);
-          return;
+        } else {
+          const savedName = localStorage.getItem(LS.STAFF) || "";
+          setStaffName(savedName);
+          if(!savedName.trim()) setNamePromptOpen(true);
         }
+        if(READONLY_EMAILS.includes(email.toLowerCase())) setIsReadOnly(true);
       }
-      // No session name — fall back to localStorage
-      const savedName = localStorage.getItem(LS.STAFF) || "";
-      setStaffName(savedName);
-      if(!savedName.trim()) setNamePromptOpen(true);
     });
   },[]);// eslint-disable-line
 
@@ -658,8 +659,9 @@ export default function InventoryPage() {
                           />
                           <QtyBtn onClick={()=>setQty((q)=>q+1)}>+</QtyBtn>
                         </div>
-                        <button className="btn btn-submit btn-full btn-lg" style={{marginTop:12}} disabled={submitting} onClick={submit}>{submitting?"Submitting…":mode==="USE"?`USE ${qty} — Submit`:`RESTOCK ${qty} — Submit`}</button>
-                        {locked && <div style={{marginTop:8,background:"rgba(239,68,68,0.12)",border:"1px solid rgba(239,68,68,0.4)",borderRadius:10,padding:"10px 14px",fontSize:13,fontWeight:700,color:"#fca5a5",textAlign:"center"}}>🔒 App is locked — tap the lock button above to unlock</div>}
+                        {isReadOnly && <div style={{background:"rgba(59,130,246,0.08)",border:"1px solid rgba(59,130,246,0.2)",borderRadius:10,padding:"10px 14px",fontSize:12,color:"#93c5fd",marginBottom:12,textAlign:"center"}}>👁 View Only — Contact admin to make changes</div>}
+                        {!isReadOnly && <button className="btn btn-submit btn-full btn-lg" style={{marginTop:12}} disabled={submitting} onClick={submit}>{submitting?"Submitting…":mode==="USE"?`USE ${qty} — Submit`:`RESTOCK ${qty} — Submit`}</button>}
+                        {!isReadOnly && locked && <div style={{marginTop:8,background:"rgba(239,68,68,0.12)",border:"1px solid rgba(239,68,68,0.4)",borderRadius:10,padding:"10px 14px",fontSize:13,fontWeight:700,color:"#fca5a5",textAlign:"center"}}>🔒 App is locked — tap the lock button above to unlock</div>}
                       </div>
                       <details style={{marginBottom:8}}>
                         <summary style={{fontSize:12,color:"var(--text3)",cursor:"pointer",padding:"6px 0",listStyle:"none",display:"flex",alignItems:"center",gap:6}}><span style={{fontSize:10}}>▸</span> Item Status &amp; Order History</summary>
@@ -728,7 +730,7 @@ export default function InventoryPage() {
                 <button onClick={loadTotals} className="btn btn-gh" style={{fontSize:13}}>Refresh</button>
                 <button onClick={()=>{setTotalsLowOnly(false);setTotalsZeroOnly(false);setTotalsSearch("");}} className="btn btn-gh" style={{fontSize:13}}>Clear</button>
               </div>
-              <button onClick={()=>{setOrderPinInput("");setOrderPinError(false);setOrderPinOpen(true);}} className="btn btn-ac btn-full mb3" style={{fontSize:13}}>📦 Request Order</button>
+              {!isReadOnly && <button onClick={()=>{setOrderPinInput("");setOrderPinError(false);setOrderPinOpen(true);}} className="btn btn-ac btn-full mb3" style={{fontSize:13}}>📦 Request Order</button>}
               {totalsError && <div style={{color:"#fca5a5",fontSize:12,marginBottom:10,wordBreak:"break-word"}}>{totalsError}</div>}
               <div className="sp">
                 {filteredTotals.map((r)=>{
