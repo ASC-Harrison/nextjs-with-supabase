@@ -113,7 +113,7 @@ export default function PriceEditorPage() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             item_id: update.id,
-            action: "SAVE_ITEM_META",
+            action: "SAVE_PRICE_NOTE",
             price: update.price,
             alert_note: update.alert_note,
           }),
