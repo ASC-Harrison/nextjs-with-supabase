@@ -75,6 +75,23 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: true });
     }
 
+    if ((body as any).action === "SAVE_PRICE_NOTE") {
+      const priceNote: Record<string, any> = {};
+      if ((body as any).price !== undefined) {
+        const p = Number((body as any).price);
+        priceNote.price = Number.isFinite(p) && p >= 0 ? p : null;
+      }
+      if ((body as any).alert_note !== undefined) {
+        priceNote.alert_note = (body as any).alert_note || null;
+      }
+      if (Object.keys(priceNote).length === 0) {
+        return NextResponse.json({ ok: true });
+      }
+      const { error } = await supabase.from("items").update(priceNote).eq("id", item_id);
+      if (error) return NextResponse.json({ ok: false, error: error.message });
+      return NextResponse.json({ ok: true });
+    }
+
     if ((body as any).action === "SAVE_ITEM_META") {
       const low = Number((body as any).low_level);
       if (!Number.isFinite(low) || low < 0) {
