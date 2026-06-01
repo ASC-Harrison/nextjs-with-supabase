@@ -23,6 +23,7 @@ export default function Home() {
     supabase.auth.getSession().then(({ data }) => {
       if (data.session) {
         setUserEmail(data.session.user.email ?? null);
+        localStorage.removeItem("asc_readonly");
         setLoading(false);
         loadAreas();
         return;
