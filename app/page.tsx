@@ -22,7 +22,7 @@ export default function Home() {
   useEffect(() => {
     const timeout = setTimeout(() => {
       router.replace("/login");
-    }, 5000); // redirect to login after 5 seconds if stuck
+    }, 10000); // redirect to login after 10 seconds if stuck
 
     supabase.auth.getSession().then(({ data }) => {
       clearTimeout(timeout);
