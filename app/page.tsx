@@ -20,7 +20,12 @@ export default function Home() {
   const [areas, setAreas] = useState<Area[]>([]);
 
   useEffect(() => {
+    const timeout = setTimeout(() => {
+      router.replace("/login");
+    }, 5000); // redirect to login after 5 seconds if stuck
+
     supabase.auth.getSession().then(({ data }) => {
+      clearTimeout(timeout);
       if (data.session) {
         setUserEmail(data.session.user.email ?? null);
         localStorage.removeItem("asc_readonly");
@@ -32,6 +37,7 @@ export default function Home() {
       const email = localStorage.getItem("asc_user_email");
       if (token && email) {
         supabase.auth.setSession({ access_token: token, refresh_token: "" }).then(({ data: d }) => {
+          clearTimeout(timeout);
           if (d.session) {
             setUserEmail(d.session.user.email ?? null);
             setLoading(false);
@@ -44,6 +50,8 @@ export default function Home() {
       }
       router.replace("/login");
     });
+
+    return () => clearTimeout(timeout);
   }, []);
 
   async function loadAreas() {
