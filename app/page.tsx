@@ -50,9 +50,15 @@ export default function Home() {
 
   async function loadAreas() {
     try {
-      const { data: areaData } = await supabase.from("storage_areas").select("id, name").order("name");
+      const [areaRes, invRes] = await Promise.all([
+        supabase.from("storage_areas").select("id, name").order("name"),
+        supabase.from("storage_inventory_area_view").select("storage_area_id, on_hand, low_level").gt("par_level", 0)
+      ]);
+
+      const areaData = areaRes.data;
+      const invData = invRes.data;
       if (!areaData) return;
-      const { data: invData } = await supabase.from("storage_inventory_area_view").select("storage_area_id, on_hand, par_level, low_level").gt("par_level", 0);
+
       const areaMap: Record<string, { total: number; low: number }> = {};
       areaData.forEach(a => { areaMap[a.id] = { total: 0, low: 0 }; });
       if (invData) {
