@@ -48,7 +48,12 @@ export default function Home() {
     });
   }, []);
 
-  async function loadAreas() {
+  // Keepalive ping every 4 minutes to prevent Supabase cold starts
+  useEffect(() => {
+    const ping = () => supabase.from("storage_areas").select("id").limit(1).then(() => {});
+    const interval = setInterval(ping, 4 * 60 * 1000);
+    return () => clearInterval(interval);
+  }, []);
     try {
       const [areaRes, invRes] = await Promise.all([
         supabase.from("storage_areas").select("id, name").order("name"),
@@ -85,8 +90,23 @@ export default function Home() {
 
   if (loading) {
     return (
-      <main style={{ minHeight:"100vh", background:"#0a0f1e", display:"flex", alignItems:"center", justifyContent:"center" }}>
-        <div style={{ color:"#64748b", fontSize:14 }}>Loading…</div>
+      <main style={{ minHeight:"100vh", width:"100%", background:"#0a0f1e", display:"flex", justifyContent:"center", padding:16 }}>
+        <div style={{ width:"100%", maxWidth:480, marginTop:16 }}>
+          <div style={{ borderRadius:20, background:"#162032", border:"1px solid #1e3a5f", padding:20, marginBottom:16 }}>
+            <div style={{ height:32, width:"60%", background:"#1e2d42", borderRadius:8, marginBottom:8 }} />
+            <div style={{ height:14, width:"80%", background:"#1e2d42", borderRadius:6, marginBottom:12 }} />
+            <div style={{ height:36, background:"#1e2d42", borderRadius:8 }} />
+          </div>
+          {[1,2,3,4].map(i => (
+            <div key={i} style={{ height:52, background:"#162032", border:"1px solid #1e3a5f", borderRadius:14, marginBottom:8, animation:"pulse 1.5s infinite" }} />
+          ))}
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginTop:16 }}>
+            {[1,2,3,4,5,6].map(i => (
+              <div key={i} style={{ height:72, background:"#162032", border:"1px solid #1e3a5f", borderRadius:12, animation:"pulse 1.5s infinite" }} />
+            ))}
+          </div>
+          <style>{`@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.5}}`}</style>
+        </div>
       </main>
     );
   }
