@@ -148,6 +148,7 @@ export default function Home() {
           <>
             <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginBottom:8 }}>
               <button onClick={() => router.push("/orders")} style={{ ...btnBase, background:"rgba(234,179,8,0.2)", color:"#fcd34d", border:"1px solid rgba(234,179,8,0.3)", marginBottom:0 }}>📋 Orders</button>
+              <button onClick={() => router.push("/order-history")} style={{ ...btnBase, background:"rgba(234,179,8,0.1)", color:"#fcd34d", border:"1px solid rgba(234,179,8,0.2)", marginBottom:0 }}>📜 Order History</button>
               <button onClick={() => router.push("/items")} style={{ ...btnBase, background:"rgba(99,102,241,0.2)", color:"#a5b4fc", border:"1px solid rgba(99,102,241,0.3)", marginBottom:0 }}>➕ Add Items</button>
               <button onClick={() => router.push("/reports")} style={{ ...btnBase, background:"rgba(16,185,129,0.2)", color:"#6ee7b7", border:"1px solid rgba(16,185,129,0.3)", marginBottom:0 }}>📊 Reports</button>
               <button onClick={() => router.push("/price-editor")} style={{ ...btnBase, background:"rgba(234,179,8,0.15)", color:"#fcd34d", border:"1px solid rgba(234,179,8,0.25)", marginBottom:0 }}>💰 Price Editor</button>
