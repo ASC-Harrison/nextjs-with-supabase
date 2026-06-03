@@ -161,7 +161,15 @@ export default function AreaViewPage() {
           </div>
 
           {loading ? (
-            <div className="loading">Loading items…</div>
+            <div>
+              <style>{`@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.4}}`}</style>
+              {[1,2,3,4,5,6,7,8].map(i => (
+                <div key={i} style={{ background:"#162032", borderRadius:12, border:"1px solid #1e3a5f", padding:14, marginBottom:8, animation:"pulse 1.5s infinite" }}>
+                  <div style={{ height:16, width:"70%", background:"#1e2d42", borderRadius:6, marginBottom:8 }} />
+                  <div style={{ height:12, width:"50%", background:"#1e2d42", borderRadius:5 }} />
+                </div>
+              ))}
+            </div>
           ) : filtered.length === 0 ? (
             <div className="empty">
               {items.length === 0 ? "No items set up in this area yet." : "No items match your filter."}
