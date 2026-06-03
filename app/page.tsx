@@ -17,7 +17,9 @@ const SKEL_CSS = `@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.4}}.skel{anim
 
 export default function Home() {
   const router = useRouter();
-  const [userEmail, setUserEmail] = useState<string | null>(null);
+  const [showSplash, setShowSplash] = useState(false);
+  const [splashStarted, setSplashStarted] = useState(false);
+  const [splashContent, setSplashContent] = useState(false);
   const [loading, setLoading] = useState(true);
   const [areas, setAreas] = useState<Area[]>([]);
 
@@ -33,8 +35,14 @@ export default function Home() {
       if (data.session) {
         setUserEmail(data.session.user.email ?? null);
         localStorage.removeItem("asc_readonly");
-        setLoading(false);
-        loadAreas();
+        // Show splash only once per session
+        const splashShown = sessionStorage.getItem("asc_splash_shown");
+        if (!splashShown) {
+          setShowSplash(true);
+        } else {
+          setLoading(false);
+          loadAreas();
+        }
         return;
       }
       const token = localStorage.getItem("asc_session_token");
@@ -43,8 +51,13 @@ export default function Home() {
         supabase.auth.setSession({ access_token: token, refresh_token: "" }).then(({ data: d }) => {
           if (d.session) {
             setUserEmail(d.session.user.email ?? null);
-            setLoading(false);
-            loadAreas();
+            const splashShown = sessionStorage.getItem("asc_splash_shown");
+            if (!splashShown) {
+              setShowSplash(true);
+            } else {
+              setLoading(false);
+              loadAreas();
+            }
           } else {
             localStorage.removeItem("asc_session_token");
             localStorage.removeItem("asc_user_email");
@@ -78,6 +91,91 @@ export default function Home() {
       }
       setAreas(areaData.map(a => ({ id: a.id, name: a.name, total: areaMap[a.id]?.total ?? 0, low: areaMap[a.id]?.low ?? 0 })));
     } catch {}
+  }
+
+  function playSound() {
+    try {
+      const ctx = new ((window as any).AudioContext || (window as any).webkitAudioContext)();
+      const notes = [261, 329, 392, 523, 659, 784];
+      notes.forEach((freq, i) => {
+        const osc = ctx.createOscillator(); const gain = ctx.createGain();
+        osc.connect(gain); gain.connect(ctx.destination);
+        osc.frequency.value = freq; osc.type = "sine";
+        gain.gain.setValueAtTime(0, ctx.currentTime + i * 0.18);
+        gain.gain.linearRampToValueAtTime(0.15, ctx.currentTime + i * 0.18 + 0.05);
+        gain.gain.linearRampToValueAtTime(0, ctx.currentTime + i * 0.18 + 0.35);
+        osc.start(ctx.currentTime + i * 0.18); osc.stop(ctx.currentTime + i * 0.18 + 0.4);
+      });
+      setTimeout(() => {
+        const osc2 = ctx.createOscillator(); const gain2 = ctx.createGain();
+        osc2.connect(gain2); gain2.connect(ctx.destination);
+        osc2.frequency.value = 1046; osc2.type = "sine";
+        gain2.gain.setValueAtTime(0, ctx.currentTime);
+        gain2.gain.linearRampToValueAtTime(0.2, ctx.currentTime + 0.1);
+        gain2.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.8);
+        osc2.start(ctx.currentTime); osc2.stop(ctx.currentTime + 1);
+      }, 1100);
+    } catch {}
+  }
+
+  function startSplash() {
+    setSplashStarted(true);
+    playSound();
+    setTimeout(() => setSplashContent(true), 100);
+    setTimeout(() => {
+      sessionStorage.setItem("asc_splash_shown", "1");
+      setShowSplash(false);
+      setLoading(false);
+      loadAreas();
+    }, 3500);
+  }
+
+  const SPLASH_CSS = `
+    @keyframes twinkle{from{opacity:0.05}to{opacity:0.6}}
+    @keyframes beam{0%,100%{opacity:0.03}50%{opacity:0.08}}
+    @keyframes fadeUp{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}}
+    @keyframes scaleIn{from{opacity:0;transform:scale(0.3)}to{opacity:1;transform:scale(1)}}
+    @keyframes expandLine{from{width:0}to{width:80%}}
+    .star{position:absolute;border-radius:50%;background:#fff;animation:twinkle var(--dur) var(--delay) infinite alternate;}
+    .beam{position:absolute;left:50%;top:50%;width:2px;height:60%;background:linear-gradient(to top,transparent,#3b82f6,transparent);transform-origin:bottom center;animation:beam var(--dur) infinite alternate;}
+    .fu1{animation:fadeUp 0.6s 0.4s both}.fu2{animation:fadeUp 0.6s 0.7s both}.fu3{animation:fadeUp 0.6s 1.0s both}.fu4{animation:fadeUp 0.6s 1.8s both}
+    .si{animation:scaleIn 0.6s 0.1s both}.el{animation:expandLine 1.2s 1.3s both}
+  `;
+
+  if (showSplash) {
+    const stars = Array.from({length:80}).map((_,i) => ({
+      w: Math.random()*2.5+0.5, l: Math.random()*100, t: Math.random()*100,
+      dur: Math.random()*4+2, delay: Math.random()*3, id: i
+    }));
+    return (
+      <div style={{ minHeight:"100vh", background:"#0a0f1e", display:"flex", alignItems:"center", justifyContent:"center", padding:24, overflow:"hidden", position:"relative" }}>
+        <style dangerouslySetInnerHTML={{ __html: SPLASH_CSS }} />
+        {stars.map(s => (
+          <div key={s.id} className="star" style={{ width:s.w, height:s.w, left:`${s.l}%`, top:`${s.t}%`, ["--dur" as any]:`${s.dur}s`, ["--delay" as any]:`${s.delay}s` } as any} />
+        ))}
+        {splashStarted && Array.from({length:6}).map((_,i) => (
+          <div key={i} className="beam" style={{ transform:`rotate(${i*30}deg)`, ["--dur" as any]:`${2+i*0.3}s` } as any} />
+        ))}
+        {!splashStarted ? (
+          <div style={{ position:"relative", zIndex:10, textAlign:"center" }}>
+            <div style={{ fontSize:52, marginBottom:16 }}>⚕️</div>
+            <button onClick={startSplash} style={{ background:"linear-gradient(135deg,#3b82f6,#8b5cf6)", border:"none", color:"#fff", fontSize:15, fontWeight:800, padding:"16px 32px", borderRadius:50, cursor:"pointer", fontFamily:"inherit", letterSpacing:"0.5px", boxShadow:"0 0 24px rgba(59,130,246,0.4)" }}>
+              🎵 Tap to Start Entrance
+            </button>
+            <div style={{ fontSize:11, color:"#334155", marginTop:10 }}>ASC Inventory</div>
+          </div>
+        ) : splashContent ? (
+          <div style={{ position:"relative", zIndex:10, textAlign:"center", maxWidth:400, width:"100%" }}>
+            <div className="si" style={{ fontSize:64, marginBottom:12 }}>⚕️</div>
+            <div className="fu1" style={{ fontSize:13, fontWeight:700, color:"#3b82f6", textTransform:"uppercase", letterSpacing:3, marginBottom:10 }}>ASC Inventory Presents</div>
+            <div className="fu2" style={{ fontSize:28, fontWeight:900, color:"#f0f6ff", letterSpacing:-0.5, lineHeight:1.3, marginBottom:8 }}>The Best Inventory<br/>App Ever Made</div>
+            <div className="fu3" style={{ fontSize:15, color:"#fcd34d", fontWeight:800, marginBottom:20 }}>By Yours Truly — Daddy JEM 👑</div>
+            <div className="el" style={{ height:2, background:"linear-gradient(90deg,transparent,#3b82f6,#8b5cf6,#10b981,transparent)", borderRadius:2, margin:"0 auto 20px" }} />
+            <div className="fu4" style={{ fontSize:13, color:"#64748b" }}>Welcome. Let&apos;s get to work.</div>
+          </div>
+        ) : null}
+      </div>
+    );
   }
 
   async function handleLogout() {
