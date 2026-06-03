@@ -20,6 +20,7 @@ export default function Home() {
   const [showSplash, setShowSplash] = useState(false);
   const [splashStarted, setSplashStarted] = useState(false);
   const [splashContent, setSplashContent] = useState(false);
+  const [userEmail, setUserEmail] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [areas, setAreas] = useState<Area[]>([]);
 
