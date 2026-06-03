@@ -97,25 +97,32 @@ export default function Home() {
   function playSound() {
     try {
       const ctx = new ((window as any).AudioContext || (window as any).webkitAudioContext)();
-      const notes = [261, 329, 392, 523, 659, 784];
-      notes.forEach((freq, i) => {
-        const osc = ctx.createOscillator(); const gain = ctx.createGain();
-        osc.connect(gain); gain.connect(ctx.destination);
-        osc.frequency.value = freq; osc.type = "sine";
-        gain.gain.setValueAtTime(0, ctx.currentTime + i * 0.18);
-        gain.gain.linearRampToValueAtTime(0.15, ctx.currentTime + i * 0.18 + 0.05);
-        gain.gain.linearRampToValueAtTime(0, ctx.currentTime + i * 0.18 + 0.35);
-        osc.start(ctx.currentTime + i * 0.18); osc.stop(ctx.currentTime + i * 0.18 + 0.4);
-      });
-      setTimeout(() => {
-        const osc2 = ctx.createOscillator(); const gain2 = ctx.createGain();
-        osc2.connect(gain2); gain2.connect(ctx.destination);
-        osc2.frequency.value = 1046; osc2.type = "sine";
-        gain2.gain.setValueAtTime(0, ctx.currentTime);
-        gain2.gain.linearRampToValueAtTime(0.2, ctx.currentTime + 0.1);
-        gain2.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.8);
-        osc2.start(ctx.currentTime); osc2.stop(ctx.currentTime + 1);
-      }, 1100);
+      function note(freq: number, start: number, dur: number, vol?: number) {
+        const o = ctx.createOscillator(); const g = ctx.createGain();
+        o.connect(g); g.connect(ctx.destination);
+        o.type = "square"; o.frequency.value = freq;
+        const t = ctx.currentTime + start;
+        g.gain.setValueAtTime(0, t);
+        g.gain.linearRampToValueAtTime(vol || 0.10, t + 0.02);
+        g.gain.linearRampToValueAtTime(vol || 0.10, t + dur - 0.05);
+        g.gain.linearRampToValueAtTime(0, t + dur);
+        o.start(t); o.stop(t + dur + 0.05);
+      }
+      function scheduleLoop(offset: number) {
+        const t = 0.22;
+        note(392,offset+0,t*0.9);note(392,offset+t,t*0.9);note(392,offset+t*2,t*0.9);
+        note(311,offset+t*3,t*2.5,0.12);note(466,offset+t*3+t*2.5,t*0.6);
+        note(392,offset+t*3+t*3.1,t*2.5,0.12);note(311,offset+t*3+t*5.6,t*2.0,0.10);
+        note(466,offset+t*3+t*7.6,t*0.6);note(392,offset+t*3+t*8.2,t*3.5,0.12);
+        const s = offset+t*3+t*11.7;
+        note(587,s,t*0.9);note(587,s+t,t*0.9);note(587,s+t*2,t*0.9);
+        note(622,s+t*3,t*2.5,0.12);note(466,s+t*5.5,t*0.6);
+        note(370,s+t*6.1,t*2.5,0.12);note(311,s+t*8.6,t*2.0,0.10);
+        note(466,s+t*10.6,t*0.6);note(392,s+t*11.2,t*3.5,0.12);
+      }
+      const loopEvery = 9.5;
+      const loops = Math.ceil(62 / loopEvery) + 1;
+      for (let i = 0; i < loops; i++) scheduleLoop(i * loopEvery);
     } catch {}
   }
 
@@ -128,19 +135,19 @@ export default function Home() {
       setShowSplash(false);
       setLoading(false);
       loadAreas();
-    }, 3500);
+    }, 62000);
   }
 
   const SPLASH_CSS = `
     @keyframes twinkle{from{opacity:0.05}to{opacity:0.6}}
-    @keyframes beam{0%,100%{opacity:0.03}50%{opacity:0.08}}
+    @keyframes beam{0%,100%{opacity:0.02}50%{opacity:0.07}}
+    @keyframes scrollUp{from{top:100%}to{top:-420%}}
     @keyframes fadeUp{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}}
     @keyframes scaleIn{from{opacity:0;transform:scale(0.3)}to{opacity:1;transform:scale(1)}}
     @keyframes expandLine{from{width:0}to{width:80%}}
     .star{position:absolute;border-radius:50%;background:#fff;animation:twinkle var(--dur) var(--delay) infinite alternate;}
-    .beam{position:absolute;left:50%;top:50%;width:2px;height:60%;background:linear-gradient(to top,transparent,#3b82f6,transparent);transform-origin:bottom center;animation:beam var(--dur) infinite alternate;}
-    .fu1{animation:fadeUp 0.6s 0.4s both}.fu2{animation:fadeUp 0.6s 0.7s both}.fu3{animation:fadeUp 0.6s 1.0s both}.fu4{animation:fadeUp 0.6s 1.8s both}
-    .si{animation:scaleIn 0.6s 0.1s both}.el{animation:expandLine 1.2s 1.3s both}
+    .fu1{animation:fadeUp 0.8s 0.8s both}.fu2{animation:fadeUp 0.8s 1.4s both}.fu3{animation:fadeUp 0.8s 2.1s both}.fu4{animation:fadeUp 0.8s 3.8s both}
+    .si{animation:scaleIn 0.9s 0.2s both}.el{animation:expandLine 1.8s 2.8s both}
   `;
 
   if (showSplash) {
@@ -158,21 +165,31 @@ export default function Home() {
           <div key={i} className="beam" style={{ transform:`rotate(${i*30}deg)`, ["--dur" as any]:`${2+i*0.3}s` } as any} />
         ))}
         {!splashStarted ? (
-          <div style={{ position:"relative", zIndex:10, textAlign:"center" }}>
-            <div style={{ fontSize:52, marginBottom:16 }}>⚕️</div>
-            <button onClick={startSplash} style={{ background:"linear-gradient(135deg,#3b82f6,#8b5cf6)", border:"none", color:"#fff", fontSize:15, fontWeight:800, padding:"16px 32px", borderRadius:50, cursor:"pointer", fontFamily:"inherit", letterSpacing:"0.5px", boxShadow:"0 0 24px rgba(59,130,246,0.4)" }}>
-              🎵 Tap to Start Entrance
+          <div onClick={startSplash} style={{ position:"relative", zIndex:10, textAlign:"center", cursor:"pointer" }}>
+            <div style={{ fontSize:48, marginBottom:16 }}>⚕️</div>
+            <div style={{ fontSize:22, fontWeight:900, color:"#fcd34d", letterSpacing:2, marginBottom:8 }}>A LONG TIME AGO</div>
+            <div style={{ fontSize:13, color:"#64748b", marginBottom:24 }}>in a surgical center far, far away...</div>
+            <button onClick={startSplash} style={{ background:"linear-gradient(135deg,#fcd34d,#f59e0b)", border:"none", color:"#0a0f1e", fontSize:15, fontWeight:900, padding:"16px 32px", borderRadius:50, cursor:"pointer", fontFamily:"inherit", letterSpacing:1 }}>
+              🎵 TAP TO BEGIN
             </button>
-            <div style={{ fontSize:11, color:"#334155", marginTop:10 }}>ASC Inventory</div>
           </div>
         ) : splashContent ? (
-          <div style={{ position:"relative", zIndex:10, textAlign:"center", maxWidth:400, width:"100%" }}>
-            <div className="si" style={{ fontSize:64, marginBottom:12 }}>⚕️</div>
-            <div className="fu1" style={{ fontSize:13, fontWeight:700, color:"#3b82f6", textTransform:"uppercase", letterSpacing:3, marginBottom:10 }}>ASC Inventory Presents</div>
-            <div className="fu2" style={{ fontSize:28, fontWeight:900, color:"#f0f6ff", letterSpacing:-0.5, lineHeight:1.3, marginBottom:8 }}>The Best Inventory<br/>App Ever Made</div>
-            <div className="fu3" style={{ fontSize:15, color:"#fcd34d", fontWeight:800, marginBottom:20 }}>By Yours Truly — Daddy JEM 👑</div>
-            <div className="el" style={{ height:2, background:"linear-gradient(90deg,transparent,#3b82f6,#8b5cf6,#10b981,transparent)", borderRadius:2, margin:"0 auto 20px" }} />
-            <div className="fu4" style={{ fontSize:13, color:"#64748b" }}>Welcome. Let&apos;s get to work.</div>
+          <div style={{ position:"absolute", inset:0, overflow:"hidden" }}>
+            <div id="crawl-text" style={{ position:"absolute", left:0, right:0, top:"100%", padding:"0 32px", textAlign:"center", animation:`scrollUp 60s linear 2s forwards` }}>
+              <div style={{ color:"#fcd34d", lineHeight:2.4, fontSize:20, fontWeight:700 }}>
+                <div style={{ fontSize:14, color:"#60a5fa", letterSpacing:4, marginBottom:32 }}>ASC INVENTORY</div>
+                <div style={{ fontSize:32, fontWeight:900, letterSpacing:2, marginBottom:40 }}>EPISODE I</div>
+                <div style={{ fontSize:28, fontWeight:900, marginBottom:40, color:"#f0f6ff" }}>THE RISE OF<br/>DADDY JEM</div>
+                <div style={{ marginBottom:36 }}>It is a dark time for surgical centers.<br/>Supplies go missing. Counts are wrong.<br/>Nobody knows what is in the cabinet.</div>
+                <div style={{ marginBottom:36 }}>But from the chaos arose one man —<br/>a visionary, a legend, a daddy —<br/>known only as <span style={{ color:"#fff", fontWeight:900 }}>JEM</span>.</div>
+                <div style={{ marginBottom:36 }}>Armed with nothing but a laptop,<br/>an unshakeable confidence,<br/>and an AI assistant named Claude,<br/>JEM set out to build<br/>THE GREATEST INVENTORY APP<br/>THE GALAXY HAS EVER SEEN.</div>
+                <div style={{ marginBottom:36 }}>His enemies laughed.<br/>His colleagues questioned him.<br/>Brooklyn demanded full admin access.<br/>Andrea just wanted the prices right.</div>
+                <div style={{ marginBottom:36 }}>But JEM pressed on.<br/>Through build errors.<br/>Through RLS violations.<br/>Through the great<br/><span style={{ color:"#fff" }}>BUILDING_INVENTORY VIEW INCIDENT</span><br/>of 2026.</div>
+                <div style={{ marginBottom:44 }}>And now — at last —<br/>the app is ready.<br/>The inventory is tracked.<br/>The surgical center is saved.</div>
+                <div style={{ fontSize:26, fontWeight:900, color:"#fff", marginBottom:16 }}>You&apos;re welcome, everyone.</div>
+                <div style={{ fontSize:18, color:"#64748b", marginBottom:140 }}>— Daddy JEM 👑</div>
+              </div>
+            </div>
           </div>
         ) : null}
       </div>
