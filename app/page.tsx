@@ -91,21 +91,21 @@ export default function Home() {
   if (loading) {
     return (
       <main style={{ minHeight:"100vh", width:"100%", background:"#0a0f1e", display:"flex", justifyContent:"center", padding:16 }}>
+        <style>{`@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.5}}.skel{animation:pulse 1.5s infinite}`}</style>
         <div style={{ width:"100%", maxWidth:480, marginTop:16 }}>
           <div style={{ borderRadius:20, background:"#162032", border:"1px solid #1e3a5f", padding:20, marginBottom:16 }}>
-            <div style={{ height:32, width:"60%", background:"#1e2d42", borderRadius:8, marginBottom:8 }} />
-            <div style={{ height:14, width:"80%", background:"#1e2d42", borderRadius:6, marginBottom:12 }} />
-            <div style={{ height:36, background:"#1e2d42", borderRadius:8 }} />
+            <div className="skel" style={{ height:32, width:"60%", background:"#1e2d42", borderRadius:8, marginBottom:8 }} />
+            <div className="skel" style={{ height:14, width:"80%", background:"#1e2d42", borderRadius:6, marginBottom:12 }} />
+            <div className="skel" style={{ height:36, background:"#1e2d42", borderRadius:8 }} />
           </div>
           {[1,2,3,4].map(i => (
-            <div key={i} style={{ height:52, background:"#162032", border:"1px solid #1e3a5f", borderRadius:14, marginBottom:8, animation:"pulse 1.5s infinite" }} />
+            <div key={i} className="skel" style={{ height:52, background:"#162032", border:"1px solid #1e3a5f", borderRadius:14, marginBottom:8 }} />
           ))}
           <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginTop:16 }}>
             {[1,2,3,4,5,6].map(i => (
-              <div key={i} style={{ height:72, background:"#162032", border:"1px solid #1e3a5f", borderRadius:12, animation:"pulse 1.5s infinite" }} />
+              <div key={i} className="skel" style={{ height:72, background:"#162032", border:"1px solid #1e3a5f", borderRadius:12 }} />
             ))}
           </div>
-          <style>{`@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.5}}`}</style>
         </div>
       </main>
     );
