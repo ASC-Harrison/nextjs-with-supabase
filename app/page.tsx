@@ -13,11 +13,20 @@ const ADMIN_EMAILS = ["hogstud800@gmail.com", "brooklyncarter.0716@gmail.com"];
 
 type Area = { id: string; name: string; total: number; low: number; };
 
+const SKEL_CSS = `@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.4}}.skel{animation:pulse 1.5s ease-in-out infinite}`;
+
 export default function Home() {
   const router = useRouter();
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [areas, setAreas] = useState<Area[]>([]);
+
+  // Keepalive ping every 4 minutes to prevent Supabase cold starts
+  useEffect(() => {
+    const ping = () => supabase.from("storage_areas").select("id").limit(1).then(() => {});
+    const interval = setInterval(ping, 4 * 60 * 1000);
+    return () => clearInterval(interval);
+  }, []);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
@@ -48,22 +57,15 @@ export default function Home() {
     });
   }, []);
 
-  // Keepalive ping every 4 minutes to prevent Supabase cold starts
-  useEffect(() => {
-    const ping = () => supabase.from("storage_areas").select("id").limit(1).then(() => {});
-    const interval = setInterval(ping, 4 * 60 * 1000);
-    return () => clearInterval(interval);
-  }, []);
+  async function loadAreas() {
     try {
       const [areaRes, invRes] = await Promise.all([
         supabase.from("storage_areas").select("id, name").order("name"),
         supabase.from("storage_inventory_area_view").select("storage_area_id, on_hand, low_level").gt("par_level", 0)
       ]);
-
       const areaData = areaRes.data;
       const invData = invRes.data;
       if (!areaData) return;
-
       const areaMap: Record<string, { total: number; low: number }> = {};
       areaData.forEach(a => { areaMap[a.id] = { total: 0, low: 0 }; });
       if (invData) {
@@ -91,7 +93,7 @@ export default function Home() {
   if (loading) {
     return (
       <main style={{ minHeight:"100vh", width:"100%", background:"#0a0f1e", display:"flex", justifyContent:"center", padding:16 }}>
-        <style>{`@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.5}}.skel{animation:pulse 1.5s infinite}`}</style>
+        <style dangerouslySetInnerHTML={{ __html: SKEL_CSS }} />
         <div style={{ width:"100%", maxWidth:480, marginTop:16 }}>
           <div style={{ borderRadius:20, background:"#162032", border:"1px solid #1e3a5f", padding:20, marginBottom:16 }}>
             <div className="skel" style={{ height:32, width:"60%", background:"#1e2d42", borderRadius:8, marginBottom:8 }} />
@@ -119,6 +121,7 @@ export default function Home() {
 
   return (
     <main style={{ minHeight:"100vh", width:"100%", background:"#0a0f1e", color:"#fff", display:"flex", justifyContent:"center", padding:16, paddingBottom:40 }}>
+      <style dangerouslySetInnerHTML={{ __html: SKEL_CSS }} />
       <div style={{ width:"100%", maxWidth:480 }}>
 
         <div style={{ borderRadius:20, background:"rgba(255,255,255,0.05)", border:"1px solid rgba(255,255,255,0.1)", padding:20, marginTop:16, marginBottom:16, position:"relative", overflow:"hidden" }}>
@@ -158,7 +161,11 @@ export default function Home() {
 
         <div style={{ fontSize:13, fontWeight:800, color:"#64748b", textTransform:"uppercase", letterSpacing:0.6, marginBottom:10, marginTop:8 }}>Storage Areas</div>
         {areas.length === 0 ? (
-          <div style={{ fontSize:13, color:"#334155", textAlign:"center", padding:20 }}>Loading areas…</div>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
+            {[1,2,3,4,5,6].map(i => (
+              <div key={i} className="skel" style={{ height:72, background:"#162032", border:"1px solid #1e3a5f", borderRadius:12 }} />
+            ))}
+          </div>
         ) : (
           <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
             {areas.map(area => (
