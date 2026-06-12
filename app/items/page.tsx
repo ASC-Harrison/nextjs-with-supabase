@@ -202,6 +202,33 @@ export default function ItemsPage() {
         body: JSON.stringify({
           storage_area_id: selectedArea,
           item_id: selectedItem.id,
+          on_hand: selectedItem.building_on_hand ?? 0,
+          par_level: selectedItem.par_level ?? 0,
+          low_level: selectedItem.low_level ?? 0,
+        }),
+      });
+      const json = await res.json();
+      if (!json.ok) throw new Error(json.error);
+      const areaName = areas.find(a => a.id === selectedArea)?.name ?? selectedArea;
+      showMsg("ok", `✅ "${selectedItem.name}" added to ${areaName} with all current values!`);
+      setSelectedItem(null);
+      setSelectedArea("");
+      setItemSearch("");
+      setExistingValues(null);
+    } catch(e: any) {
+      showMsg("err", e?.message ?? "Failed to add item");
+    }
+    setLoading(false);
+  }
+    if (!selectedArea) return showMsg("err", "Select a storage area.");
+    setLoading(true);
+    try {
+      const res = await fetch("/api/items/add-to-area", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          storage_area_id: selectedArea,
+          item_id: selectedItem.id,
           on_hand: Number(areaOnHand) || 0,
           par_level: areaPar ? Number(areaPar) : 0,
           low_level: areaLow ? Number(areaLow) : 0,
@@ -357,7 +384,7 @@ export default function ItemsPage() {
                       Low Level: <strong style={{ color:"#fcd34d" }}>{selectedItem.low_level ?? "—"}</strong>
                     </div>
                   </div>
-                  <div style={{ fontSize:10, color:"#334155", marginTop:8 }}>✓ All item info transfers automatically — set the on-hand, par, and low for this area below</div>
+                  <div style={{ fontSize:10, color:"#334155", marginTop:8 }}>✓ All info transfers automatically — just select the area and tap Add</div>
                 </div>
               )}
 
@@ -375,20 +402,6 @@ export default function ItemsPage() {
                 <option value="">Select area…</option>
                 {areas.map(a=><option key={a.id} value={a.id}>{a.name}</option>)}
               </select>
-
-              <div className="g2">
-                <div>
-                  <label className="lbl">On Hand</label>
-                  <input value={areaOnHand} onChange={e=>setAreaOnHand(e.target.value.replace(/\D/g,""))} className="inp" placeholder="0" inputMode="numeric" />
-                </div>
-                <div>
-                  <label className="lbl">PAR Level</label>
-                  <input value={areaPar} onChange={e=>setAreaPar(e.target.value.replace(/\D/g,""))} className="inp" placeholder="0" inputMode="numeric" />
-                </div>
-              </div>
-
-              <label className="lbl">Low Level</label>
-              <input value={areaLow} onChange={e=>setAreaLow(e.target.value.replace(/\D/g,""))} className="inp" placeholder="0" inputMode="numeric" />
 
               <button onClick={handleAddToArea} disabled={loading||!selectedItem||!selectedArea} className="btn btn-ac btn-full">
                 {loading ? "Adding…" : "📦 Add to Storage Area"}
