@@ -248,7 +248,10 @@ export default function PreOpPage() {
           <div className="header-top">
             <div>
               <div className="header-title">Pre-Op / PACU</div>
-              <div className="header-sub">{staffName ? `Staff: ${staffName}` : "Tap to set your name"} · {items.length} items</div>
+              <div className="header-sub" style={{ display:"flex", alignItems:"center", gap:8 }}>
+                {staffName ? `Staff: ${staffName}` : "Tap to set your name"} · {items.length} items
+                {staffName && <button onClick={() => { setNameInput(staffName); setNamePrompt(true); }} style={{ background:"none", border:"none", color:"#3b82f6", fontSize:11, cursor:"pointer", fontFamily:"inherit", padding:0, textDecoration:"underline" }}>change</button>}
+              </div>
             </div>
             <button onClick={() => router.push("/")} className="back-btn">← Home</button>
           </div>
