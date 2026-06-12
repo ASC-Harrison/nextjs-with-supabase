@@ -220,31 +220,7 @@ export default function ItemsPage() {
     }
     setLoading(false);
   }
-    if (!selectedArea) return showMsg("err", "Select a storage area.");
-    setLoading(true);
-    try {
-      const res = await fetch("/api/items/add-to-area", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          storage_area_id: selectedArea,
-          item_id: selectedItem.id,
-          on_hand: Number(areaOnHand) || 0,
-          par_level: areaPar ? Number(areaPar) : 0,
-          low_level: areaLow ? Number(areaLow) : 0,
-        }),
-      });
-      const json = await res.json();
-      if (!json.ok) throw new Error(json.error);
-      const areaName = areas.find(a => a.id === selectedArea)?.name ?? selectedArea;
-      showMsg("ok", `✅ "${selectedItem.name}" added to ${areaName}! Go to that area to verify it shows up.`);
-      setSelectedItem(null); setItemSearch(""); setAreaPar(""); setAreaLow(""); setAreaOnHand("0"); setSelectedArea("");
-    } catch (e:any) {
-      showMsg("err", e?.message ?? "Failed to add item to area.");
-    } finally {
-      setLoading(false);
-    }
-  }
+  async function checkExisting(itemId: string, areaId: string) {
 
   return (
     <>
