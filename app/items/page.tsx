@@ -221,6 +221,22 @@ export default function ItemsPage() {
     setLoading(false);
   }
   async function checkExisting(itemId: string, areaId: string) {
+    if (!itemId || !areaId) return;
+    setCheckingExisting(true);
+    try {
+      const res = await fetch(`/api/items/check-area?item_id=${itemId}&storage_area_id=${areaId}`);
+      const json = await res.json();
+      if (json.ok && json.data) {
+        setExistingValues(json.data);
+        setAreaOnHand(String(json.data.on_hand ?? 0));
+        setAreaPar(String(json.data.par_level ?? 0));
+        setAreaLow(String(json.data.low_level ?? 0));
+      } else {
+        setExistingValues(null);
+      }
+    } catch {}
+    finally { setCheckingExisting(false); }
+  }
 
   return (
     <>
