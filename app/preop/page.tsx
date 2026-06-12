@@ -169,7 +169,7 @@ export default function PreOpPage() {
           p_area_id: PREOP_AREA_ID,
           p_qty: qty,
         });
-        if (error) throw error;
+        if (error) throw new Error(error.message);
         setItems(prev => prev.map(i => i.item_id === item.item_id ? { ...i, on_hand: Math.max(0, i.on_hand - qty) } : i));
       } else {
         const { error } = await supabase.rpc("add_stock", {
@@ -177,7 +177,7 @@ export default function PreOpPage() {
           p_area_id: PREOP_AREA_ID,
           p_qty: qty,
         });
-        if (error) throw error;
+        if (error) throw new Error(error.message);
         setItems(prev => prev.map(i => i.item_id === item.item_id ? { ...i, on_hand: i.on_hand + qty } : i));
       }
       // Log audit
@@ -191,8 +191,8 @@ export default function PreOpPage() {
       setTxQty(prev => ({ ...prev, [item.item_id]: 1 }));
       setTimeout(() => setMsg(null), 3000);
     } catch(e: any) {
-      setMsg({ id: item.item_id, type:"err", text: e?.message ?? "Transaction failed" });
-      setTimeout(() => setMsg(null), 4000);
+      setMsg({ id: item.item_id, type:"err", text: e?.message ?? "Transaction failed — check connection" });
+      setTimeout(() => setMsg(null), 5000);
     }
     setSubmitting(null);
   }
