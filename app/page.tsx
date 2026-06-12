@@ -139,8 +139,12 @@ export default function Home() {
           🚀 Launch App
         </button>
 
-        <button onClick={() => router.push("/spd")} style={{ ...btnBase, background:"rgba(99,102,241,0.15)", color:"#a5b4fc", border:"1px solid rgba(99,102,241,0.3)", marginBottom:10 }}>
+        <button onClick={() => router.push("/spd")} style={{ ...btnBase, background:"rgba(99,102,241,0.15)", color:"#a5b4fc", border:"1px solid rgba(99,102,241,0.3)", marginBottom:8 }}>
           🔬 SPD Inventory View
+        </button>
+
+        <button onClick={() => router.push("/preop")} style={{ ...btnBase, background:"rgba(20,184,166,0.15)", color:"#5eead4", border:"1px solid rgba(20,184,166,0.3)", marginBottom:10 }}>
+          🏥 Pre-Op / PACU
         </button>
 
         {isAdmin && (
