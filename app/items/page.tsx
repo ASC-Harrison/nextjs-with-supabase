@@ -327,6 +327,19 @@ export default function ItemsPage() {
                 </div>
               )}
 
+              {selectedItem && (
+                <div style={{ background:"rgba(59,130,246,0.08)", border:"1px solid rgba(59,130,246,0.2)", borderRadius:10, padding:"12px 14px", marginBottom:12 }}>
+                  <div style={{ fontSize:13, fontWeight:800, color:"#f0f6ff", marginBottom:6 }}>{selectedItem.name}</div>
+                  <div style={{ fontSize:11, color:"#94a3b8", lineHeight:1.8 }}>
+                    <span style={{ marginRight:12 }}>Vendor: <strong style={{ color:"#f0f6ff" }}>{selectedItem.vendor || "—"}</strong></span>
+                    <span style={{ marginRight:12 }}>Ref #: <strong style={{ color:"#f0f6ff" }}>{selectedItem.reference_number || "—"}</strong></span>
+                    <span style={{ marginRight:12 }}>Unit: <strong style={{ color:"#f0f6ff" }}>{selectedItem.unit || "—"}</strong></span>
+                    <span>Category: <strong style={{ color:"#f0f6ff" }}>{selectedItem.category || "—"}</strong></span>
+                  </div>
+                  <div style={{ fontSize:10, color:"#334155", marginTop:6 }}>✓ This info transfers automatically — just set the par, low, and on-hand below</div>
+                </div>
+              )}
+
               <div className="divider" />
 
               {checkingExisting && <div style={{fontSize:12,color:"#64748b",marginBottom:10}}>Checking existing values…</div>}
