@@ -10,7 +10,7 @@ const supabase = createClient(
 );
 
 type Area = { id: string; name: string };
-type Item = { id: string; name: string; reference_number: string | null; vendor: string | null; category: string | null; unit: string | null; };
+type Item = { id: string; name: string; reference_number: string | null; vendor: string | null; category: string | null; unit: string | null; building_on_hand?: number | null; par_level?: number | null; low_level?: number | null; };
 
 const SUPPLY_SOURCE_OPTIONS = [
   { value: "VENDOR", label: "Outside Vendor" },
@@ -96,8 +96,18 @@ export default function ItemsPage() {
     supabase.from("storage_areas").select("id,name").order("name").then(({data}) => {
       if (data) setAreas(data as Area[]);
     });
-    supabase.from("items").select("id,name,reference_number,vendor,category,unit").eq("is_active",true).order("name").then(({data}) => {
-      if (data) setAllItems(data as Item[]);
+    supabase.from("items").select("id,name,reference_number,vendor,category,unit").eq("is_active",true).order("name").then(async ({data}) => {
+      if (data) {
+        const { data: totals } = await supabase.from("building_inventory_sheet_view").select("item_id,total_on_hand,par_level,low_level");
+        const totalsMap = totals ? Object.fromEntries(totals.map((t:any) => [t.item_id, t])) : {};
+        const enriched = data.map((i:any) => ({
+          ...i,
+          building_on_hand: totalsMap[i.id]?.total_on_hand ?? null,
+          par_level: totalsMap[i.id]?.par_level ?? null,
+          low_level: totalsMap[i.id]?.low_level ?? null,
+        }));
+        setAllItems(enriched as Item[]);
+      }
     });
   }, []);
 
@@ -311,7 +321,7 @@ export default function ItemsPage() {
               {itemSuggestions.length > 0 && (
                 <div className="suggest-list">
                   {itemSuggestions.map(item => (
-                    <div key={item.id} className="suggest-item" onClick={()=>{setSelectedItem(item);setItemSearch("");setItemSuggestions([]);if(selectedArea) checkExisting(item.id, selectedArea);}}>
+                    <div key={item.id} className="suggest-item" onClick={()=>{setSelectedItem(item);setItemSearch("");setItemSuggestions([]);if(item.par_level) setAreaPar(String(item.par_level));if(item.low_level) setAreaLow(String(item.low_level));if(selectedArea) checkExisting(item.id, selectedArea);}}>
                       <div className="suggest-name">{item.name}</div>
                       <div className="suggest-meta">{item.vendor||"—"} · Ref: {item.reference_number||"—"} · {item.unit||"—"}</div>
                     </div>
@@ -330,13 +340,24 @@ export default function ItemsPage() {
               {selectedItem && (
                 <div style={{ background:"rgba(59,130,246,0.08)", border:"1px solid rgba(59,130,246,0.2)", borderRadius:10, padding:"12px 14px", marginBottom:12 }}>
                   <div style={{ fontSize:13, fontWeight:800, color:"#f0f6ff", marginBottom:6 }}>{selectedItem.name}</div>
-                  <div style={{ fontSize:11, color:"#94a3b8", lineHeight:1.8 }}>
+                  <div style={{ fontSize:11, color:"#94a3b8", lineHeight:2.0 }}>
                     <span style={{ marginRight:12 }}>Vendor: <strong style={{ color:"#f0f6ff" }}>{selectedItem.vendor || "—"}</strong></span>
                     <span style={{ marginRight:12 }}>Ref #: <strong style={{ color:"#f0f6ff" }}>{selectedItem.reference_number || "—"}</strong></span>
                     <span style={{ marginRight:12 }}>Unit: <strong style={{ color:"#f0f6ff" }}>{selectedItem.unit || "—"}</strong></span>
                     <span>Category: <strong style={{ color:"#f0f6ff" }}>{selectedItem.category || "—"}</strong></span>
                   </div>
-                  <div style={{ fontSize:10, color:"#334155", marginTop:6 }}>✓ This info transfers automatically — just set the par, low, and on-hand below</div>
+                  <div style={{ display:"flex", gap:16, marginTop:8, flexWrap:"wrap" }}>
+                    <div style={{ background:"#1e2d42", borderRadius:8, padding:"6px 12px", fontSize:11 }}>
+                      Building On Hand: <strong style={{ color:"#6ee7b7" }}>{selectedItem.building_on_hand ?? "—"}</strong>
+                    </div>
+                    <div style={{ background:"#1e2d42", borderRadius:8, padding:"6px 12px", fontSize:11 }}>
+                      Par Level: <strong style={{ color:"#93c5fd" }}>{selectedItem.par_level ?? "—"}</strong>
+                    </div>
+                    <div style={{ background:"#1e2d42", borderRadius:8, padding:"6px 12px", fontSize:11 }}>
+                      Low Level: <strong style={{ color:"#fcd34d" }}>{selectedItem.low_level ?? "—"}</strong>
+                    </div>
+                  </div>
+                  <div style={{ fontSize:10, color:"#334155", marginTop:8 }}>✓ All item info transfers automatically — set the on-hand, par, and low for this area below</div>
                 </div>
               )}
 
