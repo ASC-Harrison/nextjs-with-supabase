@@ -114,6 +114,12 @@ export default function Home() {
     );
   }
 
+  const btnBase: React.CSSProperties = {
+    display:"block", width:"100%", borderRadius:14, padding:"13px 16px",
+    fontSize:14, fontWeight:700, border:"none", cursor:"pointer",
+    textAlign:"center", fontFamily:"inherit", marginBottom:8,
+  };
+
   if (isPreOpOnly) {
     return (
       <main style={{ minHeight:"100vh", width:"100%", background:"#0a0f1e", color:"#fff", display:"flex", justifyContent:"center", padding:16, paddingBottom:40 }}>
@@ -130,7 +136,7 @@ export default function Home() {
             )}
           </div>
 
-          <button onClick={() => router.push("/preop")} style={{ display:"block", width:"100%", borderRadius:14, padding:16, fontSize:15, fontWeight:700, border:"none", cursor:"pointer", textAlign:"center", fontFamily:"inherit", background:"rgba(20,184,166,0.2)", color:"#5eead4", border:"1px solid rgba(20,184,166,0.3)" as any, marginBottom:16 }}>
+          <button onClick={() => router.push("/preop")} style={{ display:"block", width:"100%", borderRadius:14, padding:16, fontSize:15, fontWeight:700, border:"1px solid rgba(20,184,166,0.3)", cursor:"pointer", textAlign:"center", fontFamily:"inherit", background:"rgba(20,184,166,0.2)", color:"#5eead4", marginBottom:16 }}>
             🏥 Pre-Op / PACU Inventory
           </button>
 
