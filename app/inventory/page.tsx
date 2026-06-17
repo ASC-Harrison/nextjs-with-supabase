@@ -354,7 +354,7 @@ export default function InventoryPage() {
   const [orderReqLowOnly, setOrderReqLowOnly] = useState(false);
   const [namePromptOpen, setNamePromptOpen] = useState(false);
   const [nameInput, setNameInput] = useState("");
-  const READONLY_EMAILS = ["brooklyncarter.0716@gmail.com"];
+  const READONLY_EMAILS: string[] = [];
   const [isReadOnly, setIsReadOnly] = useState(false);
   const readerRef=useRef<BrowserMultiFormatReader|null>(null);
   const lastScanRef=useRef<string>("");
