@@ -121,7 +121,7 @@ export default function Home() {
   return (
     <main style={{ minHeight:"100vh", width:"100%", background:"#0a0f1e", color:"#fff", display:"flex", justifyContent:"center", padding:16, paddingBottom:40 }}>
       <style dangerouslySetInnerHTML={{ __html: SKEL_CSS }} />
-      <div style={{ width:"100%", maxWidth:480 }}>
+      <div style={{ width:"100%", maxWidth:900 }}>
 
         <div style={{ borderRadius:20, background:"rgba(255,255,255,0.05)", border:"1px solid rgba(255,255,255,0.1)", padding:20, marginTop:16, marginBottom:16, position:"relative", overflow:"hidden" }}>
           <div style={{ position:"absolute", top:0, left:0, right:0, height:2, background:"linear-gradient(90deg,#3b82f6,#8b5cf6,#10b981)" }} />
@@ -148,7 +148,7 @@ export default function Home() {
         </button>
 
         {isAdmin && (
-          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginBottom:8 }}>
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(160px, 1fr))", gap:8, marginBottom:8 }}>
             <button onClick={() => router.push("/orders")} style={{ ...btnBase, background:"rgba(234,179,8,0.2)", color:"#fcd34d", border:"1px solid rgba(234,179,8,0.3)", marginBottom:0 }}>📋 Orders</button>
             <button onClick={() => router.push("/order-history")} style={{ ...btnBase, background:"rgba(234,179,8,0.1)", color:"#fcd34d", border:"1px solid rgba(234,179,8,0.2)", marginBottom:0 }}>📜 Order History</button>
             <button onClick={() => router.push("/items")} style={{ ...btnBase, background:"rgba(99,102,241,0.2)", color:"#a5b4fc", border:"1px solid rgba(99,102,241,0.3)", marginBottom:0 }}>➕ Add Items</button>
@@ -163,13 +163,13 @@ export default function Home() {
 
         <div style={{ fontSize:13, fontWeight:800, color:"#64748b", textTransform:"uppercase", letterSpacing:0.6, marginBottom:10, marginTop:8 }}>Storage Areas</div>
         {areas.length === 0 ? (
-          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(180px, 1fr))", gap:8 }}>
             {[1,2,3,4,5,6].map(i => (
               <div key={i} className="skel" style={{ height:72, background:"#162032", border:"1px solid #1e3a5f", borderRadius:12 }} />
             ))}
           </div>
         ) : (
-          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(180px, 1fr))", gap:8 }}>
             {areas.map(area => (
               <button key={area.id} onClick={() => router.push(`/areas/${area.id}`)} style={{ background: area.low > 0 ? "rgba(239,68,68,0.08)" : "rgba(255,255,255,0.04)", border: `1px solid ${area.low > 0 ? "rgba(239,68,68,0.3)" : "rgba(255,255,255,0.1)"}`, borderRadius:12, padding:"14px 12px", cursor:"pointer", textAlign:"left", fontFamily:"inherit" }}>
                 <div style={{ fontSize:13, fontWeight:700, color:"#f0f6ff", wordBreak:"break-word", lineHeight:1.3, marginBottom:6 }}>{area.name}</div>
