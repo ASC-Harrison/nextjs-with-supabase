@@ -118,6 +118,22 @@ export default function PreOpPage() {
     loadItems();
   }, []);
 
+  // Send heartbeat to staff_presence every 30 seconds
+  useEffect(() => {
+    if (!staffName) return;
+    async function sendHeartbeat() {
+      await supabase.from("staff_presence").upsert({
+        staff_name: staffName,
+        last_seen: new Date().toISOString(),
+        current_area: "Pre-Op/PACU",
+        is_active: true,
+      }, { onConflict: "staff_name" });
+    }
+    sendHeartbeat();
+    const interval = setInterval(sendHeartbeat, 30000);
+    return () => clearInterval(interval);
+  }, [staffName]);
+
   async function loadItems() {
     setLoading(true);
     try {
