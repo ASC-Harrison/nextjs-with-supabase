@@ -10,6 +10,7 @@ const supabase = createClient(
 );
 
 const ADMIN_EMAILS = ["hogstud800@gmail.com", "brooklyncarter.0716@gmail.com"];
+const PREOP_ONLY_EMAILS = ["andrea.burris88@icloud.com"];
 
 type Area = { id: string; name: string; total: number; low: number; };
 
@@ -88,6 +89,7 @@ export default function Home() {
   }
 
   const isAdmin = ADMIN_EMAILS.includes(userEmail?.toLowerCase() ?? "");
+  const isPreOpOnly = PREOP_ONLY_EMAILS.includes(userEmail?.toLowerCase() ?? "");
 
   if (loading) {
     return (
@@ -112,7 +114,35 @@ export default function Home() {
     );
   }
 
-  const btnBase: React.CSSProperties = {
+  if (isPreOpOnly) {
+    return (
+      <main style={{ minHeight:"100vh", width:"100%", background:"#0a0f1e", color:"#fff", display:"flex", justifyContent:"center", padding:16, paddingBottom:40 }}>
+        <div style={{ width:"100%", maxWidth:480, marginTop:16 }}>
+          <div style={{ borderRadius:20, background:"rgba(255,255,255,0.05)", border:"1px solid rgba(255,255,255,0.1)", padding:20, marginBottom:16, position:"relative", overflow:"hidden" }}>
+            <div style={{ position:"absolute", top:0, left:0, right:0, height:2, background:"linear-gradient(90deg,#3b82f6,#8b5cf6,#10b981)" }} />
+            <div style={{ fontSize:24, fontWeight:900, marginBottom:4 }}>ASC Inventory</div>
+            <div style={{ color:"rgba(255,255,255,0.4)", fontSize:12, marginBottom:12 }}>Pre-Op / PACU Staff Portal</div>
+            {userEmail && (
+              <div style={{ background:"rgba(59,130,246,0.1)", border:"1px solid rgba(59,130,246,0.2)", borderRadius:8, padding:"8px 12px", fontSize:12, color:"#93c5fd", display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+                <span>Signed in as <strong>{userEmail}</strong></span>
+                <button onClick={handleLogout} style={{ background:"rgba(239,68,68,0.15)", border:"1px solid rgba(239,68,68,0.3)", borderRadius:6, color:"#fca5a5", padding:"2px 8px", cursor:"pointer", fontSize:11, fontFamily:"inherit", fontWeight:700 }}>Sign Out</button>
+              </div>
+            )}
+          </div>
+
+          <button onClick={() => router.push("/preop")} style={{ display:"block", width:"100%", borderRadius:14, padding:16, fontSize:15, fontWeight:700, border:"none", cursor:"pointer", textAlign:"center", fontFamily:"inherit", background:"rgba(20,184,166,0.2)", color:"#5eead4", border:"1px solid rgba(20,184,166,0.3)" as any, marginBottom:16 }}>
+            🏥 Pre-Op / PACU Inventory
+          </button>
+
+          <div style={{ background:"rgba(59,130,246,0.06)", border:"1px solid rgba(59,130,246,0.15)", borderRadius:12, padding:"12px 16px", textAlign:"center" }}>
+            <div style={{ fontSize:12, color:"#64748b", marginBottom:4 }}>Questions or issues?</div>
+            <div style={{ fontSize:12, color:"#93c5fd", fontWeight:600 }}>Contact Brooklyn — M–F 7am to 4pm CST</div>
+            <a href="mailto:brooklyncarter.0716@gmail.com" style={{ fontSize:12, color:"#3b82f6", textDecoration:"none", fontWeight:700 }}>brooklyncarter.0716@gmail.com</a>
+          </div>
+        </div>
+      </main>
+    );
+  }
     display:"block", width:"100%", borderRadius:14, padding:"13px 16px",
     fontSize:14, fontWeight:700, border:"none", cursor:"pointer",
     textAlign:"center", fontFamily:"inherit", marginBottom:8,
