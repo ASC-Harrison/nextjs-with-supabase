@@ -185,6 +185,12 @@ export default function Home() {
         <div style={{ textAlign:"center", color:"rgba(255,255,255,0.2)", fontSize:11, marginTop:20 }}>
           {isAdmin ? "Administrator 👑" : "Staff"} · Sessions last 8 hours
         </div>
+
+        <div style={{ background:"rgba(59,130,246,0.06)", border:"1px solid rgba(59,130,246,0.15)", borderRadius:12, padding:"12px 16px", marginTop:12, textAlign:"center" }}>
+          <div style={{ fontSize:12, color:"#64748b", marginBottom:4 }}>Questions or issues?</div>
+          <div style={{ fontSize:12, color:"#93c5fd", fontWeight:600 }}>Contact Brooklyn — M–F 7am to 4pm CST</div>
+          <a href="mailto:brooklyncarter.0716@gmail.com" style={{ fontSize:12, color:"#3b82f6", textDecoration:"none", fontWeight:700 }}>brooklyncarter.0716@gmail.com</a>
+        </div>
       </div>
     </main>
   );
