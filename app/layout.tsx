@@ -2,7 +2,7 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Baxter ASC Inventory",
+  title: "ASC Inventory",
   description: "Cabinet tracking + building totals + low stock alerts",
   manifest: "/manifest.json",
   appleWebApp: {
@@ -34,8 +34,14 @@ export default function RootLayout({
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
         <meta name="apple-mobile-web-app-title" content="ASC Inventory" />
         <meta name="theme-color" content="#0a0f1e" />
+        <style>{`
+          *,*::before,*::after{box-sizing:border-box;}
+          html,body{margin:0;padding:0;width:100%;min-height:100vh;background:#0a0f1e;}
+          body{-webkit-text-size-adjust:100%;text-size-adjust:100%;}
+        `}</style>
       </head>
-      <body>{children}</body>
+      <body style={{ margin:0, padding:0, width:"100%", minHeight:"100vh", background:"#0a0f1e" }}>{children}</body>
     </html>
   );
 }
+
