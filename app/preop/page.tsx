@@ -112,9 +112,23 @@ export default function PreOpPage() {
   const [txQty, setTxQty] = useState<Record<string, number>>({});
 
   useEffect(() => {
-    const saved = localStorage.getItem("preop_staff_name") || "";
-    if (saved) setStaffName(saved);
-    else setNamePrompt(true);
+    supabase.auth.getSession().then(({ data }) => {
+      if (data.session?.user) {
+        const name = data.session.user.user_metadata?.full_name || data.session.user.email || "";
+        if (name) {
+          setStaffName(name);
+          setNamePrompt(false);
+        } else {
+          const saved = localStorage.getItem("preop_staff_name") || "";
+          if (saved) setStaffName(saved);
+          else setNamePrompt(true);
+        }
+      } else {
+        const saved = localStorage.getItem("preop_staff_name") || "";
+        if (saved) setStaffName(saved);
+        else setNamePrompt(true);
+      }
+    });
     loadItems();
   }, []);
 
@@ -284,7 +298,7 @@ export default function PreOpPage() {
                 <input
                   value={nameInput}
                   onChange={e => setNameInput(e.target.value)}
-                  onKeyDown={e => { if(e.key === "Enter" && nameInput.trim()) { setStaffName(nameInput.trim()); localStorage.setItem("preop_staff_name", nameInput.trim()); setNamePrompt(false); }}}
+                  onKeyDown={e => { if(e.key === "Enter" && nameInput.trim()) { setStaffName(nameInput.trim()); localStorage.setItem("preop_staff_name", nameInput.trim()); supabase.auth.updateUser({ data: { full_name: nameInput.trim() } }); setNamePrompt(false); }}}
                   placeholder="Enter your name"
                   className="inp"
                   style={{ marginBottom:12 }}
@@ -295,6 +309,8 @@ export default function PreOpPage() {
                     if(!nameInput.trim()) return;
                     setStaffName(nameInput.trim());
                     localStorage.setItem("preop_staff_name", nameInput.trim());
+                    // Also save to Supabase user metadata
+                    supabase.auth.updateUser({ data: { full_name: nameInput.trim() } });
                     setNamePrompt(false);
                   }}
                   className="btn btn-ac"
