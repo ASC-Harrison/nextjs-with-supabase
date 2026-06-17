@@ -98,17 +98,15 @@ export default function ItemsPage() {
     });
     supabase.from("items").select("id,name,reference_number,vendor,category,unit").eq("is_active",true).order("name").then(async ({data}) => {
       if (data) {
-        // Fetch Main Supply counts specifically
-        const { data: mainSupply } = await supabase
-          .from("storage_inventory")
-          .select("item_id,on_hand,par_level,low_level")
-          .eq("storage_area_id", "a09eb27b-e4a1-449a-8d2e-c45b24d6514f");
-        const mainMap = mainSupply ? Object.fromEntries(mainSupply.map((t:any) => [t.item_id, t])) : {};
+        const { data: totals } = await supabase
+          .from("building_inventory_sheet_view")
+          .select("item_id,total_on_hand,par_level,low_level");
+        const totalsMap = totals ? Object.fromEntries(totals.map((t:any) => [t.item_id, t])) : {};
         const enriched = data.map((i:any) => ({
           ...i,
-          building_on_hand: mainMap[i.id]?.on_hand ?? null,
-          par_level: mainMap[i.id]?.par_level ?? null,
-          low_level: mainMap[i.id]?.low_level ?? null,
+          building_on_hand: totalsMap[i.id]?.total_on_hand ?? null,
+          par_level: totalsMap[i.id]?.par_level ?? null,
+          low_level: totalsMap[i.id]?.low_level ?? null,
         }));
         setAllItems(enriched as Item[]);
       }
@@ -371,7 +369,7 @@ export default function ItemsPage() {
                   </div>
                   <div style={{ display:"flex", gap:16, marginTop:8, flexWrap:"wrap" }}>
                     <div style={{ background:"#1e2d42", borderRadius:8, padding:"6px 12px", fontSize:11 }}>
-                      Main Supply On Hand: <strong style={{ color:"#6ee7b7" }}>{selectedItem.building_on_hand ?? "—"}</strong>
+                      Building Total On Hand: <strong style={{ color:"#6ee7b7" }}>{selectedItem.building_on_hand ?? "—"}</strong>
                     </div>
                     <div style={{ background:"#1e2d42", borderRadius:8, padding:"6px 12px", fontSize:11 }}>
                       Par Level: <strong style={{ color:"#93c5fd" }}>{selectedItem.par_level ?? "—"}</strong>
