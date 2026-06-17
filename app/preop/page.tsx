@@ -258,12 +258,35 @@ export default function PreOpPage() {
         </div>
 
         <div className="wrap">
-          {/* Name prompt */}
+          {/* Name prompt - blocks everything until name is set */}
           {namePrompt && (
-            <div style={{ background:"#162032", border:"1px solid #1e3a5f", borderRadius:14, padding:20, marginBottom:16 }}>
-              <div style={{ fontSize:14, fontWeight:700, color:"#f0f6ff", marginBottom:12 }}>What is your name?</div>
-              <input value={nameInput} onChange={e => setNameInput(e.target.value)} placeholder="Enter your name" className="inp" style={{ marginBottom:10 }} />
-              <button onClick={() => { if(!nameInput.trim()) return; setStaffName(nameInput.trim()); localStorage.setItem("preop_staff_name", nameInput.trim()); setNamePrompt(false); }} className="btn btn-ac" style={{ width:"100%" }}>Save Name</button>
+            <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.85)", zIndex:200, display:"flex", alignItems:"center", justifyContent:"center", padding:24 }}>
+              <div style={{ background:"#162032", border:"1px solid #1e3a5f", borderRadius:20, padding:28, width:"100%", maxWidth:400, position:"relative", overflow:"hidden" }}>
+                <div style={{ position:"absolute", top:0, left:0, right:0, height:2, background:"linear-gradient(90deg,#3b82f6,#8b5cf6,#10b981)" }} />
+                <div style={{ fontSize:20, fontWeight:900, color:"#f0f6ff", marginBottom:6 }}>👋 Welcome!</div>
+                <div style={{ fontSize:13, color:"#64748b", marginBottom:16 }}>Please enter your name before using the app.</div>
+                <input
+                  value={nameInput}
+                  onChange={e => setNameInput(e.target.value)}
+                  onKeyDown={e => { if(e.key === "Enter" && nameInput.trim()) { setStaffName(nameInput.trim()); localStorage.setItem("preop_staff_name", nameInput.trim()); setNamePrompt(false); }}}
+                  placeholder="Enter your name"
+                  className="inp"
+                  style={{ marginBottom:12 }}
+                  autoFocus
+                />
+                <button
+                  onClick={() => {
+                    if(!nameInput.trim()) return;
+                    setStaffName(nameInput.trim());
+                    localStorage.setItem("preop_staff_name", nameInput.trim());
+                    setNamePrompt(false);
+                  }}
+                  className="btn btn-ac"
+                  style={{ width:"100%" }}
+                >
+                  Let's Go →
+                </button>
+              </div>
             </div>
           )}
 
