@@ -149,10 +149,6 @@ export default function Home() {
       </main>
     );
   }
-    display:"block", width:"100%", borderRadius:14, padding:"13px 16px",
-    fontSize:14, fontWeight:700, border:"none", cursor:"pointer",
-    textAlign:"center", fontFamily:"inherit", marginBottom:8,
-  };
 
   return (
     <main style={{ minHeight:"100vh", width:"100%", background:"#0a0f1e", color:"#fff", display:"flex", justifyContent:"center", padding:16, paddingBottom:40 }}>
