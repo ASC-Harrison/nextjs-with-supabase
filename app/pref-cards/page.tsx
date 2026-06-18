@@ -86,7 +86,11 @@ export default function PrefCardsPage() {
     const ids = data.map((i:any) => i.item_id);
     const { data: items } = await supabase.from("items").select("id,name,unit").in("id", ids);
     const itemMap = items ? Object.fromEntries(items.map((i:any) => [i.id, i])) : {};
-    setCardItems(prev => ({...prev, [cardId]: data.map((r:any) => ({...r, item_name: itemMap[r.item_id]?.name ?? "Unknown", unit: itemMap[r.item_id]?.unit ?? null}))}));
+    const enriched = data.map((r:any) => ({...r, item_name: itemMap[r.item_id]?.name ?? "Unknown", unit: itemMap[r.item_id]?.unit ?? null}));
+    setCardItems(prev => ({...prev, [cardId]: enriched}));
+    const checked: Record<string,boolean> = {};
+    enriched.forEach((i:any) => { checked[i.id] = false; });
+    setPullChecked(checked);
   }
 
   async function loadAllItems() {
@@ -97,10 +101,9 @@ export default function PrefCardsPage() {
   function openPull(card: PrefCard) {
     const items = cardItems[card.id] || [];
     const checked: Record<string,boolean> = {};
-    items.forEach(i => { checked[i.id] = true; });
+    items.forEach(i => { checked[i.id] = false; });
     setPullChecked(checked);
     setSelectedCard(card);
-    setShowPull(true);
     setMsg(null);
   }
 
@@ -195,19 +198,39 @@ export default function PrefCardsPage() {
                   {isOpen && items && (
                     <>
                       {items.length === 0 ? (
-                        <div style={{fontSize:12,color:"#334155",marginBottom:8}}>No items on this card yet.</div>
-                      ) : items.map(item => (
+                    <div style={{fontSize:12,color:"#334155",marginBottom:8}}>No items on this card yet.</div>
+                  ) : (
+                    <>
+                      <div style={{fontSize:11,color:"#64748b",marginBottom:8}}>Check items that were used:</div>
+                      {items.map(item => (
                         <div key={item.id} className="item-row">
-                          <div style={{flex:1}}>
+                          <input type="checkbox" checked={pullChecked[item.id] ?? false} onChange={e => setPullChecked(p => ({...p, [item.id]: e.target.checked}))} style={{width:22,height:22,cursor:"pointer",flexShrink:0}} />
+                          <div style={{flex:1,opacity:pullChecked[item.id]?1:0.5}}>
                             <div className="item-name">{item.item_name}</div>
                             <div style={{fontSize:11,color:"#64748b"}}>Qty: {item.qty} · {item.unit || "Each"}</div>
                           </div>
                           <button onClick={() => removeItem(item.id)} className="btn btn-red btn-sm">Remove</button>
                         </div>
                       ))}
+                      {Object.values(pullChecked).some(Boolean) && (
+                        <button
+                          onClick={async () => {
+                            const count = Object.values(pullChecked).filter(Boolean).length;
+                            if(!confirm(`Mark ${count} item${count>1?"s":""} as used and deduct from inventory?`)) return;
+                            await postPull();
+                            setPullChecked({});
+                          }}
+                          disabled={posting}
+                          className="btn btn-green"
+                          style={{width:"100%",marginTop:12,padding:14,fontSize:14}}
+                        >
+                          {posting ? "Processing…" : `✅ Used (${Object.values(pullChecked).filter(Boolean).length} items)`}
+                        </button>
+                      )}
+                    </>
+                  )}
                       <div className="btn-row">
                         <button onClick={() => { setShowAddItem(true); setItemSearch(""); setAddItemId(""); }} className="btn btn-gh btn-sm">➕ Add Item</button>
-                        {items.length > 0 && <button onClick={() => openPull(card)} className="btn btn-green">🏥 Use Items</button>}
                         <button onClick={() => setSelectedCard(null)} className="btn btn-gh btn-sm">Close</button>
                       </div>
                     </>
@@ -216,7 +239,6 @@ export default function PrefCardsPage() {
                   {!isOpen && (
                     <div className="btn-row">
                       <button onClick={() => { setSelectedCard(card); if(!cardItems[card.id]) loadCardItems(card.id); }} className="btn btn-gh btn-sm">View / Edit</button>
-                      {(cardItems[card.id]?.length ?? 0) > 0 && <button onClick={() => { setSelectedCard(card); openPull(card); }} className="btn btn-green btn-sm">🏥 Use Items</button>}
                     </div>
                   )}
                 </div>
