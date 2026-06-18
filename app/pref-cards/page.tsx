@@ -74,7 +74,8 @@ export default function PrefCardsPage() {
   const [addItemId, setAddItemId] = useState("");
   const [addQty, setAddQty] = useState(1);
   const [adding, setAdding] = useState(false);
-  const [staffName, setStaffName] = useState("Admin");
+  const [pullOR, setPullOR] = useState("");
+  const OR_ROOMS = ["OR 1", "OR 2", "OR 3", "OR 4", "OR 5", "OR 6", "OR 7", "OR 8"];
   const [expandedHist, setExpandedHist] = useState<string|null>(null);
 
   useEffect(() => {
@@ -147,9 +148,10 @@ export default function PrefCardsPage() {
     if (!confirm(`Mark ${items.length} item${items.length>1?"s":""} as used and deduct from inventory?`)) return;
     setPosting(true);
     try {
+      const sessionName = `${selectedCard.surgeon} — ${selectedCard.procedure_name}${pullOR ? ` · ${pullOR}` : ""}`;
       const { data: session, error: sErr } = await supabase.from("case_pull_sessions").insert({
         pref_card_id: selectedCard.id,
-        session_name: `${selectedCard.surgeon} — ${selectedCard.procedure_name}`,
+        session_name: sessionName,
         is_posted: true,
         posted_at: new Date().toISOString(),
         posted_by: staffName,
@@ -158,10 +160,11 @@ export default function PrefCardsPage() {
       for (const item of items) {
         await supabase.from("case_pull_session_items").insert({ session_id: session.id, item_id: item.item_id, qty_pulled: item.qty });
         await supabase.rpc("use_stock", { p_item_id: item.item_id, p_area_id: MAIN_SUPPLY_ID, p_qty: item.qty });
-        await supabase.from("audit_log").insert({ staff_name: staffName, action: "CASE_PULL", area_name: "Main Sterile Supply", details: `Card=${selectedCard.surgeon} Procedure=${selectedCard.procedure_name} Item=${item.item_name} Qty=${item.qty}` });
+        await supabase.from("audit_log").insert({ staff_name: staffName, action: "CASE_PULL", area_name: pullOR || "Main Sterile Supply", details: `Card=${selectedCard.surgeon} Procedure=${selectedCard.procedure_name}${pullOR?` OR=${pullOR}`:""} Item=${item.item_name} Qty=${item.qty}` });
       }
       setMsg({type:"ok", text:`✅ Done! ${items.length} items deducted from inventory.`});
       setPullChecked({});
+      setPullOR("");
       setSelectedCard(null);
     } catch(e:any) { setMsg({type:"err", text: e?.message ?? "Failed"}); }
     setPosting(false);
@@ -266,9 +269,19 @@ export default function PrefCardsPage() {
                             </div>
                           ))}
                           {checkedCount > 0 && (
-                            <button onClick={postPull} disabled={posting} className="btn btn-green" style={{width:"100%",marginTop:12,padding:14,fontSize:14}}>
-                              {posting?"Processing…":`✅ Used (${checkedCount} item${checkedCount>1?"s":""})`}
-                            </button>
+                            <div style={{marginTop:12}}>
+                              <div style={{fontSize:11,fontWeight:700,color:"#64748b",textTransform:"uppercase",letterSpacing:0.5,marginBottom:6}}>Which OR? (optional)</div>
+                              <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:10}}>
+                                {OR_ROOMS.map(or => (
+                                  <button key={or} type="button" onClick={() => setPullOR(pullOR===or?"":or)} style={{borderRadius:8,padding:"6px 12px",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit",background:pullOR===or?"rgba(59,130,246,0.25)":"#1e2d42",color:pullOR===or?"#93c5fd":"#64748b",border:pullOR===or?"1px solid rgba(59,130,246,0.5)":"1px solid #1e3a5f"}}>
+                                    {or}
+                                  </button>
+                                ))}
+                              </div>
+                              <button onClick={postPull} disabled={posting} className="btn btn-green" style={{width:"100%",padding:14,fontSize:14}}>
+                                {posting?"Processing…":`✅ Used (${checkedCount} item${checkedCount>1?"s":""})`}
+                              </button>
+                            </div>
                           )}
                         </>
                       )}
