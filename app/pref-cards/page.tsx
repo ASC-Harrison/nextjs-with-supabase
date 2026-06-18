@@ -207,7 +207,7 @@ export default function PrefCardsPage() {
                       ))}
                       <div className="btn-row">
                         <button onClick={() => { setShowAddItem(true); setItemSearch(""); setAddItemId(""); }} className="btn btn-gh btn-sm">➕ Add Item</button>
-                        {items.length > 0 && <button onClick={() => openPull(card)} className="btn btn-green">🏥 Start Case Pull</button>}
+                        {items.length > 0 && <button onClick={() => openPull(card)} className="btn btn-green">🏥 Use Items</button>}
                         <button onClick={() => setSelectedCard(null)} className="btn btn-gh btn-sm">Close</button>
                       </div>
                     </>
@@ -216,7 +216,7 @@ export default function PrefCardsPage() {
                   {!isOpen && (
                     <div className="btn-row">
                       <button onClick={() => { setSelectedCard(card); if(!cardItems[card.id]) loadCardItems(card.id); }} className="btn btn-gh btn-sm">View / Edit</button>
-                      {(cardItems[card.id]?.length ?? 0) > 0 && <button onClick={() => { setSelectedCard(card); openPull(card); }} className="btn btn-green btn-sm">🏥 Pull</button>}
+                      {(cardItems[card.id]?.length ?? 0) > 0 && <button onClick={() => { setSelectedCard(card); openPull(card); }} className="btn btn-green btn-sm">🏥 Use Items</button>}
                     </div>
                   )}
                 </div>
