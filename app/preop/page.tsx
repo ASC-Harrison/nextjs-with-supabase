@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useEffect, useState, useRef } from "react";
@@ -136,12 +137,11 @@ export default function PreOpPage() {
   useEffect(() => {
     if (!staffName) return;
     async function sendHeartbeat() {
-      await supabase.from("staff_presence").upsert({
-        staff_name: staffName,
-        last_seen: new Date().toISOString(),
-        current_area: "Pre-Op/PACU",
-        is_active: true,
-      }, { onConflict: "staff_name" });
+      await fetch("/api/presence", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ staff_name: staffName, current_area: "Pre-Op/PACU" }),
+      }).catch(() => {});
     }
     sendHeartbeat();
     const interval = setInterval(sendHeartbeat, 30000);
