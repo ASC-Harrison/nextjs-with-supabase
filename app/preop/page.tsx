@@ -167,16 +167,17 @@ export default function PreOpPage() {
           par_level: r.par_level ?? 0,
           low_level: r.low_level ?? 0,
         }));
-        // Fetch actual on_hand from building total view
+        // Fetch actual on_hand from PreOp/PACU area since stock lives there
         const ids = rows.map(r => r.item_id);
         if (ids.length > 0) {
-          const { data: totalData } = await supabase
-            .from("building_inventory_sheet_view")
-            .select("item_id, total_on_hand")
+          const { data: areaData } = await supabase
+            .from("storage_inventory")
+            .select("item_id, on_hand")
+            .eq("storage_area_id", PREOP_AREA_ID)
             .in("item_id", ids);
-          if (totalData) {
-            const totalMap = Object.fromEntries(totalData.map((r: any) => [r.item_id, r.total_on_hand]));
-            rows.forEach(r => { r.on_hand = totalMap[r.item_id] ?? r.on_hand; });
+          if (areaData) {
+            const areaMap = Object.fromEntries(areaData.map((r: any) => [r.item_id, r.on_hand]));
+            rows.forEach(r => { r.on_hand = areaMap[r.item_id] ?? r.on_hand; });
           }
           // Fetch alert notes
           const { data: noteData } = await supabase.from("items").select("id,alert_note").in("id", ids);
@@ -204,7 +205,7 @@ export default function PreOpPage() {
       if (mode === "USE") {
         const { error } = await supabase.rpc("use_stock", {
           p_item_id: item.item_id,
-          p_area_id: MAIN_SUPPLY_ID,
+          p_area_id: PREOP_AREA_ID,
           p_qty: qty,
         });
         if (error) throw new Error(error.message);
@@ -212,7 +213,7 @@ export default function PreOpPage() {
       } else {
         const { error } = await supabase.rpc("add_stock", {
           p_item_id: item.item_id,
-          p_area_id: MAIN_SUPPLY_ID,
+          p_area_id: PREOP_AREA_ID,
           p_qty: qty,
         });
         if (error) throw new Error(error.message);
