@@ -25,6 +25,7 @@ type Order = {
   confirmed_by: string | null;
   confirmed_at: string | null;
   received_at: string | null;
+  received_by?: string | null;
   expected_delivery_date?: string | null;
   notes: string | null;
 };
@@ -82,7 +83,14 @@ export default function OrdersPage() {
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState("ALL");
   const [updating, setUpdating] = useState<string | null>(null);
-  const [orderingId, setOrderingId] = useState<string | null>(null);
+  const [isReadOnly] = useState(() => typeof localStorage !== "undefined" && localStorage.getItem("asc_readonly") === "true");
+  const [staffName, setStaffName] = useState("Admin");
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({data}) => {
+      if(data.session?.user) setStaffName(data.session.user.user_metadata?.full_name || data.session.user.email || "Admin");
+    });
+  }, []);
   const [expectedDeliveryInput, setExpectedDeliveryInput] = useState<string>("");
   const [receivingId, setReceivingId] = useState<string | null>(null);
   const [qtyReceivedInput, setQtyReceivedInput] = useState<string>("");
@@ -116,6 +124,7 @@ export default function OrdersPage() {
       }
       if (status === "RECEIVED") {
         update.received_at = new Date().toISOString();
+        update.received_by = staffName;
       }
       if (status === "PENDING") {
         update.confirmed_by = null;
@@ -229,7 +238,7 @@ export default function OrdersPage() {
                       <div className="backorder-note">{"🔴 Backordered — reported by " + order.confirmed_by + (order.confirmed_at ? " · " + formatTime(order.confirmed_at) : "")}</div>
                     )}
                     {order.received_at && (
-                      <div className="received-note">{"📦 Received · " + formatTime(order.received_at)}</div>
+                      <div className="received-note">{"📦 Received · " + formatTime(order.received_at) + (order.received_by ? " · by " + order.received_by : "")}</div>
                     )}
                     {order.status === "RECEIVED" && (order as any).item_id && order.qty_actual_received && !addedToInventory.has(order.id) && (
                       <div style={{ marginTop:8, background:"rgba(16,185,129,0.08)", border:"1px solid rgba(16,185,129,0.2)", borderRadius:10, padding:"10px 12px" }}>
@@ -302,7 +311,7 @@ export default function OrdersPage() {
                           try {
                             const qtyReceived = qtyReceivedInput.trim() ? Number(qtyReceivedInput) : (order.qty_actual_ordered || order.qty_requested);
                             if(!qtyReceived || qtyReceived <= 0) { alert("Please enter a valid quantity received."); setUpdating(null); return; }
-                            const update: any = { status: "RECEIVED", received_at: new Date().toISOString(), qty_actual_received: qtyReceived };
+                            const update: any = { status: "RECEIVED", received_at: new Date().toISOString(), received_by: staffName, qty_actual_received: qtyReceived };
                             await supabase.from("order_requests").update(update).eq("id", order.id);
                             setOrders(prev => prev.map(o => o.id === order.id ? { ...o, ...update } as Order : o));
                             setReceivingId(null);
@@ -320,99 +329,67 @@ export default function OrdersPage() {
                   </div>
                 )}
                 <div className="action-row">
-                  {order.status === "PENDING" && orderingId !== order.id && (
+                  {!isReadOnly && order.status === "PENDING" && orderingId !== order.id && (
                     <button onClick={() => { setOrderingId(order.id); setExpectedDeliveryInput(""); }} disabled={updating === order.id} className="btn btn-ac">
                       ✅ Mark Ordered
                     </button>
                   )}
-                  {order.status === "ORDERED" && (
+                  {!isReadOnly && order.status === "ORDERED" && orderingId !== order.id && (
                     <button onClick={() => { setOrderingId(order.id); setExpectedDeliveryInput(order.expected_delivery_date || ""); }} disabled={updating === order.id} className="btn btn-gh" style={{ fontSize:11 }}>
                       📅 {order.expected_delivery_date ? "Edit Delivery Date" : "Add Delivery Date"}
                     </button>
                   )}
-                  {orderingId === order.id && order.status === "ORDERED" && (
+                  {!isReadOnly && orderingId === order.id && (
                     <div style={{ marginTop:10, background:"rgba(59,130,246,0.08)", border:"1px solid rgba(59,130,246,0.2)", borderRadius:10, padding:"12px", width:"100%" }}>
-                      <div style={{ fontSize:12, color:"#93c5fd", fontWeight:700, marginBottom:6 }}>Expected delivery date:</div>
+                      <div style={{ fontSize:12, color:"#93c5fd", fontWeight:700, marginBottom:6 }}>
+                        {order.status === "PENDING" ? "Expected delivery date (optional):" : "Expected delivery date:"}
+                      </div>
                       <div style={{ display:"flex", gap:8, alignItems:"center", flexWrap:"wrap" }}>
-                        <input
-                          type="date"
-                          value={expectedDeliveryInput}
-                          onChange={e => setExpectedDeliveryInput(e.target.value)}
-                          style={{ borderRadius:8, border:"1px solid rgba(59,130,246,0.3)", background:"#111827", color:"#f0f6ff", padding:"8px 10px", fontSize:13, fontFamily:"inherit", outline:"none" }}
-                        />
-                        <button
-                          onClick={async () => {
-                            setUpdating(order.id);
-                            try {
-                              await supabase.from("order_requests").update({ expected_delivery_date: expectedDeliveryInput || null }).eq("id", order.id);
-                              setOrders(prev => prev.map(o => o.id === order.id ? { ...o, expected_delivery_date: expectedDeliveryInput || null } as Order : o));
-                              setOrderingId(null);
-                            } catch {}
-                            finally { setUpdating(null); }
-                          }}
-                          disabled={updating === order.id}
-                          className="btn btn-ac"
-                          style={{ fontSize:12 }}
-                        >
-                          {updating === order.id ? "Saving…" : "💾 Save Date"}
+                        <input type="date" value={expectedDeliveryInput} onChange={e => setExpectedDeliveryInput(e.target.value)} style={{ borderRadius:8, border:"1px solid rgba(59,130,246,0.3)", background:"#111827", color:"#f0f6ff", padding:"8px 10px", fontSize:13, fontFamily:"inherit", outline:"none" }} />
+                        <button onClick={async () => {
+                          setUpdating(order.id);
+                          try {
+                            const update: any = order.status === "PENDING"
+                              ? { status:"ORDERED", confirmed_by:"Admin", confirmed_at:new Date().toISOString() }
+                              : {};
+                            if (expectedDeliveryInput) update.expected_delivery_date = expectedDeliveryInput;
+                            else update.expected_delivery_date = null;
+                            await supabase.from("order_requests").update(update).eq("id", order.id);
+                            setOrders(prev => prev.map(o => o.id === order.id ? { ...o, ...update } as Order : o));
+                            setOrderingId(null); setExpectedDeliveryInput("");
+                          } catch {} finally { setUpdating(null); }
+                        }} disabled={updating === order.id} className="btn btn-ac" style={{ fontSize:12 }}>
+                          {updating === order.id ? "Saving…" : order.status === "PENDING" ? "✅ Confirm Ordered" : "💾 Save Date"}
                         </button>
                         <button onClick={() => setOrderingId(null)} className="btn btn-gh" style={{ fontSize:11 }}>Cancel</button>
                       </div>
                     </div>
                   )}
-                    <div style={{ marginTop:10, background:"rgba(59,130,246,0.08)", border:"1px solid rgba(59,130,246,0.2)", borderRadius:10, padding:"12px", width:"100%" }}>
-                      <div style={{ fontSize:12, color:"#93c5fd", fontWeight:700, marginBottom:6 }}>Expected delivery date (optional):</div>
-                      <div style={{ display:"flex", gap:8, alignItems:"center", flexWrap:"wrap" }}>
-                        <input
-                          type="date"
-                          value={expectedDeliveryInput}
-                          onChange={e => setExpectedDeliveryInput(e.target.value)}
-                          style={{ borderRadius:8, border:"1px solid rgba(59,130,246,0.3)", background:"#111827", color:"#f0f6ff", padding:"8px 10px", fontSize:13, fontFamily:"inherit", outline:"none" }}
-                        />
-                        <button
-                          onClick={async () => {
-                            setUpdating(order.id);
-                            try {
-                              const update: any = { status:"ORDERED", confirmed_by:"Admin", confirmed_at:new Date().toISOString() };
-                              if (expectedDeliveryInput) update.expected_delivery_date = expectedDeliveryInput;
-                              await supabase.from("order_requests").update(update).eq("id", order.id);
-                              setOrders(prev => prev.map(o => o.id === order.id ? { ...o, ...update } as Order : o));
-                              setOrderingId(null);
-                              setExpectedDeliveryInput("");
-                            } catch {}
-                            finally { setUpdating(null); }
-                          }}
-                          disabled={updating === order.id}
-                          className="btn btn-ac"
-                          style={{ fontSize:12 }}
-                        >
-                          {updating === order.id ? "Saving…" : "✅ Confirm Ordered"}
-                        </button>
-                        <button onClick={() => setOrderingId(null)} className="btn btn-gh" style={{ fontSize:11 }}>Cancel</button>
-                      </div>
-                    </div>
-                  )}
-                  {order.status === "PENDING" && (
+                  {!isReadOnly && order.status === "PENDING" && (
                     <button onClick={() => updateStatus(order.id, "BACKORDERED")} disabled={updating === order.id} className="btn btn-err">
                       {updating === order.id ? "Updating…" : "🔴 Backordered"}
                     </button>
                   )}
-                  {(order.status === "ORDERED" || order.status === "BACKORDERED") && receivingId !== order.id && (
+                  {!isReadOnly && (order.status === "ORDERED" || order.status === "BACKORDERED") && receivingId !== order.id && (
                     <button onClick={() => { setReceivingId(order.id); setQtyReceivedInput(String(order.qty_actual_ordered || order.qty_requested)); }} disabled={updating === order.id} className="btn btn-ok">
                       📦 Mark Received
                     </button>
                   )}
-                  {order.status === "PENDING" && (
-                    <button onClick={() => updateStatus(order.id, "RECEIVED")} disabled={updating === order.id} className="btn btn-gh" style={{ fontSize: 11 }}>
+                  {!isReadOnly && order.status === "PENDING" && (
+                    <button onClick={() => updateStatus(order.id, "RECEIVED")} disabled={updating === order.id} className="btn btn-gh" style={{ fontSize:11 }}>
                       Skip to Received
                     </button>
                   )}
-                  <button onClick={() => updateStatus(order.id, "PENDING")} disabled={updating === order.id} className="btn btn-gh" style={{ fontSize: 11 }}>
-                    ↩️ Reset
-                  </button>
-                  <button onClick={async () => { if(!confirm("Delete this order request permanently?")) return; setUpdating(order.id); try { const res = await fetch("/api/orders/delete", { method:"DELETE", headers:{"Content-Type":"application/json"}, body:JSON.stringify({id:order.id}) }); const json = await res.json(); if(json.ok) setOrders(prev => prev.filter(o => o.id !== order.id)); else alert(`Failed: ${json.error}`); } catch {} finally { setUpdating(null); } }} disabled={updating === order.id} className="btn" style={{ fontSize:11, background:"rgba(239,68,68,0.15)", color:"#fca5a5", border:"1px solid rgba(239,68,68,0.3)" }}>
-                    🗑️ Delete
-                  </button>
+                  {!isReadOnly && (
+                    <button onClick={() => updateStatus(order.id, "PENDING")} disabled={updating === order.id} className="btn btn-gh" style={{ fontSize:11 }}>
+                      ↩️ Reset
+                    </button>
+                  )}
+                  {!isReadOnly && (
+                    <button onClick={async () => { if(!confirm("Delete this order request permanently?")) return; setUpdating(order.id); try { const res = await fetch("/api/orders/delete", { method:"DELETE", headers:{"Content-Type":"application/json"}, body:JSON.stringify({id:order.id}) }); const json = await res.json(); if(json.ok) setOrders(prev => prev.filter(o => o.id !== order.id)); else alert(`Failed: ${json.error}`); } catch {} finally { setUpdating(null); } }} disabled={updating === order.id} className="btn" style={{ fontSize:11, background:"rgba(239,68,68,0.15)", color:"#fca5a5", border:"1px solid rgba(239,68,68,0.3)" }}>
+                      🗑️ Delete
+                    </button>
+                  )}
                 </div>
               </div>
             ))
