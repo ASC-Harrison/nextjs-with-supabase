@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useEffect, useState, useRef } from "react";
@@ -168,9 +167,19 @@ export default function PreOpPage() {
           par_level: r.par_level ?? 0,
           low_level: r.low_level ?? 0,
         }));
-        // Fetch alert notes
+        // Fetch actual on_hand from Main Supply
         const ids = rows.map(r => r.item_id);
         if (ids.length > 0) {
+          const { data: mainData } = await supabase
+            .from("storage_inventory")
+            .select("item_id, on_hand")
+            .eq("storage_area_id", MAIN_SUPPLY_ID)
+            .in("item_id", ids);
+          if (mainData) {
+            const mainMap = Object.fromEntries(mainData.map((r: any) => [r.item_id, r.on_hand]));
+            rows.forEach(r => { r.on_hand = mainMap[r.item_id] ?? r.on_hand; });
+          }
+          // Fetch alert notes
           const { data: noteData } = await supabase.from("items").select("id,alert_note").in("id", ids);
           if (noteData) {
             const noteMap = Object.fromEntries(noteData.map((n: any) => [n.id, n.alert_note]));
@@ -196,7 +205,7 @@ export default function PreOpPage() {
       if (mode === "USE") {
         const { error } = await supabase.rpc("use_stock", {
           p_item_id: item.item_id,
-          p_area_id: PREOP_AREA_ID,
+          p_area_id: MAIN_SUPPLY_ID,
           p_qty: qty,
         });
         if (error) throw new Error(error.message);
@@ -204,7 +213,7 @@ export default function PreOpPage() {
       } else {
         const { error } = await supabase.rpc("add_stock", {
           p_item_id: item.item_id,
-          p_area_id: PREOP_AREA_ID,
+          p_area_id: MAIN_SUPPLY_ID,
           p_qty: qty,
         });
         if (error) throw new Error(error.message);
