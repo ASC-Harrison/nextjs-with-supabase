@@ -175,14 +175,6 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: true });
     }
 
-    const { error: upsertErr } = await supabase
-      .from("building_totals")
-      .upsert({ item_id, building_on_hand: 0 }, { onConflict: "item_id" });
-
-    if (upsertErr) {
-      return NextResponse.json({ ok: false, error: upsertErr.message });
-    }
-
     if ((body as any).action === "SET") {
       const value = Number((body as any).value);
       if (!Number.isFinite(value) || value < 0) {
