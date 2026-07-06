@@ -92,6 +92,7 @@ export default function OrdersPage() {
     });
   }, []);
   const [expectedDeliveryInput, setExpectedDeliveryInput] = useState<string>("");
+  const [orderingId, setOrderingId] = useState<string | null>(null);
   const [receivingId, setReceivingId] = useState<string | null>(null);
   const [qtyReceivedInput, setQtyReceivedInput] = useState<string>("");
   const [addedToInventory, setAddedToInventory] = useState<Set<string>>(new Set());
