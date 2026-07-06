@@ -192,13 +192,28 @@ export async function POST(req: Request) {
         });
       }
 
-      const { error } = await supabase
-        .from("building_totals")
-        .update({ building_on_hand: Math.trunc(value) })
-        .eq("item_id", item_id);
+      const MAIN_SUPPLY_ID = "a09eb27b-e4a1-449a-8d2e-c45b24d6514f";
 
-      if (error) {
-        return NextResponse.json({ ok: false, error: error.message });
+      // Update the REAL Main Supply row so all areas stay in sync
+      const { data: existing } = await supabase
+        .from("storage_inventory")
+        .select("item_id")
+        .eq("item_id", item_id)
+        .eq("storage_area_id", MAIN_SUPPLY_ID)
+        .maybeSingle();
+
+      if (existing) {
+        const { error } = await supabase
+          .from("storage_inventory")
+          .update({ on_hand: Math.trunc(value), updated_at: new Date().toISOString() })
+          .eq("item_id", item_id)
+          .eq("storage_area_id", MAIN_SUPPLY_ID);
+        if (error) return NextResponse.json({ ok: false, error: error.message });
+      } else {
+        const { error } = await supabase
+          .from("storage_inventory")
+          .insert({ item_id, storage_area_id: MAIN_SUPPLY_ID, on_hand: Math.trunc(value) });
+        if (error) return NextResponse.json({ ok: false, error: error.message });
       }
 
       return NextResponse.json({ ok: true });
@@ -212,23 +227,27 @@ export async function POST(req: Request) {
       });
     }
 
-    const { data: btRow, error: btErr } = await supabase
-      .from("building_totals")
-      .select("building_on_hand")
-      .eq("item_id", item_id)
-      .single();
+    const MAIN_SUPPLY_ID = "a09eb27b-e4a1-449a-8d2e-c45b24d6514f";
 
-    if (btErr) {
-      return NextResponse.json({ ok: false, error: btErr.message });
+    const { data: mainRow, error: mainErr } = await supabase
+      .from("storage_inventory")
+      .select("on_hand")
+      .eq("item_id", item_id)
+      .eq("storage_area_id", MAIN_SUPPLY_ID)
+      .maybeSingle();
+
+    if (mainErr) {
+      return NextResponse.json({ ok: false, error: mainErr.message });
     }
 
-    const current = Number(btRow?.building_on_hand ?? 0);
+    const current = Number(mainRow?.on_hand ?? 0);
     const next = Math.max(0, current + Math.trunc(delta));
 
     const { error: updErr } = await supabase
-      .from("building_totals")
-      .update({ building_on_hand: next })
-      .eq("item_id", item_id);
+      .from("storage_inventory")
+      .update({ on_hand: next, updated_at: new Date().toISOString() })
+      .eq("item_id", item_id)
+      .eq("storage_area_id", MAIN_SUPPLY_ID);
 
     if (updErr) {
       return NextResponse.json({ ok: false, error: updErr.message });
