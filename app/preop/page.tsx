@@ -393,6 +393,29 @@ export default function PreOpPage() {
                     <div className="oh-unit">on hand</div>
                   </div>
                 </div>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    if(!staffName.trim()) { setNamePrompt(true); return; }
+                    try {
+                      await supabase.from("restock_requests").insert({
+                        item_id: item.item_id,
+                        item_name: item.name,
+                        requested_by: staffName,
+                        requested_from: "Pre-Op/PACU",
+                        status: "PENDING",
+                      });
+                      setMsg({ id: item.item_id, type:"ok", text: `🔄 Restock requested for ${item.name}` });
+                      setTimeout(() => setMsg(null), 3000);
+                    } catch(e:any) {
+                      setMsg({ id: item.item_id, type:"err", text: e?.message ?? "Failed to request restock" });
+                      setTimeout(() => setMsg(null), 3000);
+                    }
+                  }}
+                  style={{ width:"100%", marginTop:8, background:"rgba(168,85,247,0.1)", border:"1px solid rgba(168,85,247,0.3)", borderRadius:8, color:"#d8b4fe", padding:"8px", cursor:"pointer", fontSize:12, fontFamily:"inherit", fontWeight:700 }}
+                >
+                  🔄 Request Restock from Receiving
+                </button>
               </div>
             );
           })}
