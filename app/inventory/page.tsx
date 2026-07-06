@@ -873,15 +873,8 @@ export default function InventoryPage() {
             <div className="field"><label className="f-lbl">Notes</label><textarea value={notesInput} onChange={(e)=>setNotesInput(e.target.value)} className="inp inp-ta" /></div>
             <button onClick={async()=>{const low=parseIntSafe(totalsLowInput);if(low===null||low<0)return alert("Enter a valid low level.");const res=await fetch("/api/building-inventory/update",{method:"POST",headers:{"Content-Type":"application/json"},cache:"no-store",body:JSON.stringify({item_id:totalsEditRow.item_id,action:"SAVE_ITEM_META",vendor:vendorInput,category:categoryInput,unit:unitInput,notes:notesInput,low_level:low,reference_number_new:refInput,supply_source:supplySourceInput,price:priceInput.trim()?Number(priceInput):null,expiration_date:expirationInput||null})});const json=await res.json();if(!json.ok)return alert(`Save failed: ${json.error}`);pushAudit({action:"TOTALS_ADJUST",details:`Meta Save Item=${totalsEditRow.name} Source=${supplySourceInput} Price=$${priceInput||"—"}`});setTotalsEditOpen(false);await loadTotals();}} className="btn btn-ac btn-full" style={{fontSize:13}}>Save Item Details</button>
           </div>
-          <div className="c-panel mb3">
-            <div className="s-title">Set exact on-hand</div>
-            <div className="fx mt2">
-              <input value={setOnHandInput} onChange={(e)=>setSetOnHandInput(e.target.value.replace(/[^\d]/g,""))} inputMode="numeric" className="inp" placeholder="e.g., 17" style={{flex:1}} />
-              <button onClick={async()=>{const n=parseIntSafe(setOnHandInput);if(n===null||n<0)return alert("Enter a valid number (0 or more).");await doTotalsSet(totalsEditRow,n);}} className="btn btn-ac s0">Set</button>
-            </div>
-          </div>
           <div className="c-panel">
-            <div className="s-title">Adjust + / −</div>
+            <div className="s-title">Adjust + / − (for recounts, use this to correct the number)</div>
             <div className="g3 mt2">
               <button onClick={()=>setDeltaInput(String((parseIntSafe(deltaInput)??0)-1))} className="btn btn-gh" style={{fontSize:15,fontWeight:900}}>−1</button>
               <input value={deltaInput} onChange={(e)=>setDeltaInput(e.target.value.replace(/[^\d-]/g,"").slice(0,7))} inputMode="numeric" className="inp" placeholder="±" style={{textAlign:"center"}} />
