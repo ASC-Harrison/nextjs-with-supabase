@@ -167,13 +167,13 @@ export default function PreOpPage() {
           par_level: r.par_level ?? 0,
           low_level: r.low_level ?? 0,
         }));
-        // Fetch actual on_hand from PreOp/PACU area since stock lives there
+        // Fetch actual on_hand from Main Supply since numbers are now unified
         const ids = rows.map(r => r.item_id);
         if (ids.length > 0) {
           const { data: areaData } = await supabase
             .from("storage_inventory")
             .select("item_id, on_hand")
-            .eq("storage_area_id", PREOP_AREA_ID)
+            .eq("storage_area_id", MAIN_SUPPLY_ID)
             .in("item_id", ids);
           if (areaData) {
             const areaMap = Object.fromEntries(areaData.map((r: any) => [r.item_id, r.on_hand]));
@@ -205,7 +205,7 @@ export default function PreOpPage() {
       if (mode === "USE") {
         const { error } = await supabase.rpc("use_stock", {
           p_item_id: item.item_id,
-          p_area_id: PREOP_AREA_ID,
+          p_area_id: MAIN_SUPPLY_ID,
           p_qty: qty,
         });
         if (error) throw new Error(error.message);
@@ -213,7 +213,7 @@ export default function PreOpPage() {
       } else {
         const { error } = await supabase.rpc("add_stock", {
           p_item_id: item.item_id,
-          p_area_id: PREOP_AREA_ID,
+          p_area_id: MAIN_SUPPLY_ID,
           p_qty: qty,
         });
         if (error) throw new Error(error.message);
