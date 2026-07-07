@@ -80,6 +80,15 @@ export async function POST(req: Request) {
         .from("building_totals")
         .upsert({ item_id, building_on_hand: total }, { onConflict: "item_id" });
 
+      // Permanent history log tied to item_id — never text-parsed, always reliable
+      await supabase.from("inventory_history").insert({
+        item_id,
+        item_name: item.name,
+        on_hand: total,
+        changed_by: body.changed_by || "Unknown",
+        change_type: "SET",
+      });
+
       return NextResponse.json({ ok: true, on_hand: onHand, total });
     }
 
@@ -125,6 +134,15 @@ export async function POST(req: Request) {
       await supabase
         .from("building_totals")
         .upsert({ item_id, building_on_hand: total }, { onConflict: "item_id" });
+
+      // Permanent history log tied to item_id
+      await supabase.from("inventory_history").insert({
+        item_id,
+        item_name: item.name,
+        on_hand: total,
+        changed_by: body.changed_by || "Unknown",
+        change_type: "ADJUST",
+      });
 
       return NextResponse.json({ ok: true, on_hand: next, total });
     }
