@@ -878,16 +878,12 @@ export default function InventoryPage() {
             </div>
           </div>
           <div className="c-panel">
-            <div className="s-title">Adjust + / − (small corrections)</div>
-            <div className="g3 mt2">
-              <button onClick={()=>setDeltaInput(String((parseIntSafe(deltaInput)??0)-1))} className="btn btn-gh" style={{fontSize:15,fontWeight:900}}>−1</button>
-              <input value={deltaInput} onChange={(e)=>setDeltaInput(e.target.value.replace(/[^\d-]/g,"").slice(0,7))} inputMode="numeric" className="inp" placeholder="±" style={{textAlign:"center"}} />
-              <button onClick={()=>setDeltaInput(String((parseIntSafe(deltaInput)??0)+1))} className="btn btn-gh" style={{fontSize:15,fontWeight:900}}>+1</button>
-            </div>
+            <div className="s-title">Small correction (add or subtract from current)</div>
             <div className="fx mt2">
-              <button onClick={async()=>{const d=parseIntSafe(deltaInput);if(d===null)return alert("Enter a valid delta.");await doTotalsAdjust(totalsEditRow,d);}} className="btn btn-ac" style={{flex:1,fontSize:13}}>Apply delta</button>
-              <button onClick={()=>setDeltaInput("")} className="btn btn-gh" style={{fontSize:13}}>Clear</button>
+              <input value={deltaInput} onChange={(e)=>setDeltaInput(e.target.value.replace(/[^\d-]/g,"").slice(0,7))} inputMode="numeric" className="inp" placeholder="e.g. -3 or 5" style={{flex:1,fontSize:18,fontWeight:800,textAlign:"center"}} />
+              <button onClick={async()=>{const d=parseIntSafe(deltaInput);if(d===null||d===0)return alert("Enter a non-zero number, like -3 to subtract 3, or 5 to add 5.");await doTotalsAdjust(totalsEditRow,d);setDeltaInput("");}} className="btn btn-ac s0">Apply</button>
             </div>
+            <div style={{fontSize:11,color:"var(--text3)",marginTop:6}}>Type a negative number to subtract, positive to add.</div>
           </div>
         </AscModal>
       )}
