@@ -48,7 +48,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: `Item not found for item_id: ${item_id}` });
     }
 
-    // ============ SET (direct on-hand entry) ============
+    // ============ SET (direct on-hand entry — makes the TOTAL equal this exact number) ============
     if (action === "SET") {
       const value = Number(body.value);
       if (!Number.isFinite(value) || value < 0) {
@@ -57,6 +57,7 @@ export async function POST(req: Request) {
 
       const onHand = Math.trunc(value);
 
+      // Put the full number in Main Supply
       const { error: upsertError } = await supabase
         .from("storage_inventory")
         .upsert(
@@ -66,6 +67,18 @@ export async function POST(req: Request) {
 
       if (upsertError) {
         return NextResponse.json({ ok: false, error: `storage_inventory upsert failed: ${upsertError.message}` });
+      }
+
+      // Zero out any leftover amounts sitting in OTHER areas for this item,
+      // so the displayed TOTAL actually equals the number that was typed.
+      const { error: zeroOthersErr } = await supabase
+        .from("storage_inventory")
+        .update({ on_hand: 0, updated_at: new Date().toISOString() })
+        .eq("item_id", item_id)
+        .neq("storage_area_id", MAIN_SUPPLY_ID);
+
+      if (zeroOthersErr) {
+        return NextResponse.json({ ok: false, error: `Failed to clear other areas: ${zeroOthersErr.message}` });
       }
 
       // Force-sync building_totals immediately so the UI shows the correct number right away
