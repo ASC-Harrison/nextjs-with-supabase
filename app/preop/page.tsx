@@ -398,13 +398,18 @@ export default function PreOpPage() {
                   onClick={async () => {
                     if(!staffName.trim()) { setNamePrompt(true); return; }
                     try {
-                      await supabase.from("restock_requests").insert({
-                        item_id: item.item_id,
-                        item_name: item.name,
-                        requested_by: staffName,
-                        requested_from: "Pre-Op/PACU",
-                        status: "PENDING",
+                      const res = await fetch("/api/restock-request", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                          item_id: item.item_id,
+                          item_name: item.name,
+                          requested_by: staffName,
+                          requested_from: "Pre-Op/PACU",
+                        }),
                       });
+                      const json = await res.json();
+                      if (!json.ok) throw new Error(json.error);
                       setMsg({ id: item.item_id, type:"ok", text: `🔄 Restock requested for ${item.name}` });
                       setTimeout(() => setMsg(null), 3000);
                     } catch(e:any) {
