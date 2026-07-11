@@ -28,6 +28,7 @@ type Order = {
   received_by?: string | null;
   expected_delivery_date?: string | null;
   notes: string | null;
+  alert_note?: string | null;
 };
 
 const CSS = `
@@ -104,7 +105,16 @@ export default function OrdersPage() {
         .select("*,item_id")
         .order("created_at", { ascending: false })
         .limit(200);
-      setOrders((data as Order[]) ?? []);
+      const rows = (data as Order[]) ?? [];
+      const ids = [...new Set(rows.map(r => r.item_id).filter(Boolean))] as string[];
+      if (ids.length > 0) {
+        const { data: notesData } = await supabase.from("items").select("id,alert_note").in("id", ids);
+        if (notesData) {
+          const noteMap = Object.fromEntries(notesData.map((n: any) => [n.id, n.alert_note]));
+          rows.forEach(r => { if (r.item_id) r.alert_note = noteMap[r.item_id] || null; });
+        }
+      }
+      setOrders(rows);
     } catch {}
     finally { setLoading(false); }
   }
@@ -210,6 +220,9 @@ export default function OrdersPage() {
                 <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 10 }}>
                   <div style={{ minWidth: 0, flex: 1 }}>
                     <div className="order-name">{order.item_name}</div>
+                    {order.alert_note && (
+                      <div style={{ fontSize:11, color:"#fcd34d", marginTop:2, marginBottom:4, background:"rgba(245,158,11,0.08)", border:"1px solid rgba(245,158,11,0.2)", borderRadius:6, padding:"3px 8px", display:"inline-block" }}>⚡ {order.alert_note}</div>
+                    )}
                     <div className="order-meta">
                       {"Ref: " + (order.reference_number || "—") + " · Vendor: " + (order.vendor || "—") + " · " + (order.unit || "—")}<br />
                       {"Requested: "}<strong style={{ color: "#f0f6ff" }}>{order.qty_requested}</strong>
