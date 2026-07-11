@@ -70,18 +70,19 @@ export default function RestockRequestsPage() {
   }, []);
 
   async function loadRequests() {
-    const { data } = await supabase.from("restock_requests").select("*").order("created_at", { ascending: false }).limit(200);
-    if (data) setRequests(data as Request[]);
+    const res = await fetch("/api/restock-request");
+    const json = await res.json();
+    if (json.ok && json.data) setRequests(json.data as Request[]);
     setLoading(false);
   }
 
   async function markResolved(id: string) {
     setResolving(id);
-    await supabase.from("restock_requests").update({
-      status: "RESTOCKED",
-      resolved_at: new Date().toISOString(),
-      resolved_by: staffName,
-    }).eq("id", id);
+    await fetch("/api/restock-request", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id, resolved_by: staffName }),
+    });
     await loadRequests();
     setResolving(null);
   }
