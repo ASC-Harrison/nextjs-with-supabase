@@ -10,6 +10,43 @@ function getServiceClient() {
   return createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
 }
 
+export async function GET() {
+  try {
+    const supabase = getServiceClient();
+    const { data, error } = await supabase
+      .from("restock_requests")
+      .select("*")
+      .order("created_at", { ascending: false })
+      .limit(200);
+    if (error) return NextResponse.json({ ok: false, error: error.message });
+    return NextResponse.json({ ok: true, data });
+  } catch (e: any) {
+    return NextResponse.json({ ok: false, error: e?.message ?? "Unknown error" });
+  }
+}
+
+export async function PATCH(req: Request) {
+  try {
+    const { id, resolved_by } = await req.json();
+    if (!id) return NextResponse.json({ ok: false, error: "Missing id" });
+
+    const supabase = getServiceClient();
+    const { error } = await supabase
+      .from("restock_requests")
+      .update({
+        status: "RESTOCKED",
+        resolved_at: new Date().toISOString(),
+        resolved_by: resolved_by || "Admin",
+      })
+      .eq("id", id);
+
+    if (error) return NextResponse.json({ ok: false, error: error.message });
+    return NextResponse.json({ ok: true });
+  } catch (e: any) {
+    return NextResponse.json({ ok: false, error: e?.message ?? "Unknown error" });
+  }
+}
+
 export async function POST(req: Request) {
   try {
     const { item_id, item_name, requested_by, requested_from } = await req.json();
