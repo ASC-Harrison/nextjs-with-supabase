@@ -376,18 +376,7 @@ export default function PreOpPage() {
                 )}
 
                 <div className="oh-row">
-                  <div className="tx-row">
-                    <button type="button" onClick={() => setTxMode(p => ({...p, [item.item_id]:"USE"}))} className={"mode-btn mode-use" + (mode==="USE"?" active":"")}>USE</button>
-                    <button type="button" onClick={() => setTxMode(p => ({...p, [item.item_id]:"RESTOCK"}))} className={"mode-btn mode-restock" + (mode==="RESTOCK"?" active":"")}>RESTOCK</button>
-                    <div className="qty-row">
-                      <button type="button" className="qty-btn" onClick={() => setTxQty(p => ({...p, [item.item_id]: Math.max(1,(p[item.item_id]||1)-1)}))} >−</button>
-                      <input type="number" min={1} value={qty} onChange={e => setTxQty(p => ({...p, [item.item_id]: Math.max(1,Number(e.target.value)||1)}))} className="qty-inp" />
-                      <button type="button" className="qty-btn" onClick={() => setTxQty(p => ({...p, [item.item_id]: (p[item.item_id]||1)+1}))}>+</button>
-                    </div>
-                    <button type="button" onClick={() => submitTx(item)} disabled={submitting === item.item_id} className={"submit-btn " + (mode==="USE"?"submit-use":"submit-restock")}>
-                      {submitting === item.item_id ? "…" : mode === "USE" ? `USE ${qty}` : `RESTOCK ${qty}`}
-                    </button>
-                  </div>
+                  <div style={{ fontSize:13, color:"#64748b" }}>Contact receiving to update counts</div>
                   <div className={"oh-badge " + (isLow?"low":"ok")}>
                     <div className={"oh-num " + (isLow?"low":"ok")}>{item.on_hand}</div>
                     <div className="oh-unit">on hand</div>
