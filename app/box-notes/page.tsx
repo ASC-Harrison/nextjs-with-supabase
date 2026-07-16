@@ -9,7 +9,7 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 );
 
-type Item = { id: string; name: string; unit: string | null; vendor: string | null; alert_note: string | null; };
+type Item = { id: string; name: string; unit: string | null; vendor: string | null; alert_note: string | null; notes: string | null; };
 
 const CSS = `
   *,*::before,*::after{box-sizing:border-box;}
@@ -54,7 +54,7 @@ export default function BoxNotesPage() {
     // Catch every variation: BX, Bx, bx, Case, case
     supabase
       .from("items")
-      .select("id,name,unit,vendor,alert_note")
+      .select("id,name,unit,vendor,alert_note,notes")
       .eq("is_active", true)
       .or("unit.ilike.%bx%,unit.ilike.%case%,unit.ilike.%box%")
       .order("name")
@@ -62,7 +62,7 @@ export default function BoxNotesPage() {
         if (data) {
           setItems(data as Item[]);
           const n: Record<string,string> = {};
-          data.forEach((i: any) => { n[i.id] = i.alert_note || ""; });
+          data.forEach((i: any) => { n[i.id] = i.alert_note || i.notes || ""; });
           setNotes(n);
         }
         setLoading(false);
