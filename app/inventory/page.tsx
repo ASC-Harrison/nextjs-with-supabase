@@ -982,7 +982,7 @@ export default function InventoryPage() {
                               {isLow && <span style={{fontSize:9,fontWeight:800,color:"#fca5a5",background:"rgba(239,68,68,0.15)",border:"1px solid rgba(239,68,68,0.3)",borderRadius:4,padding:"1px 6px"}}>LOW</span>}
                             </div>
                             <div style={{fontSize:11,color:"var(--text2)",marginTop:2}}>{r.vendor||"—"} · Ref: {r.reference_number||"—"} · {r.unit||"—"}</div>
-                            {r.alert_note && <div style={{fontSize:11,color:"#fcd34d",marginTop:4,background:"rgba(245,158,11,0.08)",border:"1px solid rgba(245,158,11,0.2)",borderRadius:6,padding:"3px 8px"}}>⚡ {r.alert_note}</div>}
+                            {(r.alert_note || r.notes) && <div style={{fontSize:11,color:"#fcd34d",marginTop:4,background:"rgba(245,158,11,0.08)",border:"1px solid rgba(245,158,11,0.2)",borderRadius:6,padding:"3px 8px"}}>⚡ {r.alert_note || r.notes}</div>}
                             {(r.order_status === "ORDERED" || r.order_status === "PENDING") && (
                               <div style={{fontSize:11,color:"#fcd34d",marginTop:4,background:"rgba(245,158,11,0.08)",border:"1px solid rgba(245,158,11,0.3)",borderRadius:6,padding:"3px 8px"}}>
                                 ⚠️ Already on order{r.ordered_at ? ` — ordered ${new Date(r.ordered_at).toLocaleDateString("en-US",{month:"short",day:"numeric"})}` : ""} · {r.order_status}
@@ -1011,7 +1011,7 @@ export default function InventoryPage() {
                     className="btn btn-ac"
                     style={{flex:1}}
                     onClick={async()=>{
-                      const selectedItems=totals.filter(r=>orderReqItems[r.item_id]!==undefined).map(r=>({name:r.name,item_id:r.item_id,reference_number:r.reference_number||null,vendor:r.vendor||null,unit:r.unit||null,qty:Number(orderReqItems[r.item_id])||1,alert_note:r.alert_note||null}));
+                      const selectedItems=totals.filter(r=>orderReqItems[r.item_id]!==undefined).map(r=>({name:r.name,item_id:r.item_id,reference_number:r.reference_number||null,vendor:r.vendor||null,unit:r.unit||null,qty:Number(orderReqItems[r.item_id])||1,alert_note:r.alert_note||r.notes||null}));
                       if(!selectedItems.length)return;
                       setOrderReqSending(true);
                       try{
