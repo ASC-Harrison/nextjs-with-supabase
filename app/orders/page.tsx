@@ -108,9 +108,9 @@ export default function OrdersPage() {
       const rows = (data as Order[]) ?? [];
       const ids = [...new Set(rows.map(r => r.item_id).filter(Boolean))] as string[];
       if (ids.length > 0) {
-        const { data: notesData } = await supabase.from("items").select("id,alert_note").in("id", ids);
+        const { data: notesData } = await supabase.from("items").select("id,alert_note,notes").in("id", ids);
         if (notesData) {
-          const noteMap = Object.fromEntries(notesData.map((n: any) => [n.id, n.alert_note]));
+          const noteMap = Object.fromEntries(notesData.map((n: any) => [n.id, n.alert_note || n.notes]));
           rows.forEach(r => { if (r.item_id) r.alert_note = noteMap[r.item_id] || null; });
         }
       }
