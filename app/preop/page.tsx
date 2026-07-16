@@ -331,17 +331,9 @@ export default function PreOpPage() {
             </div>
           )}
 
-          {/* Order request button */}
-          <button onClick={() => { setOrderPinOpen(true); setOrderPin(""); setOrderPinErr(false); }} className="order-btn">
-            📦 Request Order
-          </button>
-
-          {/* Search and filter */}
+          {/* Search */}
           <div className="search-row">
             <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search items…" className="search-inp" />
-            <button onClick={() => setLowOnly(v => !v)} className={"low-btn " + (lowOnly ? "low-on" : "low-off")}>
-              {lowOnly ? `LOW (${lowCount})` : `Low: ${lowCount}`}
-            </button>
           </div>
 
           <div className="count-badge">Showing {filtered.length} of {items.length} items</div>
@@ -355,33 +347,20 @@ export default function PreOpPage() {
           ) : filtered.map(item => {
             const isLow = item.low_level > 0 && item.on_hand <= item.low_level;
             const mode = txMode[item.item_id] || "USE";
-            const qty = txQty[item.item_id] || 1;
             return (
-              <div key={item.item_id} className={"item-card " + (isLow ? "low" : "ok")}>
+              <div key={item.item_id} className="item-card ok">
                 <div className="item-name">{item.name}</div>
                 <div className="item-meta">
                   {item.vendor || "—"} · {item.reference_number ? `Ref: ${item.reference_number}` : "No ref"} · {item.unit || "—"}
                 </div>
                 {item.alert_note && (
-                  <div style={{ fontSize:11, color:"#fcd34d", background:"rgba(245,158,11,0.08)", border:"1px solid rgba(245,158,11,0.2)", borderRadius:6, padding:"3px 8px", marginBottom:8 }}>⚡ {item.alert_note}</div>
+                  <div style={{ fontSize:11, color:"#fcd34d", background:"rgba(245,158,11,0.08)", border:"1px solid rgba(245,158,11,0.2)", borderRadius:6, padding:"3px 8px", marginTop:6, marginBottom:8 }}>⚡ {item.alert_note}</div>
                 )}
-                <div className="pills">
-                  <div className="pill">PAR <span>{item.par_level}</span></div>
-                  <div className="pill">LOW <span>{item.low_level}</span></div>
-                  {isLow && <span style={{ fontSize:10, fontWeight:800, color:"#fca5a5", background:"rgba(239,68,68,0.15)", border:"1px solid rgba(239,68,68,0.3)", borderRadius:4, padding:"2px 8px" }}>LOW STOCK</span>}
-                </div>
 
                 {msg?.id === item.item_id && (
                   <div className={msg.type === "ok" ? "ok-msg" : "err-msg"}>{msg.text}</div>
                 )}
 
-                <div className="oh-row">
-                  <div style={{ fontSize:13, color:"#64748b" }}>Contact receiving to update counts</div>
-                  <div className={"oh-badge " + (isLow?"low":"ok")}>
-                    <div className={"oh-num " + (isLow?"low":"ok")}>{item.on_hand}</div>
-                    <div className="oh-unit">on hand</div>
-                  </div>
-                </div>
                 <button
                   type="button"
                   onClick={async () => {
@@ -416,58 +395,6 @@ export default function PreOpPage() {
         </div>
       </div>
 
-      {/* PIN modal */}
-      {orderPinOpen && (
-        <div className="modal-overlay" onClick={() => setOrderPinOpen(false)}>
-          <div className="modal" onClick={e => e.stopPropagation()}>
-            <div className="modal-title">🔐 Enter PIN to Order</div>
-            <input type="password" inputMode="numeric" value={orderPin} onChange={e => { setOrderPin(e.target.value.replace(/\D/g,"").slice(0,4)); setOrderPinErr(false); }} placeholder="Enter PIN" className="inp" style={{ letterSpacing:8, textAlign:"center", fontSize:20 }} />
-            {orderPinErr && <div className="err-msg">Wrong PIN</div>}
-            <div style={{ display:"flex", gap:8 }}>
-              <button className="btn btn-ac" style={{ flex:1 }} onClick={() => { if(orderPin === ORDER_PIN) { setOrderPinOpen(false); setOrderOpen(true); setOrderMsg(null); } else setOrderPinErr(true); }}>Continue</button>
-              <button className="btn btn-gh" onClick={() => setOrderPinOpen(false)}>Cancel</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Order request modal */}
-      {orderOpen && (
-        <div className="modal-overlay" onClick={() => setOrderOpen(false)}>
-          <div className="modal" onClick={e => e.stopPropagation()}>
-            <div className="modal-title">📦 Request Order</div>
-            {orderMsg && <div className={orderMsg.type === "ok" ? "ok-msg" : "err-msg"}>{orderMsg.text}</div>}
-            <div style={{ fontSize:12, color:"#64748b", marginBottom:12 }}>Select items and enter quantities to request:</div>
-            {items.map(item => {
-              const selected = orderItems[item.item_id] !== undefined;
-              const isLow = item.low_level > 0 && item.on_hand <= item.low_level;
-              return (
-                <div key={item.item_id} className="order-item-row">
-                  <input type="checkbox" checked={selected} onChange={e => {
-                    if(e.target.checked) setOrderItems(p => ({...p, [item.item_id]: 1}));
-                    else setOrderItems(p => { const n = {...p}; delete n[item.item_id]; return n; });
-                  }} style={{ width:18, height:18, cursor:"pointer", flexShrink:0 }} />
-                  <div style={{ flex:1, minWidth:0 }}>
-                    <div style={{ fontSize:13, fontWeight:700, color:"#f0f6ff", wordBreak:"break-word" }}>{item.name}</div>
-                    <div style={{ fontSize:11, color:"#64748b" }}>{item.vendor || "—"} · {item.reference_number || "—"} · On Hand: {item.on_hand}</div>
-                    {item.alert_note && <div style={{ fontSize:10, color:"#fcd34d", marginTop:2 }}>⚡ {item.alert_note}</div>}
-                    {isLow && <span style={{ fontSize:9, fontWeight:800, color:"#fca5a5", background:"rgba(239,68,68,0.15)", borderRadius:4, padding:"1px 5px" }}>LOW</span>}
-                  </div>
-                  {selected && (
-                    <input type="number" min={1} value={orderItems[item.item_id] || 1} onChange={e => setOrderItems(p => ({...p, [item.item_id]: Math.max(1, Number(e.target.value)||1)}))} style={{ width:60, borderRadius:8, border:"1px solid #1e3a5f", background:"#111827", color:"#f0f6ff", padding:"6px 8px", fontSize:14, fontWeight:800, textAlign:"center", fontFamily:"inherit", outline:"none" }} />
-                  )}
-                </div>
-              );
-            })}
-            <div style={{ marginTop:16, display:"flex", gap:8 }}>
-              <button className="btn btn-ac" style={{ flex:1 }} onClick={sendOrderRequest} disabled={ordering}>
-                {ordering ? "Sending…" : `📤 Send Request (${Object.keys(orderItems).length} items)`}
-              </button>
-              <button className="btn btn-gh" onClick={() => setOrderOpen(false)}>Cancel</button>
-            </div>
-          </div>
-        </div>
-      )}
     </>
   );
 }
