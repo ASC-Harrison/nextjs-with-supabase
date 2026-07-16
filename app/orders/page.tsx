@@ -21,7 +21,8 @@ type Order = {
   item_id?: string | null;
   qty_actual_ordered: number | null;
   qty_actual_received: number | null;
-  status: "PENDING" | "ORDERED" | "BACKORDERED" | "RECEIVED";
+  status: "PENDING" | "ORDERED" | "BACKORDERED" | "RECEIVED" | "AWAITING";
+  partial_note?: string | null;
   confirmed_by: string | null;
   confirmed_at: string | null;
   received_at: string | null;
@@ -76,7 +77,7 @@ const CSS = `
   .auto-refresh{font-size:11px;color:#334155;margin-bottom:12px;}
 `;
 
-const STATUS_FILTERS = ["ALL", "PENDING", "ORDERED", "BACKORDERED", "RECEIVED"];
+const STATUS_FILTERS = ["ALL", "PENDING", "ORDERED", "BACKORDERED", "AWAITING", "RECEIVED"];
 
 export default function OrdersPage() {
   const router = useRouter();
@@ -96,6 +97,7 @@ export default function OrdersPage() {
   const [orderingId, setOrderingId] = useState<string | null>(null);
   const [receivingId, setReceivingId] = useState<string | null>(null);
   const [qtyReceivedInput, setQtyReceivedInput] = useState<string>("");
+  const [partialNoteInput, setPartialNoteInput] = useState<string>("");
   const [addedToInventory, setAddedToInventory] = useState<Set<string>>(new Set());
 
   async function loadOrders() {
@@ -254,6 +256,13 @@ export default function OrdersPage() {
                     {order.received_at && (
                       <div className="received-note">{"📦 Received · " + formatTime(order.received_at) + (order.received_by ? " · by " + order.received_by : "")}</div>
                     )}
+                    {order.status === "AWAITING" && order.partial_note && (
+                      <div style={{ background:"rgba(245,158,11,0.1)", border:"1px solid rgba(245,158,11,0.3)", borderRadius:8, padding:"8px 12px", fontSize:12, color:"#fcd34d", marginBottom:6 }}>
+                        🕐 <strong>Awaiting rest of order</strong>
+                        {order.qty_actual_received != null && <span> · {order.qty_actual_received} received so far</span>}
+                        <br />{order.partial_note}
+                      </div>
+                    )}
                     {order.status === "RECEIVED" && (order as any).item_id && order.qty_actual_received && !addedToInventory.has(order.id) && (
                       <div style={{ marginTop:8, background:"rgba(16,185,129,0.08)", border:"1px solid rgba(16,185,129,0.2)", borderRadius:10, padding:"10px 12px" }}>
                         <div style={{ fontSize:11, color:"#6ee7b7", fontWeight:700, marginBottom:6 }}>Add to MAIN SUPPLY inventory:</div>
@@ -309,7 +318,7 @@ export default function OrdersPage() {
                         <span> · Actual ordered: <strong style={{color:"#fcd34d"}}>{order.qty_actual_ordered}</strong></span>
                       )}
                     </div>
-                    <div style={{ display:"flex", gap:8, alignItems:"center" }}>
+                    <div style={{ display:"flex", gap:8, alignItems:"center", marginBottom:10 }}>
                       <input
                         type="number"
                         value={qtyReceivedInput}
@@ -330,15 +339,53 @@ export default function OrdersPage() {
                             setOrders(prev => prev.map(o => o.id === order.id ? { ...o, ...update } as Order : o));
                             setReceivingId(null);
                             setQtyReceivedInput("");
+                            setPartialNoteInput("");
                           } catch {}
                           finally { setUpdating(null); }
                         }}
                         disabled={updating === order.id}
                         className="btn btn-ok"
                       >
-                        {updating === order.id ? "…" : "Confirm"}
+                        {updating === order.id ? "…" : "✅ All Here"}
                       </button>
-                      <button onClick={() => { setReceivingId(null); setQtyReceivedInput(""); }} className="btn btn-gh">Cancel</button>
+                    </div>
+                    <div style={{ fontSize:11, color:"#fcd34d", fontWeight:700, marginBottom:4 }}>Or — only part of it came in?</div>
+                    <textarea
+                      value={partialNoteInput}
+                      onChange={e => setPartialNoteInput(e.target.value)}
+                      placeholder="Note: e.g. 3 of 10 arrived, rest on backorder from vendor"
+                      rows={2}
+                      style={{ width:"100%", borderRadius:8, border:"1px solid rgba(245,158,11,0.3)", background:"#111827", color:"#f0f6ff", padding:"8px 10px", fontSize:12, fontFamily:"inherit", outline:"none", resize:"vertical", marginBottom:8, boxSizing:"border-box" }}
+                    />
+                    <div style={{ display:"flex", gap:8 }}>
+                      <button
+                        onClick={async () => {
+                          if(updating) return;
+                          const qtyReceived = qtyReceivedInput.trim() ? Number(qtyReceivedInput) : 0;
+                          if(!partialNoteInput.trim()) { alert("Add a note explaining what's still awaited."); return; }
+                          setUpdating(order.id);
+                          try {
+                            const update: any = {
+                              status: "AWAITING",
+                              partial_note: partialNoteInput.trim(),
+                              qty_actual_received: qtyReceived > 0 ? qtyReceived : null,
+                              received_by: staffName,
+                            };
+                            await supabase.from("order_requests").update(update).eq("id", order.id);
+                            setOrders(prev => prev.map(o => o.id === order.id ? { ...o, ...update } as Order : o));
+                            setReceivingId(null);
+                            setQtyReceivedInput("");
+                            setPartialNoteInput("");
+                          } catch {}
+                          finally { setUpdating(null); }
+                        }}
+                        disabled={updating === order.id}
+                        className="btn"
+                        style={{ flex:1, background:"rgba(245,158,11,0.2)", color:"#fcd34d", border:"1px solid rgba(245,158,11,0.3)" }}
+                      >
+                        {updating === order.id ? "…" : "🕐 Partial — Move to Awaiting"}
+                      </button>
+                      <button onClick={() => { setReceivingId(null); setQtyReceivedInput(""); setPartialNoteInput(""); }} className="btn btn-gh">Cancel</button>
                     </div>
                   </div>
                 )}
@@ -384,9 +431,9 @@ export default function OrdersPage() {
                       {updating === order.id ? "Updating…" : "🔴 Backordered"}
                     </button>
                   )}
-                  {!isReadOnly && (order.status === "ORDERED" || order.status === "BACKORDERED") && receivingId !== order.id && (
-                    <button onClick={() => { setReceivingId(order.id); setQtyReceivedInput(String(order.qty_actual_ordered || order.qty_requested)); }} disabled={updating === order.id} className="btn btn-ok">
-                      📦 Mark Received
+                  {!isReadOnly && (order.status === "ORDERED" || order.status === "BACKORDERED" || order.status === "AWAITING") && receivingId !== order.id && (
+                    <button onClick={() => { setReceivingId(order.id); setQtyReceivedInput(""); setPartialNoteInput(""); }} disabled={updating === order.id} className="btn btn-ok">
+                      {order.status === "AWAITING" ? "📦 Receive Rest" : "📦 Mark Received"}
                     </button>
                   )}
                   {!isReadOnly && order.status === "PENDING" && (
