@@ -136,8 +136,12 @@ export default function Home() {
             )}
           </div>
 
-          <button onClick={() => router.push("/preop")} style={{ display:"block", width:"100%", borderRadius:14, padding:16, fontSize:15, fontWeight:700, border:"1px solid rgba(20,184,166,0.3)", cursor:"pointer", textAlign:"center", fontFamily:"inherit", background:"rgba(20,184,166,0.2)", color:"#5eead4", marginBottom:16 }}>
+          <button onClick={() => router.push("/preop")} style={{ display:"block", width:"100%", borderRadius:14, padding:16, fontSize:15, fontWeight:700, border:"1px solid rgba(20,184,166,0.3)", cursor:"pointer", textAlign:"center", fontFamily:"inherit", background:"rgba(20,184,166,0.2)", color:"#5eead4", marginBottom:8 }}>
             🏥 Pre-Op / PACU Inventory
+          </button>
+
+          <button onClick={() => router.push("/preop-testing")} style={{ display:"block", width:"100%", borderRadius:14, padding:16, fontSize:15, fontWeight:700, border:"1px solid rgba(14,165,233,0.3)", cursor:"pointer", textAlign:"center", fontFamily:"inherit", background:"rgba(14,165,233,0.2)", color:"#7dd3fc", marginBottom:16 }}>
+            🧪 Pre-Op Testing
           </button>
 
           <div style={{ background:"rgba(59,130,246,0.06)", border:"1px solid rgba(59,130,246,0.15)", borderRadius:12, padding:"12px 16px", textAlign:"center" }}>
@@ -175,8 +179,12 @@ export default function Home() {
           🔬 SPD Inventory View
         </button>
 
-        <button onClick={() => router.push("/preop")} style={{ ...btnBase, background:"rgba(20,184,166,0.15)", color:"#5eead4", border:"1px solid rgba(20,184,166,0.3)", marginBottom:10 }}>
+        <button onClick={() => router.push("/preop")} style={{ ...btnBase, background:"rgba(20,184,166,0.15)", color:"#5eead4", border:"1px solid rgba(20,184,166,0.3)", marginBottom:8 }}>
           🏥 Pre-Op / PACU
+        </button>
+
+        <button onClick={() => router.push("/preop-testing")} style={{ ...btnBase, background:"rgba(14,165,233,0.15)", color:"#7dd3fc", border:"1px solid rgba(14,165,233,0.3)", marginBottom:10 }}>
+          🧪 Pre-Op Testing
         </button>
 
         {isAdmin && (
