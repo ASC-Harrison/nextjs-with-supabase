@@ -9,7 +9,7 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 );
 
-const PREOP_TESTING_AREA_ID = "1e0ca86a-4c3c-451b-aa5c-a3d9e6a12213";
+const PREOP_AREA_ID = "1e0ca86a-4c3c-451b-aa5c-a3d9e6a12213";
 const MAIN_SUPPLY_ID = "a09eb27b-e4a1-449a-8d2e-c45b24d6514f";
 const ORDER_PIN = "1620";
 
@@ -86,7 +86,7 @@ const CSS = `
   .skel{animation:pulse 1.5s infinite;background:#162032;border-radius:10px;}
 `;
 
-export default function PreOpTestingPage() {
+export default function PreOpPage() {
   const router = useRouter();
   const [items, setItems] = useState<Item[]>([]);
   const [loading, setLoading] = useState(true);
@@ -119,12 +119,12 @@ export default function PreOpTestingPage() {
           setStaffName(name);
           setNamePrompt(false);
         } else {
-          const saved = localStorage.getItem("preop_staff_name") || "";
+          const saved = localStorage.getItem("preoptesting_staff_name") || "";
           if (saved) setStaffName(saved);
           else setNamePrompt(true);
         }
       } else {
-        const saved = localStorage.getItem("preop_staff_name") || "";
+        const saved = localStorage.getItem("preoptesting_staff_name") || "";
         if (saved) setStaffName(saved);
         else setNamePrompt(true);
       }
@@ -153,7 +153,7 @@ export default function PreOpTestingPage() {
       const { data } = await supabase
         .from("storage_inventory_area_view")
         .select("item_id, item_name, reference_number, vendor, unit, on_hand, par_level, low_level")
-        .eq("storage_area_id", PREOP_TESTING_AREA_ID)
+        .eq("storage_area_id", PREOP_AREA_ID)
         .gt("par_level", 0)
         .order("item_name");
       if (data) {
@@ -307,7 +307,7 @@ export default function PreOpTestingPage() {
                 <input
                   value={nameInput}
                   onChange={e => setNameInput(e.target.value)}
-                  onKeyDown={e => { if(e.key === "Enter" && nameInput.trim()) { setStaffName(nameInput.trim()); localStorage.setItem("preop_staff_name", nameInput.trim()); supabase.auth.updateUser({ data: { full_name: nameInput.trim() } }); setNamePrompt(false); }}}
+                  onKeyDown={e => { if(e.key === "Enter" && nameInput.trim()) { setStaffName(nameInput.trim()); localStorage.setItem("preoptesting_staff_name", nameInput.trim()); supabase.auth.updateUser({ data: { full_name: nameInput.trim() } }); setNamePrompt(false); }}}
                   placeholder="Enter your name"
                   className="inp"
                   style={{ marginBottom:12 }}
@@ -317,7 +317,7 @@ export default function PreOpTestingPage() {
                   onClick={() => {
                     if(!nameInput.trim()) return;
                     setStaffName(nameInput.trim());
-                    localStorage.setItem("preop_staff_name", nameInput.trim());
+                    localStorage.setItem("preoptesting_staff_name", nameInput.trim());
                     // Also save to Supabase user metadata
                     supabase.auth.updateUser({ data: { full_name: nameInput.trim() } });
                     setNamePrompt(false);
