@@ -25,28 +25,6 @@ export async function GET() {
   }
 }
 
-export async function PATCH(req: Request) {
-  try {
-    const { id, resolved_by } = await req.json();
-    if (!id) return NextResponse.json({ ok: false, error: "Missing id" });
-
-    const supabase = getServiceClient();
-    const { error } = await supabase
-      .from("restock_requests")
-      .update({
-        status: "RESTOCKED",
-        resolved_at: new Date().toISOString(),
-        resolved_by: resolved_by || "Admin",
-      })
-      .eq("id", id);
-
-    if (error) return NextResponse.json({ ok: false, error: error.message });
-    return NextResponse.json({ ok: true });
-  } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message ?? "Unknown error" });
-  }
-}
-
 export async function POST(req: Request) {
   try {
     const { item_id, item_name, requested_by, requested_from } = await req.json();
@@ -63,6 +41,41 @@ export async function POST(req: Request) {
       status: "PENDING",
     });
 
+    if (error) return NextResponse.json({ ok: false, error: error.message });
+    return NextResponse.json({ ok: true });
+  } catch (e: any) {
+    return NextResponse.json({ ok: false, error: e?.message ?? "Unknown error" });
+  }
+}
+
+const VALID_STATUSES = ["PENDING", "SEEN", "IN_ROUTE", "RESTOCKED", "OUT_OF_STOCK"];
+
+export async function PATCH(req: Request) {
+  try {
+    const body = await req.json();
+    const supabase = getServiceClient();
+
+    // Bulk: mark all PENDING as SEEN (called when admin opens the page)
+    if (body.mark_all_seen) {
+      const { error } = await supabase
+        .from("restock_requests")
+        .update({ status: "SEEN" })
+        .eq("status", "PENDING");
+      if (error) return NextResponse.json({ ok: false, error: error.message });
+      return NextResponse.json({ ok: true });
+    }
+
+    const { id, status, resolved_by } = body;
+    if (!id) return NextResponse.json({ ok: false, error: "Missing id" });
+    const newStatus = VALID_STATUSES.includes(status) ? status : "RESTOCKED";
+
+    const update: Record<string, any> = { status: newStatus };
+    if (newStatus === "RESTOCKED" || newStatus === "OUT_OF_STOCK") {
+      update.resolved_at = new Date().toISOString();
+      update.resolved_by = resolved_by || "Admin";
+    }
+
+    const { error } = await supabase.from("restock_requests").update(update).eq("id", id);
     if (error) return NextResponse.json({ ok: false, error: error.message });
     return NextResponse.json({ ok: true });
   } catch (e: any) {
