@@ -97,6 +97,23 @@ export default function PreOpPage() {
   const [nameInput, setNameInput] = useState("");
   const [submitting, setSubmitting] = useState<string | null>(null);
   const [msg, setMsg] = useState<{id:string;type:"ok"|"err";text:string} | null>(null);
+  const [myRequests, setMyRequests] = useState<any[]>([]);
+
+  async function loadMyRequests() {
+    try {
+      const res = await fetch("/api/restock-request");
+      const json = await res.json();
+      if (json.ok && json.data) {
+        setMyRequests(json.data.filter((r: any) => r.requested_from === "Pre-Op/PACU").slice(0, 15));
+      }
+    } catch {}
+  }
+
+  useEffect(() => {
+    loadMyRequests();
+    const interval = setInterval(loadMyRequests, 20000);
+    return () => clearInterval(interval);
+  }, []);
 
   // Order request state
   const [orderPinOpen, setOrderPinOpen] = useState(false);
@@ -331,6 +348,29 @@ export default function PreOpPage() {
             </div>
           )}
 
+          {/* My restock requests with live status */}
+          {myRequests.length > 0 && (
+            <div style={{ background:"#162032", border:"1px solid #1e3a5f", borderRadius:14, padding:14, marginBottom:14 }}>
+              <div style={{ fontSize:12, fontWeight:800, color:"#d8b4fe", textTransform:"uppercase", letterSpacing:0.5, marginBottom:8 }}>📋 Recent Restock Requests</div>
+              {myRequests.map((r: any) => {
+                const statusInfo: Record<string, {label: string; color: string; bg: string}> = {
+                  PENDING: { label: "📨 Request Sent", color: "#94a3b8", bg: "rgba(148,163,184,0.1)" },
+                  SEEN: { label: "👀 Seen by Receiving", color: "#fcd34d", bg: "rgba(245,158,11,0.1)" },
+                  IN_ROUTE: { label: "🚚 On the Way!", color: "#93c5fd", bg: "rgba(59,130,246,0.1)" },
+                  RESTOCKED: { label: "✅ Restocked", color: "#6ee7b7", bg: "rgba(16,185,129,0.1)" },
+                  OUT_OF_STOCK: { label: "❌ Currently Out of Stock", color: "#fca5a5", bg: "rgba(239,68,68,0.1)" },
+                };
+                const s = statusInfo[r.status] || statusInfo.PENDING;
+                return (
+                  <div key={r.id} style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:8, padding:"7px 0", borderBottom:"1px solid #1e3a5f" }}>
+                    <div style={{ fontSize:12, fontWeight:700, color:"#f0f6ff", flex:1, minWidth:0, wordBreak:"break-word" }}>{r.item_name}</div>
+                    <span style={{ fontSize:10, fontWeight:800, color:s.color, background:s.bg, borderRadius:6, padding:"3px 8px", whiteSpace:"nowrap", flexShrink:0 }}>{s.label}</span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
           {/* Search */}
           <div className="search-row">
             <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search items…" className="search-inp" />
@@ -379,6 +419,7 @@ export default function PreOpPage() {
                       const json = await res.json();
                       if (!json.ok) throw new Error(json.error);
                       setMsg({ id: item.item_id, type:"ok", text: `🔄 Restock requested for ${item.name}` });
+                      loadMyRequests();
                       setTimeout(() => setMsg(null), 3000);
                     } catch(e:any) {
                       setMsg({ id: item.item_id, type:"err", text: e?.message ?? "Failed to request restock" });
