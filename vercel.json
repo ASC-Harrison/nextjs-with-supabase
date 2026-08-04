@@ -2,15 +2,12 @@
   "crons": [
     {
       "path": "/api/inventory-check",
-      "schedule": "0 7 * * *"
-    },
-    {
-      "path": "/api/inventory-check",
-      "schedule": "0 12 * * *"
-    },
-    {
-      "path": "/api/inventory-check",
-      "schedule": "0 17 * * *"
+      "schedule": "0 * * * *"
     }
-  ]
+  ],
+  "functions": {
+    "app/api/**/*.ts": {
+      "maxDuration": 30
+    }
+  }
 }
