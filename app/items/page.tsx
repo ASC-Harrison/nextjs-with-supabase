@@ -96,21 +96,30 @@ export default function ItemsPage() {
     supabase.from("storage_areas").select("id,name").order("name").then(({data}) => {
       if (data) setAreas(data as Area[]);
     });
-    supabase.from("items").select("id,name,reference_number,vendor,category,unit").eq("is_active",true).order("name").then(async ({data}) => {
-      if (data) {
-        const { data: totals } = await supabase
-          .from("building_inventory_sheet_view")
-          .select("item_id,total_on_hand,par_level,low_level");
-        const totalsMap = totals ? Object.fromEntries(totals.map((t:any) => [t.item_id, t])) : {};
-        const enriched = data.map((i:any) => ({
-          ...i,
-          building_on_hand: totalsMap[i.id]?.total_on_hand ?? null,
-          par_level: totalsMap[i.id]?.par_level ?? null,
-          low_level: totalsMap[i.id]?.low_level ?? null,
-        }));
-        setAllItems(enriched as Item[]);
+    async function loadItemsList(retriesLeft = 2) {
+      try {
+        const withTimeout = (p: Promise<any>, ms: number) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), ms))]);
+        const { data, error } = await withTimeout(supabase.from("items").select("id,name,reference_number,vendor,category,unit").eq("is_active",true).order("name"), 10000) as any;
+        if (error) throw error;
+        if (data) {
+          const { data: totals } = await withTimeout(supabase.from("building_inventory_sheet_view").select("item_id,total_on_hand,par_level,low_level"), 10000) as any;
+          const totalsMap = totals ? Object.fromEntries(totals.map((t:any) => [t.item_id, t])) : {};
+          const enriched = data.map((i:any) => ({
+            ...i,
+            building_on_hand: totalsMap[i.id]?.total_on_hand ?? null,
+            par_level: totalsMap[i.id]?.par_level ?? null,
+            low_level: totalsMap[i.id]?.low_level ?? null,
+          }));
+          setAllItems(enriched as Item[]);
+        }
+      } catch (e) {
+        if (retriesLeft > 0) {
+          await new Promise(r => setTimeout(r, 1000));
+          return loadItemsList(retriesLeft - 1);
+        }
       }
-    });
+    }
+    loadItemsList();
   }, []);
 
   useEffect(() => {
@@ -193,12 +202,28 @@ export default function ItemsPage() {
     finally { setCheckingExisting(false); }
   }
 
+  async function fetchWithRetry(url: string, options: RequestInit, retries = 2, timeoutMs = 12000): Promise<Response> {
+    for (let attempt = 0; attempt <= retries; attempt++) {
+      try {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), timeoutMs);
+        const res = await fetch(url, { ...options, signal: controller.signal });
+        clearTimeout(timer);
+        return res;
+      } catch (e) {
+        if (attempt === retries) throw e;
+        await new Promise(r => setTimeout(r, 800));
+      }
+    }
+    throw new Error("Request failed after retries");
+  }
+
   async function handleAddToArea() {
     if (!selectedItem) return showMsg("err", "Select an item first.");
     if (!selectedArea) return showMsg("err", "Select a storage area.");
     setLoading(true);
     try {
-      const res = await fetch("/api/items/add-to-area", {
+      const res = await fetchWithRetry("/api/items/add-to-area", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -218,7 +243,7 @@ export default function ItemsPage() {
       setItemSearch("");
       setExistingValues(null);
     } catch(e: any) {
-      showMsg("err", e?.message ?? "Failed to add item");
+      showMsg("err", e?.name === "AbortError" ? "Request timed out — check your connection and try again." : (e?.message ?? "Failed to add item"));
     }
     setLoading(false);
   }
