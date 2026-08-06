@@ -114,6 +114,57 @@ export default function Home() {
     );
   }
 
+  const [pushEnabled, setPushEnabled] = useState(false);
+  const [pushLoading, setPushLoading] = useState(false);
+
+  useEffect(() => {
+    if ("serviceWorker" in navigator && "PushManager" in window) {
+      navigator.serviceWorker.getRegistration().then(reg => {
+        if (reg) {
+          reg.pushManager.getSubscription().then(sub => setPushEnabled(!!sub));
+        }
+      });
+    }
+  }, []);
+
+  async function enablePush() {
+    setPushLoading(true);
+    try {
+      if (!("serviceWorker" in navigator) || !("PushManager" in window)) {
+        alert("Push notifications aren't supported on this browser/device.");
+        setPushLoading(false);
+        return;
+      }
+      const reg = await navigator.serviceWorker.register("/sw.js");
+      const permission = await Notification.requestPermission();
+      if (permission !== "granted") {
+        alert("Notifications were blocked. Enable them in your browser/phone settings to get restock alerts.");
+        setPushLoading(false);
+        return;
+      }
+      const VAPID_PUBLIC = "BMSdz66vdOV6IRhh5ObmNo8hnU8YlznA3mTxP22SG1JmRrSEhyeurlf5g2qKezphEc76qAjfIkBD9vI2PY9PNJI";
+      function urlBase64ToUint8Array(base64String: string) {
+        const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
+        const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
+        const rawData = atob(base64);
+        return Uint8Array.from([...rawData].map(c => c.charCodeAt(0)));
+      }
+      const sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC),
+      });
+      await fetch("/api/push-subscribe", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ subscription: sub, staff_name: userEmail }),
+      });
+      setPushEnabled(true);
+    } catch (e: any) {
+      alert("Failed to enable notifications: " + (e?.message ?? "unknown error"));
+    }
+    setPushLoading(false);
+  }
+
   const btnBase: React.CSSProperties = {
     display:"block", width:"100%", borderRadius:14, padding:"13px 16px",
     fontSize:14, fontWeight:700, border:"none", cursor:"pointer",
@@ -174,6 +225,21 @@ export default function Home() {
         <button onClick={() => router.push("/inventory")} style={{ ...btnBase, background:"#fff", color:"#000", fontSize:15, padding:16, borderRadius:16, marginBottom:8 }}>
           🚀 Launch App
         </button>
+
+        <button onClick={() => router.push("/scan-item")} style={{ ...btnBase, background:"rgba(139,92,246,0.15)", color:"#c4b5fd", border:"1px solid rgba(139,92,246,0.3)", marginBottom:8 }}>
+          📷 Scan Ref Number
+        </button>
+
+        {!pushEnabled && (
+          <button onClick={enablePush} disabled={pushLoading} style={{ ...btnBase, background:"rgba(239,68,68,0.15)", color:"#fca5a5", border:"1px solid rgba(239,68,68,0.3)", marginBottom:8 }}>
+            {pushLoading ? "Enabling…" : "🔔 Enable Restock Alerts on This Phone"}
+          </button>
+        )}
+        {pushEnabled && (
+          <div style={{ background:"rgba(16,185,129,0.1)", border:"1px solid rgba(16,185,129,0.3)", borderRadius:10, padding:"10px 14px", fontSize:12, color:"#6ee7b7", marginBottom:8, textAlign:"center", fontWeight:700 }}>
+            🔔 Restock alerts are ON for this phone
+          </div>
+        )}
 
         <button onClick={() => router.push("/spd")} style={{ ...btnBase, background:"rgba(99,102,241,0.15)", color:"#a5b4fc", border:"1px solid rgba(99,102,241,0.3)", marginBottom:8 }}>
           🔬 SPD Inventory View
