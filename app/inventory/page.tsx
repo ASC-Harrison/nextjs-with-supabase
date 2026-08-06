@@ -302,6 +302,8 @@ export default function InventoryPage() {
   const [totalsZeroOnly,setTotalsZeroOnly]=useState(false);
   const [totalsShowInactive,setTotalsShowInactive]=useState(false);
   const [totalsEditOpen,setTotalsEditOpen]=useState(false);
+  const [quickOrderQty,setQuickOrderQty]=useState("");
+  const [quickOrderSending,setQuickOrderSending]=useState(false);
   const [totalsEditRow,setTotalsEditRow]=useState<BuildingTotalRow|null>(null);
   const [setOnHandInput,setSetOnHandInput]=useState<string>("");
   const [deltaInput,setDeltaInput]=useState<string>("");
@@ -458,7 +460,7 @@ export default function InventoryPage() {
 
   async function loadOrderRowsForItem(itemId:string,mode2:"modal"|"totals"="modal"){if(mode2==="modal"){setOrderStatusLoading(true);setOrderStatusRows([]);}else{setTotalsOrderLoading(true);setTotalsOrderRows([]);}try{const{data,error}=await supabase.from("purchase_order_items").select("id,qty_ordered,qty_received,status,notes,purchase_orders(id,po_number,vendor,status,expected_date,order_date,notes)").eq("item_id",itemId).order("created_at",{ascending:false});if(error)throw error;if(mode2==="modal")setOrderStatusRows((data as OrderStatusRow[])??[]);else setTotalsOrderRows((data as OrderStatusRow[])??[]);}catch(e:any){if(mode2==="modal"){alert(`Order status failed: ${e?.message??"unknown error"}`);setOrderStatusOpen(false);}else setTotalsOrderRows([]);}finally{if(mode2==="modal")setOrderStatusLoading(false);else setTotalsOrderLoading(false);}}
   async function openOrderStatus(){if(!item?.id)return;setOrderStatusOpen(true);await loadOrderRowsForItem(item.id,"modal");}
-  async function openTotalsEditor(row:BuildingTotalRow){setTotalsEditRow(row);setSetOnHandInput("");setDeltaInput("");setParInput(String(row.par_level??0));setVendorInput(row.vendor??"");setCategoryInput(row.category??"");setUnitInput(row.unit??"");setNotesInput(row.notes??"");setTotalsLowInput(String(row.low_level??0));setRefInput(row.reference_number??"");setTotalsOrderStatusInput(row.order_status||"IN STOCK");setTotalsBackorderedInput(!!row.backordered);setSupplySourceInput(row.supply_source||"VENDOR");setPriceInput(row.price!=null?String(row.price):"");setExpirationInput(row.expiration_date||"");setTotalsEditOpen(true);loadOrderRowsForItem(row.item_id,"totals").catch(()=>{});}
+  async function openTotalsEditor(row:BuildingTotalRow){setTotalsEditRow(row);setSetOnHandInput("");setDeltaInput("");setQuickOrderQty("");setParInput(String(row.par_level??0));setVendorInput(row.vendor??"");setCategoryInput(row.category??"");setUnitInput(row.unit??"");setNotesInput(row.notes??"");setTotalsLowInput(String(row.low_level??0));setRefInput(row.reference_number??"");setTotalsOrderStatusInput(row.order_status||"IN STOCK");setTotalsBackorderedInput(!!row.backordered);setSupplySourceInput(row.supply_source||"VENDOR");setPriceInput(row.price!=null?String(row.price):"");setExpirationInput(row.expiration_date||"");setTotalsEditOpen(true);loadOrderRowsForItem(row.item_id,"totals").catch(()=>{});}
   function parseIntSafe(raw:string):number|null{const cleaned=raw.trim();if(!cleaned||!/^-?\d+$/.test(cleaned))return null;const n=Number(cleaned);return Number.isFinite(n)?n:null;}
 
   async function fetchWithRetry(url:string,options:RequestInit,retries=2,timeoutMs=12000):Promise<Response>{for(let attempt=0;attempt<=retries;attempt++){try{const controller=new AbortController();const timer=setTimeout(()=>controller.abort(),timeoutMs);const res=await fetch(url,{...options,signal:controller.signal});clearTimeout(timer);return res;}catch(e){if(attempt===retries)throw e;await new Promise(r=>setTimeout(r,800));}}throw new Error("Request failed after retries");}
@@ -810,6 +812,36 @@ export default function InventoryPage() {
           <div style={{marginBottom:16}}>
             <div style={{fontSize:16,fontWeight:800,color:"var(--text)",wordBreak:"break-word",letterSpacing:"-0.3px"}}>{totalsEditRow.name}</div>
             <div style={{fontSize:12,color:"var(--text2)",marginTop:3}}>{totalsEditRow.vendor??"—"} · {totalsEditRow.category??"—"}{totalsEditRow.reference_number?` · ${totalsEditRow.reference_number}`:""}</div>
+          </div>
+          <div className="c-panel mb3" style={{background:"rgba(59,130,246,0.06)",border:"1px solid rgba(59,130,246,0.2)"}}>
+            <div className="s-title" style={{color:"#3b82f6"}}>📦 Order this item</div>
+            {(totalsEditRow.alert_note||totalsEditRow.notes) && (
+              <div style={{fontSize:11,color:"#fcd34d",background:"rgba(245,158,11,0.08)",border:"1px solid rgba(245,158,11,0.2)",borderRadius:6,padding:"5px 8px",marginTop:6,marginBottom:8}}>⚡ {totalsEditRow.alert_note||totalsEditRow.notes}</div>
+            )}
+            <div className="fx mt2">
+              <input value={quickOrderQty} onChange={(e)=>setQuickOrderQty(e.target.value.replace(/\D/g,""))} inputMode="numeric" className="inp" placeholder="Qty to order" style={{flex:1,fontSize:16,fontWeight:800,textAlign:"center"}} />
+              <button
+                onClick={async()=>{
+                  const q=parseIntSafe(quickOrderQty);
+                  if(q===null||q<=0){alert("Enter a quantity to order.");return;}
+                  setQuickOrderSending(true);
+                  try{
+                    const res=await fetchWithRetry("/api/order-request",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({items:[{name:totalsEditRow.name,item_id:totalsEditRow.item_id,reference_number:totalsEditRow.reference_number||null,vendor:totalsEditRow.vendor||null,unit:totalsEditRow.unit||null,qty:q,alert_note:totalsEditRow.alert_note||totalsEditRow.notes||null}],requested_by:(staffName||"").trim()||"Staff"})});
+                    const json=await res.json();
+                    if(!json.ok)throw new Error(json.error);
+                    setQuickOrderQty("");
+                    alert(`✅ Order request sent for ${q} × ${totalsEditRow.name}`);
+                  }catch(e:any){
+                    alert(e?.name==="AbortError"?"Request timed out — try again.":(e?.message??"Failed to send order request"));
+                  }
+                  setQuickOrderSending(false);
+                }}
+                disabled={quickOrderSending}
+                className="btn btn-ac s0"
+              >
+                {quickOrderSending?"Sending…":"📤 Send Order"}
+              </button>
+            </div>
           </div>
           <div className="c-panel mb3">
             <div className="s-title">Item status</div>
