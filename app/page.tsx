@@ -21,6 +21,18 @@ export default function Home() {
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [areas, setAreas] = useState<Area[]>([]);
+  const [pushEnabled, setPushEnabled] = useState(false);
+  const [pushLoading, setPushLoading] = useState(false);
+
+  useEffect(() => {
+    if ("serviceWorker" in navigator && "PushManager" in window) {
+      navigator.serviceWorker.getRegistration().then(reg => {
+        if (reg) {
+          reg.pushManager.getSubscription().then(sub => setPushEnabled(!!sub));
+        }
+      });
+    }
+  }, []);
 
   useEffect(() => {
     const ping = () => supabase.from("storage_areas").select("id").limit(1).then(() => {});
@@ -113,19 +125,6 @@ export default function Home() {
       </main>
     );
   }
-
-  const [pushEnabled, setPushEnabled] = useState(false);
-  const [pushLoading, setPushLoading] = useState(false);
-
-  useEffect(() => {
-    if ("serviceWorker" in navigator && "PushManager" in window) {
-      navigator.serviceWorker.getRegistration().then(reg => {
-        if (reg) {
-          reg.pushManager.getSubscription().then(sub => setPushEnabled(!!sub));
-        }
-      });
-    }
-  }, []);
 
   async function enablePush() {
     setPushLoading(true);
