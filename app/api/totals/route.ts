@@ -1,13 +1,16 @@
-export const dynamic = "force-dynamic";
-export const revalidate = 0;
-
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
-export async function GET() {
-  const headers = { "Cache-Control": "no-store" };
+// Totals are read-only and are safe to cache very briefly. This removes repeated
+// cold database work when users move in and out of the Totals screen while still
+// keeping inventory effectively live.
+export const revalidate = 5;
 
-  // Pull inventory with joins
+export async function GET() {
+  const headers = {
+    "Cache-Control": "public, s-maxage=5, stale-while-revalidate=30",
+  };
+
   const { data, error } = await supabaseAdmin
     .from("storage_inventory")
     .select(`
@@ -18,12 +21,10 @@ export async function GET() {
     `);
 
   if (error) {
-    return NextResponse.json({ ok: false, error: error.message }, { status: 500, headers });
+    return NextResponse.json({ ok: false, error: error.message }, { status: 500, headers: { "Cache-Control": "no-store" } });
   }
 
   const rows = data ?? [];
-
-  // Build totals
   const perAreaMap = new Map<string, { area_id: string; area_name: string; on_hand_total: number; par_total: number; low_count: number }>();
 
   let overall_on_hand_total = 0;
@@ -52,7 +53,6 @@ export async function GET() {
     existing.on_hand_total += on_hand;
     existing.par_total += par;
     if (low) existing.low_count += 1;
-
     perAreaMap.set(area_id, existing);
   }
 
