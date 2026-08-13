@@ -25,13 +25,33 @@ export default function Home() {
   const [pushLoading, setPushLoading] = useState(false);
 
   useEffect(() => {
-    if ("serviceWorker" in navigator && "PushManager" in window) {
-      navigator.serviceWorker.getRegistration().then(reg => {
-        if (reg) {
-          reg.pushManager.getSubscription().then(sub => setPushEnabled(!!sub));
-        }
-      });
+    if (!("serviceWorker" in navigator) || !("PushManager" in window)) return;
+
+    let cancelled = false;
+
+    async function syncExistingPushSubscription() {
+      try {
+        const reg = await navigator.serviceWorker.register("/sw.js");
+        const sub = await reg.pushManager.getSubscription();
+        if (!sub) return;
+
+        const response = await fetch("/api/push-subscribe", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            subscription: sub,
+            staff_name: localStorage.getItem("asc_user_email"),
+          }),
+        });
+        if (!response.ok) throw new Error(`Push subscription sync failed (${response.status})`);
+        if (!cancelled) setPushEnabled(true);
+      } catch (error) {
+        console.error("Failed to sync existing push subscription:", error);
+      }
     }
+
+    void syncExistingPushSubscription();
+    return () => { cancelled = true; };
   }, []);
 
   useEffect(() => {

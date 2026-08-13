@@ -51,6 +51,12 @@ const PREMIUM_CSS = `
   *, *::before, *::after { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   .p-root { min-height:100vh; width:100%; background:var(--bg); color:var(--text); overflow-x:hidden; display:flex; justify-content:center; font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','Segoe UI',sans-serif; -webkit-font-smoothing:antialiased; }
   .p-wrap { width:100%; max-width:480px; padding:0 14px 48px; padding-top:env(safe-area-inset-top,0px); overflow-x:hidden; }
+  @media (min-width:768px) {
+    .p-wrap { max-width:none; padding-left:24px; padding-right:24px; }
+  }
+  @media (min-width:1200px) {
+    .p-wrap { padding-left:32px; padding-right:32px; }
+  }
   .back-btn { display:inline-flex; align-items:center; gap:6px; background:var(--surface); border:1px solid var(--border); border-radius:var(--r-md); padding:8px 16px; font-size:13px; font-weight:600; color:var(--text2); cursor:pointer; margin-top:12px; margin-bottom:14px; transition:var(--t); font-family:inherit; }
   .back-btn:hover { color:var(--text); border-color:var(--border-ac); background:var(--card2); }
   .hdr-card { background:linear-gradient(135deg,var(--card) 0%,var(--bg2) 100%); border-radius:var(--r-xl); border:1px solid var(--border); padding:18px; box-shadow:var(--shadow-md); position:relative; overflow:hidden; }
