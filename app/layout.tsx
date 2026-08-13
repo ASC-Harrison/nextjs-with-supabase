@@ -25,9 +25,13 @@ export default function RootLayout({
 }: {
   children: React.ReactNode;
 }) {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+
   return (
     <html lang="en">
       <head>
+        {supabaseUrl ? <link rel="preconnect" href={supabaseUrl} crossOrigin="anonymous" /> : null}
+        {supabaseUrl ? <link rel="dns-prefetch" href={supabaseUrl} /> : null}
         <link rel="manifest" href="/manifest.json" />
         <link rel="apple-touch-icon" href="/icon-192.png" />
         <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -44,4 +48,3 @@ export default function RootLayout({
     </html>
   );
 }
-
