@@ -57,6 +57,19 @@ const PREMIUM_CSS = `
   @media (min-width:1200px) {
     .p-wrap { padding-left:32px; padding-right:32px; }
   }
+  @media (min-width:768px) {
+    .hdr-card, .c-card { padding:24px; }
+    .dashboard-grid {
+      display:grid;
+      grid-template-columns:repeat(2,minmax(0,1fr));
+      gap:12px;
+      align-items:start;
+    }
+    .dashboard-grid > * { margin-top:0; min-width:0; }
+  }
+  @media (min-width:1280px) {
+    .inventory-grid { grid-template-columns:repeat(3,minmax(0,1fr)); }
+  }
   .back-btn { display:inline-flex; align-items:center; gap:6px; background:var(--surface); border:1px solid var(--border); border-radius:var(--r-md); padding:8px 16px; font-size:13px; font-weight:600; color:var(--text2); cursor:pointer; margin-top:12px; margin-bottom:14px; transition:var(--t); font-family:inherit; }
   .back-btn:hover { color:var(--text); border-color:var(--border-ac); background:var(--card2); }
   .hdr-card { background:linear-gradient(135deg,var(--card) 0%,var(--bg2) 100%); border-radius:var(--r-xl); border:1px solid var(--border); padding:18px; box-shadow:var(--shadow-md); position:relative; overflow:hidden; }
@@ -551,7 +564,7 @@ export default function InventoryPage() {
                   </div>
                   <input value={areaInvSearch} onChange={(e)=>setAreaInvSearch(e.target.value)} placeholder="Search item, vendor, category, status…" className="inp mt3" />
                   {areaInvError && <div style={{color:"#fca5a5",fontSize:12,marginTop:8,wordBreak:"break-word"}}>{areaInvError}</div>}
-                  <div className="sp mt3">
+                  <div className="sp mt3 dashboard-grid inventory-grid">
                     {filteredAreaInv.slice(0,200).map((r)=>{
                       const oh=r.on_hand??0;const par=r.par_level??0;const low=r.low_level??0;const isLow=low>0&&oh<=low;
                       return (
@@ -741,7 +754,7 @@ export default function InventoryPage() {
               </div>
               {!isReadOnly && <button onClick={()=>{setOrderPinInput("");setOrderPinError(false);setOrderPinOpen(true);}} className="btn btn-ac btn-full mb3" style={{fontSize:13}}>📦 Request Order</button>}
               {totalsError && <div style={{color:"#fca5a5",fontSize:12,marginBottom:10,wordBreak:"break-word"}}>{totalsError}</div>}
-              <div className="sp">
+              <div className="sp dashboard-grid inventory-grid">
                 {filteredTotals.map((r)=>{
                   const oh=r.total_on_hand??0;const low=r.low_level??0;const par=r.par_level??0;
                   const zeroSetup=par===0||low===0;const isLow=low>0&&oh<=low;
@@ -795,7 +808,7 @@ export default function InventoryPage() {
               </div>
               <div className="divider" />
               <div className="s-lbl">Recent Events</div>
-              <div className="sp">
+              <div className="sp dashboard-grid">
                 {audit.length===0?(<div className="c-deep" style={{textAlign:"center",color:"var(--text3)",fontSize:13,padding:"20px 0"}}>No audit events yet.</div>):(audit.slice(0,60).map((e)=>(<div key={e.id} className="audit-card"><div className="audit-hdr"><span className="audit-act" style={auditStyle(e.action)}>{e.action}</span><span className="audit-time">{new Date(e.ts).toLocaleString()}</span></div><div className="audit-stf">Staff: <strong>{e.staff}</strong></div>{e.details&&<div className="audit-det">{e.details}</div>}</div>)))}
               </div>
             </div>
