@@ -8,7 +8,9 @@ export const revalidate = 5;
 
 export async function GET() {
   const headers = {
-    "Cache-Control": "public, s-maxage=5, stale-while-revalidate=30",
+    // Keep a tiny browser cache so reopening Totals can be nearly instant,
+    // while Vercel can continue serving a fresh/stale response in the background.
+    "Cache-Control": "public, max-age=5, s-maxage=15, stale-while-revalidate=30",
   };
 
   const { data, error } = await supabaseAdmin
