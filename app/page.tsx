@@ -32,7 +32,24 @@ export default function Home() {
     async function syncExistingPushSubscription() {
       try {
         const reg = await navigator.serviceWorker.register("/sw.js");
-        const sub = await reg.pushManager.getSubscription();
+        let sub = await reg.pushManager.getSubscription();
+
+        // A browser can retain notification permission after its push
+        // subscription is lost. Repair that state without asking the user
+        // to disable and re-enable notifications.
+        if (!sub && Notification.permission === "granted") {
+          const VAPID_PUBLIC = "BMSdz66vdOV6IRhh5ObmNo8hnU8YlznA3mTxP22SG1JmRrSEhyeurlf5g2qKezphEc76qAjfIkBD9vI2PY9PNJI";
+          const padding = "=".repeat((4 - (VAPID_PUBLIC.length % 4)) % 4);
+          const base64 = (VAPID_PUBLIC + padding).replace(/-/g, "+").replace(/_/g, "/");
+          const applicationServerKey = Uint8Array.from(
+            [...atob(base64)].map(character => character.charCodeAt(0)),
+          );
+          sub = await reg.pushManager.subscribe({
+            userVisibleOnly: true,
+            applicationServerKey,
+          });
+        }
+
         if (!sub) return;
 
         const response = await fetch("/api/push-subscribe", {
