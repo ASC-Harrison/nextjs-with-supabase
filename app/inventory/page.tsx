@@ -317,6 +317,7 @@ export default function InventoryPage() {
   const [totalsLoading,setTotalsLoading]=useState(false);
   const [totalsError,setTotalsError]=useState("");
   const [totalsSearch,setTotalsSearch]=useState("");
+  const [sutureView,setSutureView]=useState<"ALL"|"ATTENTION">("ALL");
   const [totalsLowOnly,setTotalsLowOnly]=useState(false);
   const [totalsZeroOnly,setTotalsZeroOnly]=useState(false);
   const [totalsShowInactive,setTotalsShowInactive]=useState(false);
@@ -739,6 +740,7 @@ export default function InventoryPage() {
             const rows=totals
               .filter((r)=>!!r.is_active && ([r.name,r.category,r.notes].some((v)=>/(sutur|sutrue)/i.test(v||"")) || /(vicryl|monocryl|prolene|ethilon|ethibond|fiberwire|fibertape|fiberloop|fiberlink|tigerlink|nylon|quill|bonewax|surgical needle|ties)/i.test(r.name||"")))
               .filter((r)=>!q || [r.name,r.reference_number,r.vendor,r.category,r.order_status].some((v)=>(v||"").toLowerCase().includes(q)))
+              .filter((r)=>sutureView==="ALL" || (r.total_on_hand??0)===0 || ((r.low_level??0)>0&&(r.total_on_hand??0)<=(r.low_level??0)) || !!r.backordered || ["OUT OF STOCK","BACKORDER","PARTIAL"].includes((r.order_status||"").toUpperCase()))
               .sort((a,b)=>{
                 const aOut=(a.total_on_hand??0)===0;const bOut=(b.total_on_hand??0)===0;
                 if(aOut!==bOut)return aOut?-1:1;
@@ -748,6 +750,7 @@ export default function InventoryPage() {
             const totalOnHand=allSutures.reduce((sum,r)=>sum+(r.total_on_hand??0),0);
             const outCount=allSutures.filter((r)=>(r.total_on_hand??0)===0).length;
             const lowCount=allSutures.filter((r)=>(r.low_level??0)>0&&(r.total_on_hand??0)<=(r.low_level??0)).length;
+            const attentionCount=allSutures.filter((r)=>(r.total_on_hand??0)===0 || ((r.low_level??0)>0&&(r.total_on_hand??0)<=(r.low_level??0)) || !!r.backordered || ["OUT OF STOCK","BACKORDER","PARTIAL"].includes((r.order_status||"").toUpperCase())).length;
             return (
               <div className="c-card anim">
                 <div className="tot-hdr"><div><div className="tot-title">Suture Inventory</div><div className="s-desc" style={{marginBottom:0}}>Building totals organized by suture shelf. Tap any suture to edit.</div></div><div className="tot-count">{totalsLoading?"Loading…":`${rows.length} shown`}</div></div>
@@ -755,6 +758,10 @@ export default function InventoryPage() {
                   <div className="stat-pill"><div className="stat-lbl">Suture Types</div><div className="stat-val">{allSutures.length}</div></div>
                   <div className="stat-pill"><div className="stat-lbl">On Hand</div><div className="stat-val">{totalOnHand}</div></div>
                   <div className="stat-pill wb"><div className="stat-lbl">Needs Attention</div><div className="stat-val w">{Math.max(outCount,lowCount)}</div></div>
+                </div>
+                <div className="tog-wrap-2" style={{marginBottom:12}}>
+                  <button onClick={()=>setSutureView("ALL")} className={`tog ${sutureView==="ALL"?"on":"off"}`}>ALL SUTURES ({allSutures.length})</button>
+                  <button onClick={()=>setSutureView("ATTENTION")} className={`tog ${sutureView==="ATTENTION"?"on-red":"off"}`}>NEEDS ATTENTION ({attentionCount})</button>
                 </div>
                 <input value={totalsSearch} onChange={(e)=>setTotalsSearch(e.target.value)} placeholder="Search suture, shelf, vendor, or reference #…" className="inp mb3" />
                 <div className="sp dashboard-grid inventory-grid">
