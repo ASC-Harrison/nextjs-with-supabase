@@ -737,14 +737,14 @@ export default function InventoryPage() {
           {tab==="Sutures" && (()=>{
             const q=totalsSearch.trim().toLowerCase();
             const rows=totals
-              .filter((r)=>!!r.is_active && [r.name,r.category,r.notes].some((v)=>(v||"").toLowerCase().includes("sutur")))
+              .filter((r)=>!!r.is_active && ([r.name,r.category,r.notes].some((v)=>/(sutur|sutrue)/i.test(v||"")) || /(vicryl|monocryl|prolene|ethilon|ethibond|fiberwire|fibertape|fiberloop|fiberlink|tigerlink|nylon|quill|bonewax|surgical needle|ties)/i.test(r.name||"")))
               .filter((r)=>!q || [r.name,r.reference_number,r.vendor,r.category,r.order_status].some((v)=>(v||"").toLowerCase().includes(q)))
               .sort((a,b)=>{
                 const aOut=(a.total_on_hand??0)===0;const bOut=(b.total_on_hand??0)===0;
                 if(aOut!==bOut)return aOut?-1:1;
                 return (a.category||"").localeCompare(b.category||"") || a.name.localeCompare(b.name);
               });
-            const allSutures=totals.filter((r)=>!!r.is_active && [r.name,r.category,r.notes].some((v)=>(v||"").toLowerCase().includes("sutur")));
+            const allSutures=totals.filter((r)=>!!r.is_active && ([r.name,r.category,r.notes].some((v)=>/(sutur|sutrue)/i.test(v||"")) || /(vicryl|monocryl|prolene|ethilon|ethibond|fiberwire|fibertape|fiberloop|fiberlink|tigerlink|nylon|quill|bonewax|surgical needle|ties)/i.test(r.name||"")));
             const totalOnHand=allSutures.reduce((sum,r)=>sum+(r.total_on_hand??0),0);
             const outCount=allSutures.filter((r)=>(r.total_on_hand??0)===0).length;
             const lowCount=allSutures.filter((r)=>(r.low_level??0)>0&&(r.total_on_hand??0)<=(r.low_level??0)).length;
