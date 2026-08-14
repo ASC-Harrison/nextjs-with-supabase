@@ -6,7 +6,7 @@ import type { BrowserMultiFormatReader } from "@zxing/browser";
 import { createClient } from "@supabase/supabase-js";
 import { useSessionTimeout } from "@/lib/use-session-timeout";
 
-type Tab        = "Transaction" | "Totals" | "Audit" | "Settings";
+type Tab        = "Transaction" | "Totals" | "Sutures" | "Audit" | "Settings";
 type Mode       = "USE" | "RESTOCK";
 type LookupMode = "BARCODE" | "REF" | "NAME";
 type Area = { id: string; name: string };
@@ -86,7 +86,7 @@ const PREMIUM_CSS = `
   .lock-btn.locked:hover { background:rgba(239,68,68,0.18); }
   .lock-btn.unlocked { background:var(--ok-dim); color:#6ee7b7; border-color:var(--ok-border); }
   .lock-btn.unlocked:hover { background:rgba(16,185,129,0.18); }
-  .tab-bar { display:grid; grid-template-columns:repeat(4,1fr); gap:6px; margin-top:14px; background:var(--bg); border-radius:var(--r-md); padding:4px; border:1px solid var(--border2); }
+  .tab-bar { display:grid; grid-template-columns:repeat(5,1fr); gap:6px; margin-top:14px; background:var(--bg); border-radius:var(--r-md); padding:4px; border:1px solid var(--border2); }
   .tab-btn { border-radius:9px; padding:9px 4px; font-size:12px; font-weight:800; cursor:pointer; border:1px solid transparent; transition:var(--t); text-align:center; letter-spacing:0.2px; font-family:inherit; }
   .tab-btn.on { background:var(--ac); color:#fff; border-color:var(--ac); box-shadow:0 2px 10px rgba(59,130,246,0.35); }
   .tab-btn.off { background:transparent; color:var(--text3); }
@@ -525,6 +525,7 @@ export default function InventoryPage() {
             <div className="tab-bar">
               <TabBtn active={tab==="Transaction"} onClick={()=>setTab("Transaction")}>Tx</TabBtn>
               <TabBtn active={tab==="Totals"} onClick={()=>setTab("Totals")}>Totals</TabBtn>
+              <TabBtn active={tab==="Sutures"} onClick={()=>{setTab("Sutures");void loadTotals();}}>Sutures</TabBtn>
               <TabBtn active={tab==="Audit"} onClick={()=>setTab("Audit")}>Audit</TabBtn>
               <TabBtn active={tab==="Settings"} onClick={()=>setTab("Settings")}>Settings</TabBtn>
             </div>
@@ -732,6 +733,45 @@ export default function InventoryPage() {
               )}
             </div>
           )}
+
+          {tab==="Sutures" && (()=>{
+            const q=totalsSearch.trim().toLowerCase();
+            const rows=totals
+              .filter((r)=>!!r.is_active && (r.category||"").toLowerCase().includes("sutur"))
+              .filter((r)=>!q || [r.name,r.reference_number,r.vendor,r.category,r.order_status].some((v)=>(v||"").toLowerCase().includes(q)))
+              .sort((a,b)=>{
+                const aOut=(a.total_on_hand??0)===0;const bOut=(b.total_on_hand??0)===0;
+                if(aOut!==bOut)return aOut?-1:1;
+                return (a.category||"").localeCompare(b.category||"") || a.name.localeCompare(b.name);
+              });
+            const allSutures=totals.filter((r)=>!!r.is_active && (r.category||"").toLowerCase().includes("sutur"));
+            const totalOnHand=allSutures.reduce((sum,r)=>sum+(r.total_on_hand??0),0);
+            const outCount=allSutures.filter((r)=>(r.total_on_hand??0)===0).length;
+            const lowCount=allSutures.filter((r)=>(r.low_level??0)>0&&(r.total_on_hand??0)<=(r.low_level??0)).length;
+            return (
+              <div className="c-card anim">
+                <div className="tot-hdr"><div><div className="tot-title">Suture Inventory</div><div className="s-desc" style={{marginBottom:0}}>Read-only building totals organized by suture shelf.</div></div><div className="tot-count">{totalsLoading?"Loading…":`${rows.length} shown`}</div></div>
+                <div className="stats-row" style={{marginBottom:12}}>
+                  <div className="stat-pill"><div className="stat-lbl">Suture Types</div><div className="stat-val">{allSutures.length}</div></div>
+                  <div className="stat-pill"><div className="stat-lbl">On Hand</div><div className="stat-val">{totalOnHand}</div></div>
+                  <div className="stat-pill wb"><div className="stat-lbl">Needs Attention</div><div className="stat-val w">{Math.max(outCount,lowCount)}</div></div>
+                </div>
+                <input value={totalsSearch} onChange={(e)=>setTotalsSearch(e.target.value)} placeholder="Search suture, shelf, vendor, or reference #…" className="inp mb3" />
+                <div className="sp dashboard-grid inventory-grid">
+                  {rows.map((r)=>{
+                    const onHand=r.total_on_hand??0;const low=(r.low_level??0)>0&&onHand<=(r.low_level??0);const out=onHand===0;
+                    return <div key={r.item_id} className={`item-card ${out||low?"low":"ok"}`} style={{cursor:"default"}}>
+                      <div className="fxb"><div style={{minWidth:0,flex:1}}><div className="i-name">{r.name}</div><div className="i-meta">{r.category||"Suture"} · {r.vendor||"Vendor —"}</div><div className="i-status">Ref: {r.reference_number||"—"} · Status: {r.order_status||"IN STOCK"}</div></div><div className={`oh-badge ${out||low?"low":"ok"}`}><div className={`oh-num ${out||low?"low":"ok"}`}>{onHand}</div><div className="oh-unit">{r.unit||"on hand"}</div></div></div>
+                      <div className="stats-row"><div className="stat-pill"><div className="stat-lbl">Par</div><div className="stat-val">{r.par_level??0}</div></div><div className="stat-pill"><div className="stat-lbl">Low</div><div className="stat-val">{r.low_level??0}</div></div><div className={`stat-pill ${out||low?"wb":""}`}><div className="stat-lbl">Status</div><div className={`stat-val ${out||low?"w":""}`}>{out?"OUT":low?"LOW":"OK"}</div></div></div>
+                      {r.notes&&<div className="notes-txt">Notes: {r.notes}</div>}
+                    </div>;
+                  })}
+                  {!totalsLoading&&rows.length===0&&<div style={{textAlign:"center",padding:"28px 0",color:"var(--text3)",fontSize:13}}>No sutures match this search.</div>}
+                </div>
+                <div style={{marginTop:14,fontSize:11,color:"var(--text3)"}}>This tab only reads your existing inventory. Use Transaction or Totals when an authorized staff member needs to update a count.</div>
+              </div>
+            );
+          })()}
 
           {tab==="Totals" && (
             <div className="c-card anim">
