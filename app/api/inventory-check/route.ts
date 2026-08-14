@@ -9,8 +9,9 @@ const anthropic = new Anthropic();
 const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!);
 const CONTACTS = [{ email: "hogstud800@gmail.com" }, { email: "brooklyncarter.0716@gmail.com" }, { email: "ashelyomsa@gmail.com" }];
 
-export async function GET() {
+export async function GET(req: Request) {
   try {
+    const dryRun = new URL(req.url).searchParams.get("dry_run") === "1";
     const { data, error } = await supabase.from("building_inventory_sheet_view").select("name,reference_number,total_on_hand,par_level,low_level,unit").eq("is_active", true).order("name", { ascending: true });
     if (error) throw error;
     const items = data ?? [];
