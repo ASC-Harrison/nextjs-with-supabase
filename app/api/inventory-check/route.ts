@@ -17,7 +17,7 @@ export async function GET() {
     const alerts = items.filter((r: any) => { const oh = r.total_on_hand ?? 0; const low = r.low_level ?? 0; return low > 0 && oh <= low; });
     if (alerts.length === 0) return NextResponse.json({ ok: true, message: "All items above low level" });
     const aiPrompt = "You are monitoring inventory for Baxter ASC. Items at or below low level:\n\n" + alerts.map((r: any) => "- " + (r.name ?? "") + ": " + (r.total_on_hand ?? 0) + " " + (r.unit ?? "") + " on hand, low=" + (r.low_level ?? 0) + ", par=" + (r.par_level ?? 0)).join("\n") + "\n\nShould an alert be sent? Reply YES or NO then a new line with a brief reason.";
-    const aiResponse = await anthropic.messages.create({ model: "claude-sonnet-4-20250514", max_tokens: 100, messages: [{ role: "user", content: aiPrompt }] });
+    const aiResponse = await anthropic.messages.create({ model: "claude-haiku-4-5-20251001", max_tokens: 100, messages: [{ role: "user", content: aiPrompt }] });
     const aiText = aiResponse.content[0].type === "text" ? aiResponse.content[0].text : "YES";
     const shouldAlert = aiText.trim().toUpperCase().startsWith("YES");
     const aiReason = aiText.split("\n").slice(1).join(" ").trim();
