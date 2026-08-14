@@ -750,7 +750,7 @@ export default function InventoryPage() {
             const lowCount=allSutures.filter((r)=>(r.low_level??0)>0&&(r.total_on_hand??0)<=(r.low_level??0)).length;
             return (
               <div className="c-card anim">
-                <div className="tot-hdr"><div><div className="tot-title">Suture Inventory</div><div className="s-desc" style={{marginBottom:0}}>Read-only building totals organized by suture shelf.</div></div><div className="tot-count">{totalsLoading?"Loading…":`${rows.length} shown`}</div></div>
+                <div className="tot-hdr"><div><div className="tot-title">Suture Inventory</div><div className="s-desc" style={{marginBottom:0}}>Building totals organized by suture shelf. Tap any suture to edit.</div></div><div className="tot-count">{totalsLoading?"Loading…":`${rows.length} shown`}</div></div>
                 <div className="stats-row" style={{marginBottom:12}}>
                   <div className="stat-pill"><div className="stat-lbl">Suture Types</div><div className="stat-val">{allSutures.length}</div></div>
                   <div className="stat-pill"><div className="stat-lbl">On Hand</div><div className="stat-val">{totalOnHand}</div></div>
@@ -760,15 +760,16 @@ export default function InventoryPage() {
                 <div className="sp dashboard-grid inventory-grid">
                   {rows.map((r)=>{
                     const onHand=r.total_on_hand??0;const low=(r.low_level??0)>0&&onHand<=(r.low_level??0);const out=onHand===0;
-                    return <div key={r.item_id} className={`item-card ${out||low?"low":"ok"}`} style={{cursor:"default"}}>
+                    return <button key={r.item_id} type="button" onClick={()=>openTotalsEditor(r)} className={`item-card ${out||low?"low":"ok"}`}>
                       <div className="fxb"><div style={{minWidth:0,flex:1}}><div className="i-name">{r.name}</div><div className="i-meta">{r.category||"Suture"} · {r.vendor||"Vendor —"}</div><div className="i-status">Ref: {r.reference_number||"—"} · Status: {r.order_status||"IN STOCK"}</div></div><div className={`oh-badge ${out||low?"low":"ok"}`}><div className={`oh-num ${out||low?"low":"ok"}`}>{onHand}</div><div className="oh-unit">{r.unit||"on hand"}</div></div></div>
                       <div className="stats-row"><div className="stat-pill"><div className="stat-lbl">Par</div><div className="stat-val">{r.par_level??0}</div></div><div className="stat-pill"><div className="stat-lbl">Low</div><div className="stat-val">{r.low_level??0}</div></div><div className={`stat-pill ${out||low?"wb":""}`}><div className="stat-lbl">Status</div><div className={`stat-val ${out||low?"w":""}`}>{out?"OUT":low?"LOW":"OK"}</div></div></div>
                       {r.notes&&<div className="notes-txt">Notes: {r.notes}</div>}
-                    </div>;
+                      <div className="edit-hint">Tap to edit count, levels, status, vendor, reference, and notes.</div>
+                    </button>;
                   })}
                   {!totalsLoading&&rows.length===0&&<div style={{textAlign:"center",padding:"28px 0",color:"var(--text3)",fontSize:13}}>No sutures match this search.</div>}
                 </div>
-                <div style={{marginTop:14,fontSize:11,color:"var(--text3)"}}>This tab only reads your existing inventory. Use Transaction or Totals when an authorized staff member needs to update a count.</div>
+                <div style={{marginTop:14,fontSize:11,color:"var(--text3)"}}>Changes use the existing protected inventory editor and update the same building inventory records.</div>
               </div>
             );
           })()}
