@@ -1,0 +1,1 @@
+v1 focuses on a strong live household dashboard. Editing/history/notifications can be expanded after preview validation.
