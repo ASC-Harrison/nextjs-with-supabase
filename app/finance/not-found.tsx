@@ -1,0 +1,1 @@
+export default function NotFound(){return <div style={{minHeight:'100vh',background:'#080d18',color:'#f3f7ff',padding:24,fontFamily:'system-ui'}}><h2>Financial plan not found</h2><a href="/finance" style={{color:'#60a5fa'}}>Return to Financial Control Center</a></div>}
