@@ -1,0 +1,1 @@
+All financial records are isolated in public.finance_* tables. No inventory rows are read, updated, or deleted by /finance.
