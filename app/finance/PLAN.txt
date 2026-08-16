@@ -1,0 +1,1 @@
+Allocation order: income -> bills -> debt minimums -> required wedding funding -> savings -> extra debt -> safe-to-spend.
