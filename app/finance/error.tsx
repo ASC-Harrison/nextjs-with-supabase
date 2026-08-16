@@ -1,0 +1,2 @@
+"use client";
+export default function Error({error,reset}:{error:Error&{digest?:string};reset:()=>void}){return <div style={{minHeight:'100vh',background:'#080d18',color:'#f3f7ff',padding:24,fontFamily:'system-ui'}}><h2>Financial Control Center hit an error</h2><p style={{color:'#94a3b8'}}>{error.message}</p><button onClick={reset} style={{padding:'10px 14px',borderRadius:10,border:0,background:'#3b82f6',color:'white',fontWeight:700}}>Try again</button></div>}
