@@ -1,0 +1,1 @@
+All finance_* tables have RLS enabled.
