@@ -1,0 +1,4 @@
+-- Financial Control Center schema was applied to the connected Supabase project.
+-- All app data uses finance_* tables so inventory data is not modified.
+-- RLS is enabled on every finance table and access is scoped to household membership.
+-- See Supabase migration history: add_financial_control_center.
