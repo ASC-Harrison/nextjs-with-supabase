@@ -1,8 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
-export const dynamic = "force-dynamic";
-export const revalidate = 0;
+export const revalidate = 5;
 
 export async function GET() {
   const { data, error } = await supabaseAdmin
@@ -19,7 +18,7 @@ export async function GET() {
 
   return NextResponse.json(data ?? [], {
     headers: {
-      "Cache-Control": "no-store, no-cache, must-revalidate",
+      "Cache-Control": "public, max-age=5, s-maxage=5, stale-while-revalidate=30",
     },
   });
 }
