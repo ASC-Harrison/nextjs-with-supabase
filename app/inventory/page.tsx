@@ -450,6 +450,40 @@ export default function InventoryPage() {
   async function loadTotals(retriesLeft=2){setTotalsLoading(true);setTotalsError("");try{const withTimeout=(p:Promise<any>,ms:number)=>Promise.race([p,new Promise((_,rej)=>setTimeout(()=>rej(new Error("Request timed out")),ms))]);const{data,error}=await withTimeout(supabase.from("building_inventory_sheet_view").select("item_id,name,reference_number,vendor,category,total_on_hand,par_level,low_level,unit,notes,is_active,order_status,backordered").order("name",{ascending:true}),8000) as any;if(error)throw error;const rows=(data as BuildingTotalRow[])??[];const ids=rows.map((r)=>r.item_id);if(ids.length>0){const[srcRes,orderRes]=await withTimeout(Promise.all([supabase.from("items").select("id,supply_source,price,expiration_date,alert_note").in("id",ids),supabase.from("order_requests").select("item_id,created_at,status").in("status",["PENDING","ORDERED"]).in("item_id",ids).order("created_at",{ascending:false})]),8000) as any;const srcData=srcRes.data;const orderData=orderRes.data;if(srcData){const map=Object.fromEntries(srcData.map((r:any)=>[r.id,r]));rows.forEach((r)=>{r.supply_source=map[r.item_id]?.supply_source??null;r.price=map[r.item_id]?.price??null;r.expiration_date=map[r.item_id]?.expiration_date??null;r.alert_note=map[r.item_id]?.alert_note??null;});}if(orderData){const orderMap:Record<string,{date:string,status:string}>={};orderData.forEach((o:any)=>{if(!orderMap[o.item_id])orderMap[o.item_id]={date:o.created_at,status:o.status};});rows.forEach((r)=>{r.ordered_at=orderMap[r.item_id]?.date??null;if(orderMap[r.item_id])r.order_status=orderMap[r.item_id].status;});}}setTotals(rows);setTotalsLoading(false);}catch(e:any){if(retriesLeft>0){await new Promise((res)=>setTimeout(res,1000));return loadTotals(retriesLeft-1);}setTotals([]);setTotalsError(e?.message??"Failed to load totals — check your connection and try again");setTotalsLoading(false);}}
   useEffect(()=>{if(tab!=="Totals")return;if(totals.length===0)loadTotals();},[tab]);// eslint-disable-line
 
+  useEffect(()=>{
+    const refreshTimers=new Map<string,ReturnType<typeof setTimeout>>();
+    const channel=supabase
+      .channel("inventory-live-sync")
+      .on("postgres_changes",{event:"*",schema:"public",table:"storage_inventory"},(payload:any)=>{
+        const changed=(payload.new&&Object.keys(payload.new).length?payload.new:payload.old) as {item_id?:string;storage_area_id?:string;on_hand?:number};
+        const itemId=changed?.item_id;
+        if(!itemId)return;
+
+        if(changed.storage_area_id&&changed.on_hand!=null){
+          setAreaInv((prev)=>prev.map((r)=>r.item_id===itemId&&r.storage_area_id===changed.storage_area_id?{...r,on_hand:Number(changed.on_hand)}:r));
+        }
+
+        const pending=refreshTimers.get(itemId);
+        if(pending)clearTimeout(pending);
+        refreshTimers.set(itemId,setTimeout(async()=>{
+          const{data,error}=await supabase.from("building_totals").select("item_id,building_on_hand").eq("item_id",itemId).maybeSingle();
+          if(!error&&data){
+            const total=Number(data.building_on_hand??0);
+            setTotals((prev)=>prev.map((r)=>r.item_id===itemId?{...r,total_on_hand:total}:r));
+            setTotalsEditRow((prev)=>prev?.item_id===itemId?{...prev,total_on_hand:total}:prev);
+          }
+          refreshTimers.delete(itemId);
+        },500));
+      })
+      .subscribe();
+
+    return()=>{
+      refreshTimers.forEach((timer)=>clearTimeout(timer));
+      void supabase.removeChannel(channel);
+    };
+  },[]);// eslint-disable-line
+
+
   async function loadAreaInventory(){if(!areaId)return;setAreaInvLoading(true);setAreaInvError("");try{const{data,error}=await supabase.from("storage_inventory_area_view").select("storage_area_id,storage_area_name,item_id,item_name,on_hand,par_level,low_level,unit,vendor,category,reference_number,notes,order_status,backordered").eq("storage_area_id",areaId).gt("par_level",0).order("item_name",{ascending:true});if(error)throw error;setAreaInv((data as AreaInvRow[])??[]);pushAudit({action:"AREA_LIST_LOAD",details:`Area=${selectedAreaName} Rows=${(data as any[])?.length??0}`});}catch(e:any){setAreaInv([]);setAreaInvError(e?.message??"Failed to load area list");}finally{setAreaInvLoading(false);}}
 
   useEffect(()=>{if(!scannerOpen)stopScanner();},[scannerOpen]);// eslint-disable-line
@@ -753,7 +787,7 @@ export default function InventoryPage() {
             const attentionCount=allSutures.filter((r)=>(r.total_on_hand??0)===0 || ((r.low_level??0)>0&&(r.total_on_hand??0)<=(r.low_level??0)) || !!r.backordered || ["OUT OF STOCK","BACKORDER","PARTIAL"].includes((r.order_status||"").toUpperCase())).length;
             return (
               <div className="c-card anim">
-                <div className="tot-hdr"><div><div className="tot-title">Suture Inventory</div><div className="s-desc" style={{marginBottom:0}}>Building totals organized by suture shelf. Tap any suture to edit.</div></div><div className="tot-count">{totalsLoading?"Loading…":`${rows.length} shown`}</div></div>
+                <div className="tot-hdr"><div><div className="tot-title">Suture Inventory</div><div className="s-desc" style={{marginBottom:0}}>Live building totals organized by suture shelf. Changes sync across devices automatically.</div></div><div className="tot-count">{totalsLoading?"Loading…":`${rows.length} shown`}</div></div>
                 <div className="stats-row" style={{marginBottom:12}}>
                   <div className="stat-pill"><div className="stat-lbl">Suture Types</div><div className="stat-val">{allSutures.length}</div></div>
                   <div className="stat-pill"><div className="stat-lbl">On Hand</div><div className="stat-val">{totalOnHand}</div></div>
