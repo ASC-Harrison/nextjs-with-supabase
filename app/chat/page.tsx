@@ -10,6 +10,9 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 );
 
+const VAPID_PUBLIC =
+  "BMSdz66vdOV6IRhh5ObmNo8hnU8YlznA3mTxP22SG1JmRrSEhyeurlf5g2qKezphEc76qAjfIkBD9vI2PY9PNJI";
+
 type ChatMessage = {
   id: string;
   created_at: string;
@@ -33,6 +36,11 @@ const CSS = `
   .status.wait{background:rgba(245,158,11,.12);color:#fcd34d;border:1px solid rgba(245,158,11,.3)}
   .status.off{background:rgba(239,68,68,.12);color:#fca5a5;border:1px solid rgba(239,68,68,.3)}
   .warning{background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.25);border-radius:11px;padding:9px 11px;color:#fcd34d;font-size:11px;line-height:1.4;margin-bottom:10px}
+  .notify{display:flex;align-items:center;justify-content:space-between;gap:10px;background:rgba(59,130,246,.08);border:1px solid rgba(59,130,246,.25);border-radius:11px;padding:9px 11px;margin-bottom:10px}
+  .notify-copy{font-size:11px;color:#93c5fd;line-height:1.35}
+  .notify-button{border:1px solid rgba(59,130,246,.45);background:rgba(59,130,246,.2);color:#bfdbfe;border-radius:9px;padding:8px 10px;font:800 11px inherit;cursor:pointer;white-space:nowrap}
+  .notify-button:disabled{opacity:.55;cursor:not-allowed}
+  .notify-on{color:#6ee7b7;font-size:11px;font-weight:800;white-space:nowrap}
   .chat{height:min(62vh,560px);min-height:360px;background:#101827;border:1px solid #1e3a5f;border-radius:16px;padding:12px;overflow-y:auto;scroll-behavior:smooth}
   .loading,.empty{text-align:center;color:#475569;font-size:12px;padding:40px 12px}
   .row{display:flex;margin-bottom:10px}
@@ -52,8 +60,14 @@ const CSS = `
   .send:disabled{opacity:.45;cursor:not-allowed}
   .composer-foot{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:6px;font-size:10px;color:#475569}
   .error{color:#fca5a5}
-  @media(max-width:480px){.root{padding:8px}.header{padding:12px}.chat{height:58vh}.bubble{max-width:90%}.send{min-width:64px;padding:0 10px}}
+  @media(max-width:480px){.root{padding:8px}.header{padding:12px}.chat{height:55vh}.bubble{max-width:90%}.send{min-width:64px;padding:0 10px}.notify{align-items:flex-start;flex-direction:column}.notify-button{width:100%}}
 `;
+
+function urlBase64ToUint8Array(base64String: string) {
+  const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
+  return Uint8Array.from([...atob(base64)].map(character => character.charCodeAt(0)));
+}
 
 export default function ChatPage() {
   const router = useRouter();
@@ -65,9 +79,52 @@ export default function ChatPage() {
   const [draft, setDraft] = useState("");
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
+  const [pushEnabled, setPushEnabled] = useState(false);
+  const [pushLoading, setPushLoading] = useState(false);
   const [connection, setConnection] = useState<"CONNECTING"|"LIVE"|"OFFLINE">("CONNECTING");
   const [error, setError] = useState("");
   const endRef = useRef<HTMLDivElement | null>(null);
+
+  async function registerPushNotifications(
+    accessToken: string,
+    staffName: string,
+    requestPermission: boolean
+  ) {
+    if (!("serviceWorker" in navigator) || !("PushManager" in window)) {
+      throw new Error("Notifications are not supported on this device.");
+    }
+
+    let permission = Notification.permission;
+    if (requestPermission && permission !== "granted") {
+      permission = await Notification.requestPermission();
+    }
+    if (permission !== "granted") {
+      throw new Error("Allow notifications in your phone settings to receive chat alerts.");
+    }
+
+    const registration = await navigator.serviceWorker.register("/sw.js");
+    let subscription = await registration.pushManager.getSubscription();
+    if (!subscription) {
+      subscription = await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC),
+      });
+    }
+
+    const response = await fetch("/api/push-subscribe", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: "Bearer " + accessToken,
+      },
+      body: JSON.stringify({ subscription, staff_name: staffName }),
+    });
+    const result = await response.json().catch(() => null);
+    if (!response.ok || !result?.ok) {
+      throw new Error(result?.error || "Could not enable chat notifications.");
+    }
+    setPushEnabled(true);
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -82,12 +139,21 @@ export default function ChatPage() {
       }
 
       if (cancelled) return;
-      setUserId(session.user.id);
-      setDisplayName(
+      const name =
         session.user.user_metadata?.full_name?.trim() ||
         session.user.email ||
-        "Staff"
-      );
+        "Staff";
+      setUserId(session.user.id);
+      setDisplayName(name);
+
+      if (
+        "Notification" in window &&
+        Notification.permission === "granted"
+      ) {
+        void registerPushNotifications(session.access_token, name, false).catch(notificationError => {
+          console.error("Could not sync chat notifications:", notificationError);
+        });
+      }
 
       const { data, error: loadError } = await supabase
         .from("chat_messages")
@@ -134,6 +200,25 @@ export default function ChatPage() {
     endRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
+  async function enablePush() {
+    if (pushLoading) return;
+    setPushLoading(true);
+    setError("");
+    try {
+      const { data } = await supabase.auth.getSession();
+      if (!data.session) throw new Error("Please sign in again.");
+      await registerPushNotifications(
+        data.session.access_token,
+        displayName,
+        true
+      );
+    } catch (notificationError: any) {
+      setError(notificationError?.message || "Could not enable chat notifications.");
+    } finally {
+      setPushLoading(false);
+    }
+  }
+
   async function sendMessage() {
     const message = draft.trim();
     if (!message || sending) return;
@@ -145,15 +230,28 @@ export default function ChatPage() {
     setSending(true);
     setError("");
     try {
-      const { data, error: sendError } = await supabase
-        .from("chat_messages")
-        .insert({ message })
-        .select("id,created_at,sender_id,sender_name,message")
-        .single();
+      const { data: sessionData } = await supabase.auth.getSession();
+      if (!sessionData.session) throw new Error("Please sign in again.");
 
-      if (sendError) throw sendError;
-      const sent = data as ChatMessage;
-      setMessages(current => current.some(item => item.id === sent.id) ? current : [...current, sent].slice(-200));
+      const response = await fetch("/api/chat-message", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer " + sessionData.session.access_token,
+        },
+        body: JSON.stringify({ message }),
+      });
+      const result = await response.json().catch(() => null);
+      if (!response.ok || !result?.ok) {
+        throw new Error(result?.error || "Message failed to send.");
+      }
+
+      const sent = result.message as ChatMessage;
+      setMessages(current =>
+        current.some(item => item.id === sent.id)
+          ? current
+          : [...current, sent].slice(-200)
+      );
       setDraft("");
     } catch (sendError: any) {
       setError(sendError?.message || "Message failed to send.");
@@ -191,6 +289,19 @@ export default function ChatPage() {
 
           <div className="warning">
             ⚠️ Staff communication only. Do not post patient names, dates of birth, medical-record numbers, photos, or other patient-identifying information.
+          </div>
+
+          <div className="notify">
+            <div className="notify-copy">
+              Chat alerts show the sender and a short preview, and open Staff Chat when tapped.
+            </div>
+            {pushEnabled ? (
+              <div className="notify-on">🔔 Notifications On</div>
+            ) : (
+              <button className="notify-button" disabled={pushLoading} onClick={() => void enablePush()}>
+                {pushLoading ? "Enabling…" : "🔔 Enable Chat Notifications"}
+              </button>
+            )}
           </div>
 
           <section className="chat" aria-live="polite">
