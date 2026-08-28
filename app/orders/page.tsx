@@ -98,7 +98,6 @@ export default function OrdersPage() {
   const [receivingId, setReceivingId] = useState<string | null>(null);
   const [qtyReceivedInput, setQtyReceivedInput] = useState<string>("");
   const [partialNoteInput, setPartialNoteInput] = useState<string>("");
-  const [addedToInventory, setAddedToInventory] = useState<Set<string>>(new Set());
 
   async function loadOrders() {
     try {
@@ -148,6 +147,69 @@ export default function OrdersPage() {
       setOrders(prev => prev.map(o => o.id === id ? { ...o, ...update } as Order : o));
     } catch {}
     finally { setUpdating(null); }
+  }
+
+  async function receiveOrderIntoInventory(order: Order, complete: boolean) {
+    if (updating) return;
+
+    const orderedQty = order.qty_actual_ordered || order.qty_requested;
+    const alreadyReceived = order.qty_actual_received || 0;
+    const suggestedQty = Math.max(orderedQty - alreadyReceived, 1);
+    const qtyReceived = qtyReceivedInput.trim() ? Number(qtyReceivedInput) : suggestedQty;
+
+    if (!Number.isInteger(qtyReceived) || qtyReceived <= 0) {
+      alert("Please enter a valid whole-number quantity received.");
+      return;
+    }
+
+    const partialNote = partialNoteInput.trim();
+    if (!complete && !partialNote) {
+      alert("Add a note explaining what is still expected.");
+      return;
+    }
+
+    const actionLabel = complete ? "complete this order" : "keep the rest awaiting";
+    if (!confirm(`Receive ${qtyReceived} of "${order.item_name}" into MAIN STERILE SUPPLY inventory and ${actionLabel}?`)) {
+      return;
+    }
+
+    setUpdating(order.id);
+    try {
+      const { data, error } = await supabase.rpc("receive_order_stock", {
+        p_order_id: order.id,
+        p_qty: qtyReceived,
+        p_complete: complete,
+        p_staff: staffName,
+        p_partial_note: complete ? null : partialNote,
+      });
+
+      if (error) throw error;
+
+      const result = data as {
+        status: Order["status"];
+        total_received: number;
+        inventory_on_hand: number;
+      };
+
+      const receivedAt = complete ? new Date().toISOString() : null;
+      setOrders(prev => prev.map(o => o.id === order.id ? {
+        ...o,
+        status: result.status,
+        qty_actual_received: result.total_received,
+        received_by: staffName,
+        received_at: receivedAt,
+        partial_note: complete ? null : partialNote,
+      } as Order : o));
+
+      setReceivingId(null);
+      setQtyReceivedInput("");
+      setPartialNoteInput("");
+      alert(`Received ${qtyReceived}. Main Sterile Supply now has ${result.inventory_on_hand} on hand.`);
+    } catch (error: any) {
+      alert(`Could not receive this order: ${error?.message || "Unknown error"}`);
+    } finally {
+      setUpdating(null);
+    }
   }
 
   const filtered = filter === "ALL" ? orders : orders.filter(o => o.status === filter);
@@ -263,132 +325,67 @@ export default function OrdersPage() {
                         <br />{order.partial_note}
                       </div>
                     )}
-                    {order.status === "RECEIVED" && (order as any).item_id && order.qty_actual_received && !addedToInventory.has(order.id) && (
-                      <div style={{ marginTop:8, background:"rgba(16,185,129,0.08)", border:"1px solid rgba(16,185,129,0.2)", borderRadius:10, padding:"10px 12px" }}>
-                        <div style={{ fontSize:11, color:"#6ee7b7", fontWeight:700, marginBottom:6 }}>Add to MAIN SUPPLY inventory:</div>
-                        <div style={{ display:"flex", gap:8, alignItems:"center" }}>
-                          <input
-                            type="number"
-                            min={1}
-                            defaultValue={order.qty_actual_received}
-                            id={`inv-qty-${order.id}`}
-                            style={{ width:70, borderRadius:8, border:"1px solid rgba(16,185,129,0.3)", background:"#111827", color:"#f0f6ff", padding:"6px 10px", fontSize:14, fontWeight:800, textAlign:"center", fontFamily:"inherit", outline:"none" }}
-                          />
-                          <button
-                            onClick={async () => {
-                              const input = document.getElementById(`inv-qty-${order.id}`) as HTMLInputElement;
-                              const qty = Number(input?.value) || order.qty_actual_received;
-                              if(!qty || qty <= 0) return alert("Enter a valid quantity.");
-                              if(!confirm(`Add ${qty} to MAIN SUPPLY inventory for "${order.item_name}"?`)) return;
-                              setUpdating(order.id);
-                              try {
-                                await Promise.resolve(supabase.rpc("add_stock", {
-                                  p_item_id: (order as any).item_id,
-                                  p_area_id: "a09eb27b-e4a1-449a-8d2e-c45b24d6514f",
-                                  p_qty: qty,
-                                }));
-                                setAddedToInventory(prev => new Set([...prev, order.id]));
-                              } catch(e:any) { alert(`Failed: ${e?.message}`); }
-                              finally { setUpdating(null); }
-                            }}
-                            disabled={updating === order.id}
-                            className="btn btn-ok"
-                            style={{ fontSize:12 }}
-                          >
-                            {updating === order.id ? "Adding…" : "➕ Add to Inventory"}
-                          </button>
-                        </div>
-                        <div style={{ fontSize:10, color:"#334155", marginTop:5 }}>Change qty if needed before adding</div>
-                      </div>
-                    )}
-                    {addedToInventory.has(order.id) && (
-                      <div style={{ fontSize:11, color:"#6ee7b7", marginTop:6, fontWeight:700 }}>✅ Added to MAIN SUPPLY inventory</div>
-                    )}
+
                   </div>
                   <span className={getBadgeClass(order.status)}>{order.status}</span>
                 </div>
 
-                {/* Qty received input when marking as received */}
-                {receivingId === order.id && (
-                  <div style={{ marginTop:10, background:"rgba(16,185,129,0.08)", border:"1px solid rgba(16,185,129,0.2)", borderRadius:10, padding:"12px" }}>
-                    <div style={{ fontSize:12, color:"#6ee7b7", fontWeight:700, marginBottom:4 }}>Enter actual quantity received:</div>
-                    <div style={{ fontSize:11, color:"#64748b", marginBottom:8 }}>
-                      Originally requested: <strong style={{color:"#f0f6ff"}}>{order.qty_requested}</strong>
-                      {order.qty_actual_ordered && order.qty_actual_ordered !== order.qty_requested && (
-                        <span> · Actual ordered: <strong style={{color:"#fcd34d"}}>{order.qty_actual_ordered}</strong></span>
-                      )}
-                    </div>
-                    <div style={{ display:"flex", gap:8, alignItems:"center", marginBottom:10 }}>
+                {/* Receiving adds stock and updates the order in one atomic database action. */}
+                {receivingId === order.id && (() => {
+                  const orderedQty = order.qty_actual_ordered || order.qty_requested;
+                  const alreadyReceived = order.qty_actual_received || 0;
+                  const suggestedQty = Math.max(orderedQty - alreadyReceived, 1);
+                  return (
+                    <div style={{ marginTop:10, background:"rgba(16,185,129,0.08)", border:"1px solid rgba(16,185,129,0.2)", borderRadius:10, padding:"12px" }}>
+                      <div style={{ fontSize:12, color:"#6ee7b7", fontWeight:800, marginBottom:4 }}>Receive directly into inventory</div>
+                      <div style={{ fontSize:11, color:"#94a3b8", marginBottom:8 }}>
+                        Enter what arrived today. This amount will be added immediately to <strong style={{color:"#f0f6ff"}}>Main Sterile Supply</strong>.
+                      </div>
+                      <div style={{ fontSize:11, color:"#64748b", marginBottom:8 }}>
+                        Ordered: <strong style={{color:"#f0f6ff"}}>{orderedQty}</strong>
+                        {alreadyReceived > 0 && <span> · Previously received: <strong style={{color:"#6ee7b7"}}>{alreadyReceived}</strong></span>}
+                        <span> · Suggested now: <strong style={{color:"#93c5fd"}}>{suggestedQty}</strong></span>
+                      </div>
                       <input
                         type="number"
+                        inputMode="numeric"
                         value={qtyReceivedInput}
                         onChange={e => setQtyReceivedInput(e.target.value)}
-                        placeholder={String(order.qty_actual_ordered || order.qty_requested)}
+                        placeholder={String(suggestedQty)}
                         min="1"
-                        style={{ flex:1, borderRadius:8, border:"1px solid rgba(16,185,129,0.3)", background:"#111827", color:"#f0f6ff", padding:"10px 12px", fontSize:15, fontWeight:800, textAlign:"center", fontFamily:"inherit", outline:"none" }}
+                        step="1"
+                        style={{ width:"100%", borderRadius:8, border:"1px solid rgba(16,185,129,0.3)", background:"#111827", color:"#f0f6ff", padding:"11px 12px", fontSize:16, fontWeight:800, textAlign:"center", fontFamily:"inherit", outline:"none", marginBottom:10 }}
                       />
                       <button
-                        onClick={async () => {
-                          if(updating) return;
-                          setUpdating(order.id);
-                          try {
-                            const qtyReceived = qtyReceivedInput.trim() ? Number(qtyReceivedInput) : (order.qty_actual_ordered || order.qty_requested);
-                            if(!qtyReceived || qtyReceived <= 0) { alert("Please enter a valid quantity received."); setUpdating(null); return; }
-                            const update: any = { status: "RECEIVED", received_at: new Date().toISOString(), received_by: staffName, qty_actual_received: qtyReceived };
-                            await supabase.from("order_requests").update(update).eq("id", order.id);
-                            setOrders(prev => prev.map(o => o.id === order.id ? { ...o, ...update } as Order : o));
-                            setReceivingId(null);
-                            setQtyReceivedInput("");
-                            setPartialNoteInput("");
-                          } catch {}
-                          finally { setUpdating(null); }
-                        }}
+                        onClick={() => receiveOrderIntoInventory(order, true)}
                         disabled={updating === order.id}
                         className="btn btn-ok"
+                        style={{ width:"100%", padding:"11px 14px", fontSize:13, marginBottom:10 }}
                       >
-                        {updating === order.id ? "…" : "✅ All Here"}
+                        {updating === order.id ? "Receiving…" : "📦 Receive & Add to Inventory"}
                       </button>
+                      <div style={{ fontSize:11, color:"#fcd34d", fontWeight:700, marginBottom:4 }}>Only part of the order arrived?</div>
+                      <textarea
+                        value={partialNoteInput}
+                        onChange={e => setPartialNoteInput(e.target.value)}
+                        placeholder="What is still expected or backordered?"
+                        rows={2}
+                        style={{ width:"100%", borderRadius:8, border:"1px solid rgba(245,158,11,0.3)", background:"#111827", color:"#f0f6ff", padding:"8px 10px", fontSize:12, fontFamily:"inherit", outline:"none", resize:"vertical", marginBottom:8, boxSizing:"border-box" }}
+                      />
+                      <div style={{ display:"flex", gap:8 }}>
+                        <button
+                          onClick={() => receiveOrderIntoInventory(order, false)}
+                          disabled={updating === order.id}
+                          className="btn"
+                          style={{ flex:1, background:"rgba(245,158,11,0.2)", color:"#fcd34d", border:"1px solid rgba(245,158,11,0.3)" }}
+                        >
+                          {updating === order.id ? "Receiving…" : "📦 Add Partial & Keep Awaiting"}
+                        </button>
+                        <button onClick={() => { setReceivingId(null); setQtyReceivedInput(""); setPartialNoteInput(""); }} className="btn btn-gh">Cancel</button>
+                      </div>
                     </div>
-                    <div style={{ fontSize:11, color:"#fcd34d", fontWeight:700, marginBottom:4 }}>Or — only part of it came in?</div>
-                    <textarea
-                      value={partialNoteInput}
-                      onChange={e => setPartialNoteInput(e.target.value)}
-                      placeholder="Note: e.g. 3 of 10 arrived, rest on backorder from vendor"
-                      rows={2}
-                      style={{ width:"100%", borderRadius:8, border:"1px solid rgba(245,158,11,0.3)", background:"#111827", color:"#f0f6ff", padding:"8px 10px", fontSize:12, fontFamily:"inherit", outline:"none", resize:"vertical", marginBottom:8, boxSizing:"border-box" }}
-                    />
-                    <div style={{ display:"flex", gap:8 }}>
-                      <button
-                        onClick={async () => {
-                          if(updating) return;
-                          const qtyReceived = qtyReceivedInput.trim() ? Number(qtyReceivedInput) : 0;
-                          if(!partialNoteInput.trim()) { alert("Add a note explaining what's still awaited."); return; }
-                          setUpdating(order.id);
-                          try {
-                            const update: any = {
-                              status: "AWAITING",
-                              partial_note: partialNoteInput.trim(),
-                              qty_actual_received: qtyReceived > 0 ? qtyReceived : null,
-                              received_by: staffName,
-                            };
-                            await supabase.from("order_requests").update(update).eq("id", order.id);
-                            setOrders(prev => prev.map(o => o.id === order.id ? { ...o, ...update } as Order : o));
-                            setReceivingId(null);
-                            setQtyReceivedInput("");
-                            setPartialNoteInput("");
-                          } catch {}
-                          finally { setUpdating(null); }
-                        }}
-                        disabled={updating === order.id}
-                        className="btn"
-                        style={{ flex:1, background:"rgba(245,158,11,0.2)", color:"#fcd34d", border:"1px solid rgba(245,158,11,0.3)" }}
-                      >
-                        {updating === order.id ? "…" : "🕐 Partial — Move to Awaiting"}
-                      </button>
-                      <button onClick={() => { setReceivingId(null); setQtyReceivedInput(""); setPartialNoteInput(""); }} className="btn btn-gh">Cancel</button>
-                    </div>
-                  </div>
-                )}
+                  );
+                })()}
                 <div className="action-row">
                   {!isReadOnly && order.status === "PENDING" && orderingId !== order.id && (
                     <button onClick={() => { setOrderingId(order.id); setExpectedDeliveryInput(""); }} disabled={updating === order.id} className="btn btn-ac">
@@ -436,9 +433,9 @@ export default function OrdersPage() {
                       {order.status === "AWAITING" ? "📦 Receive Rest" : "📦 Mark Received"}
                     </button>
                   )}
-                  {!isReadOnly && order.status === "PENDING" && (
-                    <button onClick={() => updateStatus(order.id, "RECEIVED")} disabled={updating === order.id} className="btn btn-gh" style={{ fontSize:11 }}>
-                      Skip to Received
+                  {!isReadOnly && order.status === "PENDING" && receivingId !== order.id && (
+                    <button onClick={() => { setReceivingId(order.id); setQtyReceivedInput(""); setPartialNoteInput(""); }} disabled={updating === order.id} className="btn btn-gh" style={{ fontSize:11 }}>
+                      📦 Receive Now
                     </button>
                   )}
                   {!isReadOnly && (
