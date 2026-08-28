@@ -52,9 +52,15 @@ export default function Home() {
 
         if (!sub) return;
 
+        const { data: sessionData } = await supabase.auth.getSession();
+        if (!sessionData.session) return;
+
         const response = await fetch("/api/push-subscribe", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: "Bearer " + sessionData.session.access_token,
+          },
           body: JSON.stringify({
             subscription: sub,
             staff_name: localStorage.getItem("asc_user_email"),
@@ -189,11 +195,18 @@ export default function Home() {
         userVisibleOnly: true,
         applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC),
       });
-      await fetch("/api/push-subscribe", {
+      const { data: sessionData } = await supabase.auth.getSession();
+      if (!sessionData.session) throw new Error("Please sign in again.");
+
+      const response = await fetch("/api/push-subscribe", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer " + sessionData.session.access_token,
+        },
         body: JSON.stringify({ subscription: sub, staff_name: userEmail }),
       });
+      if (!response.ok) throw new Error("Could not register this phone.");
       setPushEnabled(true);
     } catch (e: any) {
       alert("Failed to enable notifications: " + (e?.message ?? "unknown error"));
