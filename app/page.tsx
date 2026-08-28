@@ -231,6 +231,10 @@ export default function Home() {
             🧪 Pre-Op Testing
           </button>
 
+          <button onClick={() => router.push("/chat")} style={{ display:"block", width:"100%", borderRadius:14, padding:16, fontSize:15, fontWeight:700, border:"1px solid rgba(59,130,246,0.3)", cursor:"pointer", textAlign:"center", fontFamily:"inherit", background:"rgba(59,130,246,0.18)", color:"#93c5fd", marginBottom:16 }}>
+            💬 Staff Chat
+          </button>
+
           <div style={{ background:"rgba(59,130,246,0.06)", border:"1px solid rgba(59,130,246,0.15)", borderRadius:12, padding:"12px 16px", textAlign:"center" }}>
             <div style={{ fontSize:12, color:"#64748b", marginBottom:4 }}>Questions or issues?</div>
             <div style={{ fontSize:12, color:"#93c5fd", fontWeight:600 }}>Contact Brooklyn — M–F 7am to 4pm CST</div>
@@ -260,6 +264,10 @@ export default function Home() {
 
         <button onClick={() => router.push("/inventory")} style={{ ...btnBase, background:"#fff", color:"#000", fontSize:15, padding:16, borderRadius:16, marginBottom:8 }}>
           🚀 Launch App
+        </button>
+
+        <button onClick={() => router.push("/chat")} style={{ ...btnBase, background:"rgba(59,130,246,0.18)", color:"#93c5fd", border:"1px solid rgba(59,130,246,0.3)", marginBottom:8 }}>
+          💬 Staff Chat
         </button>
 
         <button onClick={() => router.push("/scan-item")} style={{ ...btnBase, background:"rgba(139,92,246,0.15)", color:"#c4b5fd", border:"1px solid rgba(139,92,246,0.3)", marginBottom:8 }}>

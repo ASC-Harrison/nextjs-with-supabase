@@ -86,7 +86,8 @@ const PREMIUM_CSS = `
   .lock-btn.locked:hover { background:rgba(239,68,68,0.18); }
   .lock-btn.unlocked { background:var(--ok-dim); color:#6ee7b7; border-color:var(--ok-border); }
   .lock-btn.unlocked:hover { background:rgba(16,185,129,0.18); }
-  .tab-bar { display:grid; grid-template-columns:repeat(5,1fr); gap:6px; margin-top:14px; background:var(--bg); border-radius:var(--r-md); padding:4px; border:1px solid var(--border2); }
+  .tab-bar { display:grid; grid-template-columns:repeat(6,1fr); gap:6px; margin-top:14px; background:var(--bg); border-radius:var(--r-md); padding:4px; border:1px solid var(--border2); }
+  @media(max-width:480px){.tab-bar{grid-template-columns:repeat(3,1fr);}}
   .tab-btn { border-radius:9px; padding:9px 4px; font-size:12px; font-weight:800; cursor:pointer; border:1px solid transparent; transition:var(--t); text-align:center; letter-spacing:0.2px; font-family:inherit; }
   .tab-btn.on { background:var(--ac); color:#fff; border-color:var(--ac); box-shadow:0 2px 10px rgba(59,130,246,0.35); }
   .tab-btn.off { background:transparent; color:var(--text3); }
@@ -561,6 +562,7 @@ export default function InventoryPage() {
               <TabBtn active={tab==="Transaction"} onClick={()=>setTab("Transaction")}>Tx</TabBtn>
               <TabBtn active={tab==="Totals"} onClick={()=>setTab("Totals")}>Totals</TabBtn>
               <TabBtn active={tab==="Sutures"} onClick={()=>{setTab("Sutures");void loadTotals();}}>Sutures</TabBtn>
+              <TabBtn active={false} onClick={()=>router.push("/chat")}>Chat</TabBtn>
               <TabBtn active={tab==="Audit"} onClick={()=>setTab("Audit")}>Audit</TabBtn>
               <TabBtn active={tab==="Settings"} onClick={()=>setTab("Settings")}>Settings</TabBtn>
             </div>
