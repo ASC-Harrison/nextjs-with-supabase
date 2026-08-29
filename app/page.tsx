@@ -395,7 +395,7 @@ export default function Home() {
                 ["📦","Box Notes","/box-notes"],
                 ["➕","Add Items","/items"],
                 ["📊","Reports","/reports"],
-                ["💰","Price Editor","/price-editor"],
+                ["💰","Pricing Center","/price-editor"],
                 ["👥","Staff Activity","/staff-activity"],
                 ["🏷️","Labels","/labels"],
                 ["🔐","Users","/admin-users"],
