@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
+import AppBottomNav from "./components/AppBottomNav";
 
 export const metadata: Metadata = {
   title: "ASC Inventory",
@@ -44,7 +45,7 @@ export default function RootLayout({
           body{-webkit-text-size-adjust:100%;text-size-adjust:100%;}
         `}</style>
       </head>
-      <body style={{ margin:0, padding:0, width:"100%", minHeight:"100vh", background:"#0a0f1e" }}>{children}</body>
+      <body style={{ margin:0, padding:0, width:"100%", minHeight:"100vh", background:"#0a0f1e" }}>{children}<AppBottomNav /></body>
     </html>
   );
 }
