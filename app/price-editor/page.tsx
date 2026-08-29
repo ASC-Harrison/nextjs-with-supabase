@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@supabase/supabase-js";
 
@@ -9,194 +9,370 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 );
 
-type Item = { id: string; name: string; vendor: string | null; category: string | null; price: number | null; alert_note: string | null; };
+type Item = {
+  id: string;
+  name: string;
+  vendor: string | null;
+  category: string | null;
+  reference_number: string | null;
+  unit: string | null;
+  price: number | null;
+  units_per_box: number | null;
+  price_source: string | null;
+  price_updated_at: string | null;
+};
+
+type Draft = {
+  price: string;
+  vendor: string;
+  unitsPerBox: string;
+  source: string;
+};
+
+type PriceHistory = {
+  id: string;
+  item_id: string;
+  previous_price: number | null;
+  new_price: number | null;
+  previous_units_per_box: number | null;
+  new_units_per_box: number | null;
+  previous_vendor: string | null;
+  new_vendor: string | null;
+  source: string | null;
+  changed_by_name: string | null;
+  created_at: string;
+  items?: { name?: string; reference_number?: string | null } | null;
+};
 
 const CSS = `
-  *,*::before,*::after{box-sizing:border-box;}
-  body{margin:0;background:#0a0f1e;font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','Segoe UI',sans-serif;}
-  .root{min-height:100vh;background:#0a0f1e;color:#f0f6ff;padding:0 16px 80px;}
-  .wrap{max-width:700px;margin:0 auto;}
-  .back-btn{display:inline-flex;align-items:center;gap:6px;background:#1e2d42;border:1px solid #1e3a5f;border-radius:10px;padding:8px 16px;font-size:13px;font-weight:600;color:#94a3b8;cursor:pointer;margin-top:16px;margin-bottom:8px;font-family:inherit;}
-  .header{background:linear-gradient(135deg,#162032,#111827);border:1px solid #1e3a5f;border-radius:20px;padding:20px;margin-bottom:16px;position:relative;overflow:hidden;}
-  .header::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,#3b82f6,#8b5cf6,#10b981);}
-  .header-title{font-size:22px;font-weight:900;color:#f0f6ff;letter-spacing:-0.8px;margin-bottom:2px;}
-  .header-sub{font-size:12px;color:#64748b;}
-  .search-inp{width:100%;border-radius:10px;border:1px solid #1e3a5f;background:#111827;color:#f0f6ff;padding:11px 14px;font-size:13px;font-family:inherit;outline:none;margin-bottom:12px;}
-  .item-row{display:flex;align-items:center;gap:10px;background:#162032;border:1px solid #1e3a5f;border-radius:12px;padding:12px 14px;margin-bottom:8px;}
-  .item-row.has-price{border-color:rgba(16,185,129,0.3);}
-  .item-info{flex:1;min-width:0;}
-  .item-name{font-size:13px;font-weight:700;color:#f0f6ff;word-break:break-word;line-height:1.3;}
-  .item-meta{font-size:11px;color:#64748b;margin-top:2px;}
-  .price-inp{width:90px;border-radius:8px;border:1px solid #1e3a5f;background:#111827;color:#f0f6ff;padding:8px 10px;font-size:14px;font-weight:800;text-align:center;font-family:inherit;outline:none;flex-shrink:0;}
-  .price-inp:focus{border-color:#3b82f6;}
-  .save-bar{position:fixed;bottom:0;left:0;right:0;background:#162032;border-top:1px solid #1e3a5f;padding:12px 16px;display:flex;gap:10px;align-items:center;z-index:50;}
-  .btn{border-radius:10px;padding:12px 20px;font-size:14px;font-weight:800;cursor:pointer;border:none;font-family:inherit;transition:all 0.18s;}
-  .btn-ac{background:#3b82f6;color:#fff;flex:1;}
-  .btn-ac:hover{background:#2563eb;}
-  .btn-ac:disabled{opacity:0.4;cursor:not-allowed;}
-  .btn-gh{background:#1e2d42;color:#94a3b8;border:1px solid #1e3a5f;}
-  .ok{background:rgba(16,185,129,0.1);border:1px solid rgba(16,185,129,0.3);border-radius:10px;padding:12px;font-size:13px;color:#6ee7b7;margin-bottom:12px;}
-  .err{background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.3);border-radius:10px;padding:12px;font-size:13px;color:#fca5a5;margin-bottom:12px;}
-  .count{font-size:11px;color:#334155;margin-bottom:8px;}
-  .filter-row{display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;}
-  .filter-btn{border-radius:8px;padding:7px 14px;font-size:12px;font-weight:700;cursor:pointer;border:1.5px solid;font-family:inherit;}
-  .filter-btn.on{background:#3b82f6;color:#fff;border-color:#3b82f6;}
-  .filter-btn.off{background:#1e2d42;color:#64748b;border-color:#1e3a5f;}
+  *,*::before,*::after{box-sizing:border-box}
+  body{margin:0;background:#080d19;font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','Segoe UI',sans-serif}
+  .root{min-height:100vh;color:#f1f5f9;padding:14px 14px 95px;background:radial-gradient(circle at 12% 0%,rgba(234,179,8,.11),transparent 30%),#080d19}
+  .wrap{width:100%;max-width:980px;margin:0 auto}
+  .back{border:1px solid rgba(148,163,184,.16);background:rgba(30,41,59,.72);color:#94a3b8;border-radius:10px;padding:8px 12px;font:750 12px inherit;cursor:pointer;margin-bottom:10px}
+  .hero{border:1px solid rgba(234,179,8,.18);border-radius:22px;padding:19px;background:linear-gradient(145deg,rgba(30,41,59,.95),rgba(15,23,42,.95));box-shadow:0 24px 60px rgba(0,0,0,.24);margin-bottom:12px;position:relative;overflow:hidden}
+  .hero::before{content:'';position:absolute;inset:0 0 auto;height:3px;background:linear-gradient(90deg,#eab308,#f59e0b,#10b981)}
+  .title{font-size:25px;font-weight:950;letter-spacing:-.7px}
+  .subtitle{font-size:11px;color:#94a3b8;margin-top:4px;line-height:1.4}
+  .stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:7px;margin-top:16px}
+  .stat{border:1px solid rgba(148,163,184,.11);background:rgba(2,6,23,.38);border-radius:12px;padding:10px}
+  .stat-value{font-size:20px;font-weight:950;line-height:1}
+  .stat-label{font-size:9px;color:#64748b;text-transform:uppercase;letter-spacing:.45px;font-weight:850;margin-top:5px}
+  .notice{border:1px solid rgba(59,130,246,.2);background:rgba(59,130,246,.07);border-radius:12px;color:#93c5fd;font-size:11px;line-height:1.45;padding:10px 12px;margin-bottom:11px}
+  .toolbar{border:1px solid rgba(148,163,184,.12);background:rgba(15,23,42,.68);border-radius:16px;padding:10px;margin-bottom:11px}
+  .search{width:100%;border:1px solid rgba(148,163,184,.17);background:#0f172a;color:#f8fafc;border-radius:11px;padding:11px 12px;font:13px inherit;outline:none}
+  .search:focus{border-color:#3b82f6;box-shadow:0 0 0 2px rgba(59,130,246,.12)}
+  .filters{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+  .filter{border:1px solid rgba(148,163,184,.15);background:rgba(30,41,59,.7);color:#94a3b8;border-radius:9px;padding:7px 10px;font:800 11px inherit;cursor:pointer}
+  .filter.active{background:#2563eb;border-color:#3b82f6;color:white}
+  .count{font-size:10px;color:#475569;margin:0 2px 8px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:9px}
+  .item{border:1px solid rgba(148,163,184,.13);background:linear-gradient(145deg,rgba(30,41,59,.83),rgba(15,23,42,.88));border-radius:16px;padding:13px;box-shadow:0 14px 35px rgba(0,0,0,.12)}
+  .item.unpriced{border-color:rgba(245,158,11,.25)}
+  .item-head{display:flex;justify-content:space-between;gap:8px;align-items:flex-start;margin-bottom:11px}
+  .item-name{font-size:13px;font-weight:900;line-height:1.25;color:#f8fafc}
+  .item-meta{font-size:10px;color:#64748b;margin-top:4px;line-height:1.35}
+  .price-badge{font-size:12px;font-weight:950;color:#6ee7b7;white-space:nowrap}
+  .missing{color:#fcd34d}
+  .fields{display:grid;grid-template-columns:1fr 1fr;gap:7px}
+  .field-wide{grid-column:1/-1}
+  label{display:block;font-size:9px;color:#64748b;font-weight:850;text-transform:uppercase;letter-spacing:.45px;margin:0 0 4px 2px}
+  input,select{width:100%;border:1px solid rgba(148,163,184,.16);background:#0f172a;color:#f8fafc;border-radius:9px;padding:9px 9px;font:12px inherit;outline:none}
+  input:focus,select:focus{border-color:#3b82f6}
+  .unit-cost{display:flex;justify-content:space-between;gap:8px;align-items:center;background:rgba(16,185,129,.06);border:1px solid rgba(16,185,129,.15);border-radius:9px;padding:8px 9px;margin-top:8px;font-size:10px;color:#94a3b8}
+  .unit-cost strong{color:#6ee7b7;font-size:12px}
+  .save{width:100%;border:0;background:#2563eb;color:white;border-radius:10px;padding:10px;margin-top:9px;font:850 12px inherit;cursor:pointer}
+  .save:disabled{opacity:.42;cursor:not-allowed}
+  .updated{font-size:9px;color:#475569;text-align:center;margin-top:6px}
+  .history{display:flex;flex-direction:column;gap:8px}
+  .history-row{border:1px solid rgba(148,163,184,.12);background:rgba(30,41,59,.66);border-radius:13px;padding:12px}
+  .history-top{display:flex;justify-content:space-between;gap:9px}
+  .history-name{font-size:12px;font-weight:850;color:#f8fafc}
+  .history-time{font-size:9px;color:#475569;white-space:nowrap}
+  .history-change{font-size:12px;color:#cbd5e1;margin-top:6px}
+  .history-change strong{color:#6ee7b7}
+  .history-meta{font-size:10px;color:#64748b;margin-top:5px}
+  .message{border-radius:11px;padding:10px 12px;font-size:11px;margin-bottom:10px}
+  .message.ok{color:#6ee7b7;border:1px solid rgba(16,185,129,.25);background:rgba(16,185,129,.08)}
+  .message.err{color:#fca5a5;border:1px solid rgba(239,68,68,.25);background:rgba(239,68,68,.08)}
+  .empty{text-align:center;color:#475569;font-size:12px;padding:46px 15px}
+  @media(max-width:620px){.root{padding:10px 9px 95px}.stats{grid-template-columns:1fr 1fr}.grid{grid-template-columns:1fr}.hero{padding:16px}.title{font-size:22px}}
 `;
 
-export default function PriceEditorPage() {
+function currency(value: number | null | undefined) {
+  if (value === null || value === undefined || !Number.isFinite(Number(value))) return "—";
+  return Number(value).toLocaleString(undefined, { style: "currency", currency: "USD" });
+}
+
+function timeLabel(value: string | null | undefined) {
+  if (!value) return "Not updated yet";
+  return new Date(value).toLocaleString([], {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+export default function PricingCenterPage() {
   const router = useRouter();
   const [items, setItems] = useState<Item[]>([]);
-  const [prices, setPrices] = useState<Record<string, string>>({});
-  const [notes, setNotes] = useState<Record<string, string>>({});
+  const [drafts, setDrafts] = useState<Record<string, Draft>>({});
+  const [history, setHistory] = useState<PriceHistory[]>([]);
   const [search, setSearch] = useState("");
-  const [showUnpriced, setShowUnpriced] = useState(false);
+  const [view, setView] = useState<"all"|"unpriced"|"recent">("all");
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [msg, setMsg] = useState<{type:"ok"|"err";text:string}|null>(null);
+  const [savingId, setSavingId] = useState<string | null>(null);
+  const [message, setMessage] = useState<{type:"ok"|"err";text:string}|null>(null);
+
+  async function loadHistory() {
+    const { data } = await supabase
+      .from("item_price_history")
+      .select("id,item_id,previous_price,new_price,previous_units_per_box,new_units_per_box,previous_vendor,new_vendor,source,changed_by_name,created_at,items(name,reference_number)")
+      .order("created_at", { ascending: false })
+      .limit(100);
+    setHistory((data as unknown as PriceHistory[]) || []);
+  }
 
   useEffect(() => {
-    supabase.from("items").select("id,name,vendor,category,price,alert_note").eq("is_active", true).order("name").then(({ data }) => {
-      if (data) {
-        setItems(data as Item[]);
-        const p: Record<string,string> = {};
-        const n: Record<string,string> = {};
-        data.forEach((i: any) => {
-          p[i.id] = i.price != null ? String(i.price) : "";
-          n[i.id] = i.alert_note || "";
-        });
-        setPrices(p);
-        setNotes(n);
+    async function load() {
+      const { data: sessionData } = await supabase.auth.getSession();
+      if (!sessionData.session) {
+        router.replace("/login");
+        return;
       }
+
+      const { data, error } = await supabase
+        .from("items")
+        .select("id,name,vendor,category,reference_number,unit,price,units_per_box,price_source,price_updated_at")
+        .eq("is_active", true)
+        .order("name");
+
+      if (error) {
+        setMessage({ type:"err", text:"Could not load pricing records." });
+      } else {
+        const rows = (data as Item[]) || [];
+        setItems(rows);
+        setDrafts(Object.fromEntries(rows.map(item => [
+          item.id,
+          {
+            price: item.price === null ? "" : String(item.price),
+            vendor: item.vendor || "",
+            unitsPerBox: String(item.units_per_box || 1),
+            source: item.price_source || "",
+          },
+        ])));
+      }
+      await loadHistory();
       setLoading(false);
-    });
-  }, []);
-
-  const filtered = items.filter(i => {
-    if (showUnpriced && (i.price != null && i.price > 0)) return false;
-    if (search.trim()) {
-      const q = search.toLowerCase();
-      return (i.name||"").toLowerCase().includes(q) || (i.vendor||"").toLowerCase().includes(q) || (i.category||"").toLowerCase().includes(q);
     }
-    return true;
-  });
+    void load();
+  }, [router]);
 
-  const pricedCount = items.filter(i => i.price != null && i.price > 0).length;
-  const changedCount = items.filter(i => {
-    const origPrice = i.price != null ? String(i.price) : "";
-    const origNote = i.alert_note || "";
-    return (prices[i.id] || "") !== origPrice || (notes[i.id] || "") !== origNote;
+  const pricedCount = items.filter(item => Number(item.price) > 0).length;
+  const unpricedCount = items.length - pricedCount;
+  const updatedRecently = items.filter(item => {
+    if (!item.price_updated_at) return false;
+    return Date.now() - new Date(item.price_updated_at).getTime() < 30 * 24 * 60 * 60 * 1000;
   }).length;
+  const coverage = items.length ? Math.round((pricedCount / items.length) * 100) : 0;
 
-  async function saveAll() {
-    setSaving(true);
-    setMsg(null);
+  const filtered = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    return items.filter(item => {
+      if (view === "unpriced" && Number(item.price) > 0) return false;
+      if (!query) return true;
+      return [item.name,item.vendor,item.category,item.reference_number,item.unit]
+        .some(value => (value || "").toLowerCase().includes(query));
+    });
+  }, [items, search, view]);
+
+  function updateDraft(id: string, field: keyof Draft, value: string) {
+    setDrafts(current => ({
+      ...current,
+      [id]: { ...current[id], [field]: value },
+    }));
+  }
+
+  function hasChanges(item: Item) {
+    const draft = drafts[item.id];
+    if (!draft) return false;
+    return (
+      draft.price !== (item.price === null ? "" : String(item.price)) ||
+      draft.vendor.trim() !== (item.vendor || "") ||
+      Number(draft.unitsPerBox || 1) !== Number(item.units_per_box || 1) ||
+      draft.source.trim() !== (item.price_source || "")
+    );
+  }
+
+  async function saveItem(item: Item) {
+    const draft = drafts[item.id];
+    if (!draft || savingId) return;
+    setSavingId(item.id);
+    setMessage(null);
     try {
-      const allIds = new Set([...Object.keys(prices), ...Object.keys(notes)]);
-      const updates = Array.from(allIds).filter(id => {
-        const orig = items.find(i => i.id === id);
-        if (!orig) return false;
-        const origPrice = orig.price != null ? String(orig.price) : "";
-        const origNote = orig.alert_note || "";
-        return (prices[id] || "") !== origPrice || (notes[id] || "") !== origNote;
-      }).map(id => ({
-        id,
-        price: prices[id]?.trim() ? Number(prices[id]) : null,
-        alert_note: notes[id]?.trim() || null,
+      const { data: sessionData } = await supabase.auth.getSession();
+      if (!sessionData.session) throw new Error("Please sign in again.");
+
+      const response = await fetch("/api/pricing", {
+        method:"POST",
+        headers:{
+          "Content-Type":"application/json",
+          Authorization:"Bearer " + sessionData.session.access_token,
+        },
+        body:JSON.stringify({
+          item_id:item.id,
+          price:draft.price.trim() === "" ? null : Number(draft.price),
+          vendor:draft.vendor,
+          units_per_box:draft.unitsPerBox.trim() === "" ? null : Number(draft.unitsPerBox),
+          source:draft.source,
+        }),
+      });
+      const result = await response.json().catch(() => null);
+      if (!response.ok || !result?.ok) throw new Error(result?.error || "Price failed to save.");
+
+      const updated = result.item as Item;
+      setItems(current => current.map(row => row.id === item.id ? { ...row, ...updated } : row));
+      setDrafts(current => ({
+        ...current,
+        [item.id]: {
+          price: updated.price === null ? "" : String(updated.price),
+          vendor: updated.vendor || "",
+          unitsPerBox: String(updated.units_per_box || 1),
+          source: updated.price_source || "",
+        },
       }));
-
-      if (updates.length === 0) { setMsg({ type:"ok", text:"No changes to save." }); setSaving(false); return; }
-
-      for (const update of updates) {
-        const res = await fetch("/api/building-inventory/update", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            item_id: update.id,
-            action: "SAVE_PRICE_NOTE",
-            price: update.price,
-            alert_note: update.alert_note,
-          }),
-        });
-        const json = await res.json();
-        if (!json.ok) throw new Error(`Failed for ${update.id}: ${json.error}`);
-      }
-
-      // Update local state
-      setItems(prev => prev.map(i => {
-        const u = updates.find(u => u.id === i.id);
-        return u ? { ...i, price: u.price, alert_note: u.alert_note } : i;
-      }));
-
-      setMsg({ type:"ok", text:`✅ Saved ${updates.length} items!` });
-    } catch (e:any) {
-      setMsg({ type:"err", text: e?.message ?? "Failed to save" });
-    } finally { setSaving(false); }
+      await loadHistory();
+      setMessage({ type:"ok", text:item.name + " pricing saved with a history record." });
+    } catch (error: any) {
+      setMessage({ type:"err", text:error?.message || "Price failed to save." });
+    } finally {
+      setSavingId(null);
+    }
   }
 
   return (
     <>
       <style dangerouslySetInnerHTML={{ __html: CSS }} />
-      <div className="root">
+      <main className="root">
         <div className="wrap">
-          <button onClick={() => router.push("/")} className="back-btn">← Back</button>
-          <div className="header">
-            <div className="header-title">💰 Price Editor</div>
-            <div className="header-sub">{pricedCount} of {items.length} items have prices set</div>
+          <button className="back" onClick={() => router.push("/")}>← Dashboard</button>
+
+          <section className="hero">
+            <div className="title">💰 Pricing Center</div>
+            <div className="subtitle">Track what you paid, package quantity, per-unit cost, vendor, source, and every price change.</div>
+            <div className="stats">
+              <div className="stat"><div className="stat-value" style={{color:"#6ee7b7"}}>{pricedCount}</div><div className="stat-label">Priced Items</div></div>
+              <div className="stat"><div className="stat-value" style={{color:"#fcd34d"}}>{unpricedCount}</div><div className="stat-label">Missing Price</div></div>
+              <div className="stat"><div className="stat-value" style={{color:"#93c5fd"}}>{coverage}%</div><div className="stat-label">Coverage</div></div>
+              <div className="stat"><div className="stat-value" style={{color:"#c4b5fd"}}>{updatedRecently}</div><div className="stat-label">Updated 30 Days</div></div>
+            </div>
+          </section>
+
+          <div className="notice">
+            Enter the price paid for the package and how many individual units were inside. The app calculates the per-unit cost automatically. Pricing changes never alter on-hand inventory.
           </div>
 
-          {msg && <div className={msg.type === "ok" ? "ok" : "err"}>{msg.text}</div>}
+          {message ? <div className={"message " + message.type}>{message.text}</div> : null}
 
-          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search items, vendor, category…" className="search-inp" />
+          <section className="toolbar">
+            <input className="search" value={search} onChange={event => setSearch(event.target.value)} placeholder="Search item, reference number, vendor, or category…" />
+            <div className="filters">
+              <button className={"filter " + (view === "all" ? "active" : "")} onClick={() => setView("all")}>All Items</button>
+              <button className={"filter " + (view === "unpriced" ? "active" : "")} onClick={() => setView("unpriced")}>Missing Price ({unpricedCount})</button>
+              <button className={"filter " + (view === "recent" ? "active" : "")} onClick={() => setView("recent")}>Price History ({history.length})</button>
+            </div>
+          </section>
 
-          <div className="filter-row">
-            <button onClick={() => setShowUnpriced(false)} className={"filter-btn " + (!showUnpriced ? "on" : "off")}>All Items</button>
-            <button onClick={() => setShowUnpriced(true)} className={"filter-btn " + (showUnpriced ? "on" : "off")}>No Price Only</button>
-          </div>
-
-          <div className="count">Showing {filtered.length} items · {changedCount} unsaved changes</div>
-
-          {loading ? (
-            <div style={{textAlign:"center",padding:40,color:"#64748b"}}>Loading items…</div>
+          {view === "recent" ? (
+            <section className="history">
+              {history.length === 0 ? <div className="empty">No price changes have been recorded yet.</div> : history.map(entry => {
+                const related = Array.isArray(entry.items) ? entry.items[0] : entry.items;
+                return (
+                  <div className="history-row" key={entry.id}>
+                    <div className="history-top">
+                      <div className="history-name">{related?.name || "Inventory item"}{related?.reference_number ? " · Ref " + related.reference_number : ""}</div>
+                      <div className="history-time">{timeLabel(entry.created_at)}</div>
+                    </div>
+                    <div className="history-change">{currency(entry.previous_price)} → <strong>{currency(entry.new_price)}</strong></div>
+                    <div className="history-meta">
+                      Package {entry.previous_units_per_box || 1} → {entry.new_units_per_box || 1}
+                      {" · "}{entry.new_vendor || "No vendor"}
+                      {entry.source ? " · " + entry.source : ""}
+                      {entry.changed_by_name ? " · " + entry.changed_by_name : ""}
+                    </div>
+                  </div>
+                );
+              })}
+            </section>
+          ) : loading ? (
+            <div className="empty">Loading pricing records…</div>
+          ) : filtered.length === 0 ? (
+            <div className="empty">No items match this view.</div>
           ) : (
-            filtered.map(item => (
-              <div key={item.id} className={"item-row " + (prices[item.id] ? "has-price" : "")}>
-                <div className="item-info">
-                  <div className="item-name">{item.name}</div>
-                  <div className="item-meta">{item.vendor || "—"} · {item.category || "—"}</div>
-                  <input
-                    type="text"
-                    value={notes[item.id] ?? ""}
-                    onChange={e => setNotes(prev => ({ ...prev, [item.id]: e.target.value }))}
-                    placeholder="🏷️ Add promo or alert note…"
-                    style={{ marginTop:6, width:"100%", borderRadius:8, border:"1px solid #1e3a5f", background:"#111827", color:"#f0f6ff", padding:"6px 10px", fontSize:11, fontFamily:"inherit", outline:"none" }}
-                  />
-                  {notes[item.id] && <div style={{ fontSize:10, color:"#fcd34d", marginTop:3 }}>⚡ Alert active</div>}
-                </div>
-                <div style={{ display:"flex", alignItems:"center", gap:4 }}>
-                  <span style={{ fontSize:13, color:"#64748b", fontWeight:700 }}>$</span>
-                  <input
-                    type="number"
-                    min={0}
-                    step="0.01"
-                    value={prices[item.id] ?? ""}
-                    onChange={e => setPrices(prev => ({ ...prev, [item.id]: e.target.value }))}
-                    placeholder="0.00"
-                    className="price-inp"
-                  />
-                </div>
-              </div>
-            ))
+            <>
+              <div className="count">Showing {Math.min(filtered.length, 150)} of {filtered.length} matching items. Search to find any item quickly.</div>
+              <section className="grid">
+                {filtered.slice(0,150).map(item => {
+                  const draft = drafts[item.id];
+                  if (!draft) return null;
+                  const price = Number(draft.price);
+                  const packageQty = Number(draft.unitsPerBox || 1);
+                  const unitCost = price > 0 && packageQty > 0 ? price / packageQty : null;
+                  const changed = hasChanges(item);
+                  return (
+                    <article className={"item " + (price > 0 ? "" : "unpriced")} key={item.id}>
+                      <div className="item-head">
+                        <div>
+                          <div className="item-name">{item.name}</div>
+                          <div className="item-meta">
+                            {item.reference_number ? "Ref " + item.reference_number : "No reference number"}
+                            {" · "}{item.category || "Uncategorized"}
+                          </div>
+                        </div>
+                        <div className={"price-badge " + (price > 0 ? "" : "missing")}>{price > 0 ? currency(price) : "Missing"}</div>
+                      </div>
+
+                      <div className="fields">
+                        <div>
+                          <label>Price Paid</label>
+                          <input type="number" min="0" step="0.01" inputMode="decimal" value={draft.price} onChange={event => updateDraft(item.id,"price",event.target.value)} placeholder="0.00" />
+                        </div>
+                        <div>
+                          <label>Units in Package</label>
+                          <input type="number" min="1" step="1" inputMode="numeric" value={draft.unitsPerBox} onChange={event => updateDraft(item.id,"unitsPerBox",event.target.value)} placeholder="1" />
+                        </div>
+                        <div className="field-wide">
+                          <label>Vendor</label>
+                          <input value={draft.vendor} onChange={event => updateDraft(item.id,"vendor",event.target.value)} placeholder="Vendor or supplier" />
+                        </div>
+                        <div className="field-wide">
+                          <label>Price Source</label>
+                          <select value={draft.source} onChange={event => updateDraft(item.id,"source",event.target.value)}>
+                            <option value="">Select source</option>
+                            <option value="Invoice">Invoice</option>
+                            <option value="Vendor quote">Vendor quote</option>
+                            <option value="Contract">Contract</option>
+                            <option value="Website">Website</option>
+                            <option value="Other">Other</option>
+                          </select>
+                        </div>
+                      </div>
+
+                      <div className="unit-cost"><span>Calculated cost per individual unit</span><strong>{currency(unitCost)}</strong></div>
+                      <button className="save" disabled={!changed || savingId !== null} onClick={() => void saveItem(item)}>
+                        {savingId === item.id ? "Saving…" : changed ? "Save Pricing Changes" : "Pricing Saved"}
+                      </button>
+                      <div className="updated">{timeLabel(item.price_updated_at)}</div>
+                    </article>
+                  );
+                })}
+              </section>
+            </>
           )}
         </div>
-      </div>
-
-      <div className="save-bar">
-        <span style={{ fontSize:12, color:"#64748b" }}>{changedCount > 0 ? `${changedCount} unsaved` : "All saved"}</span>
-        <button onClick={saveAll} disabled={saving} className="btn btn-ac">
-          {saving ? "Saving…" : `💾 Save All (${changedCount} changes)`}
-        </button>
-      </div>
+      </main>
     </>
   );
 }
