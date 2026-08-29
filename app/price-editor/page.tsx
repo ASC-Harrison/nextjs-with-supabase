@@ -143,16 +143,23 @@ export default function PricingCenterPage() {
         return;
       }
 
-      const { data, error } = await supabase
-        .from("items")
-        .select("id,name,vendor,category,reference_number,unit,price,units_per_box,price_source,price_updated_at")
-        .eq("is_active", true)
-        .order("name");
+      const [itemsResult, historyResult] = await Promise.all([
+        supabase
+          .from("items")
+          .select("id,name,vendor,category,reference_number,unit,price,units_per_box,price_source,price_updated_at")
+          .eq("is_active", true)
+          .order("name"),
+        supabase
+          .from("item_price_history")
+          .select("id,item_id,previous_price,new_price,previous_units_per_box,new_units_per_box,previous_vendor,new_vendor,source,changed_by_name,created_at,items(name,reference_number)")
+          .order("created_at", { ascending: false })
+          .limit(100),
+      ]);
 
-      if (error) {
+      if (itemsResult.error) {
         setMessage({ type:"err", text:"Could not load pricing records." });
       } else {
-        const rows = (data as Item[]) || [];
+        const rows = (itemsResult.data as Item[]) || [];
         setItems(rows);
         setDrafts(Object.fromEntries(rows.map(item => [
           item.id,
@@ -164,7 +171,7 @@ export default function PricingCenterPage() {
           },
         ])));
       }
-      await loadHistory();
+      setHistory((historyResult.data as unknown as PriceHistory[]) || []);
       setLoading(false);
     }
     void load();
