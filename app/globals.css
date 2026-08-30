@@ -100,3 +100,40 @@ input, select, textarea, button { font-size: 16px; }
     transition-duration: .01ms !important;
   }
 }
+
+
+body {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+input, select, textarea {
+  border-color: rgba(148, 163, 184, .16);
+  transition: border-color .18s ease, box-shadow .18s ease, background-color .18s ease;
+}
+
+input:hover, select:hover, textarea:hover {
+  border-color: rgba(96, 165, 250, .28);
+}
+
+input:focus, select:focus, textarea:focus {
+  border-color: rgba(96, 165, 250, .58);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, .1);
+}
+
+input::placeholder, textarea::placeholder {
+  color: #526178;
+  opacity: 1;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  filter: saturate(.6);
+}
+
+@media (display-mode: standalone) {
+  body {
+    padding-top: env(safe-area-inset-top);
+  }
+}
