@@ -23,13 +23,14 @@ type ChatMessage = {
 
 const CSS = `
   *,*::before,*::after{box-sizing:border-box}
-  body{margin:0;background:#0a0f1e;font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','Segoe UI',sans-serif}
-  .root{min-height:100vh;background:#0a0f1e;color:#f0f6ff;padding:12px 12px 24px}
-  .wrap{width:100%;max-width:760px;margin:0 auto}
-  .header{background:#162032;border:1px solid #1e3a5f;border-radius:18px;padding:14px;margin-bottom:10px}
+  body{margin:0;background:#080d19;font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','Segoe UI',sans-serif}
+  .root{min-height:100vh;color:#f0f6ff;padding:12px 12px 90px;background:radial-gradient(circle at 10% 0%,rgba(37,99,235,.17),transparent 30%),radial-gradient(circle at 100% 20%,rgba(45,212,191,.06),transparent 28%),#080d19}
+  .wrap{width:100%;max-width:800px;margin:0 auto}
+  .header{position:relative;overflow:hidden;background:linear-gradient(145deg,rgba(30,41,59,.96),rgba(15,23,42,.96));border:1px solid rgba(96,165,250,.2);border-radius:20px;padding:15px;margin-bottom:10px;box-shadow:0 20px 48px rgba(0,0,0,.22)}
+  .header::before{content:'';position:absolute;inset:0 0 auto;height:3px;background:linear-gradient(90deg,#2563eb,#06b6d4,#2dd4bf)}
   .header-top{display:flex;align-items:center;justify-content:space-between;gap:10px}
   .back{background:#1e2d42;border:1px solid #334155;border-radius:9px;color:#94a3b8;padding:8px 12px;font:700 12px inherit;cursor:pointer}
-  .title{font-size:21px;font-weight:900;letter-spacing:-.4px}
+  .title{font-size:22px;font-weight:950;letter-spacing:-.6px}
   .sub{font-size:11px;color:#64748b;margin-top:3px}
   .status{display:inline-flex;align-items:center;gap:5px;border-radius:999px;padding:4px 8px;font-size:10px;font-weight:800;white-space:nowrap}
   .status.live{background:rgba(16,185,129,.12);color:#6ee7b7;border:1px solid rgba(16,185,129,.3)}
@@ -41,18 +42,18 @@ const CSS = `
   .notify-button{border:1px solid rgba(59,130,246,.45);background:rgba(59,130,246,.2);color:#bfdbfe;border-radius:9px;padding:8px 10px;font:800 11px inherit;cursor:pointer;white-space:nowrap}
   .notify-button:disabled{opacity:.55;cursor:not-allowed}
   .notify-on{color:#6ee7b7;font-size:11px;font-weight:800;white-space:nowrap}
-  .chat{height:min(62vh,560px);min-height:360px;background:#101827;border:1px solid #1e3a5f;border-radius:16px;padding:12px;overflow-y:auto;scroll-behavior:smooth}
+  .chat{height:min(62vh,580px);min-height:360px;background:linear-gradient(180deg,rgba(8,13,25,.82),rgba(15,23,42,.9));border:1px solid rgba(96,165,250,.16);border-radius:18px;padding:13px;overflow-y:auto;scroll-behavior:smooth;box-shadow:inset 0 1px rgba(255,255,255,.025),0 18px 44px rgba(0,0,0,.16)}
   .loading,.empty{text-align:center;color:#475569;font-size:12px;padding:40px 12px}
   .row{display:flex;margin-bottom:10px}
   .row.mine{justify-content:flex-end}
-  .bubble{max-width:84%;background:#1e2d42;border:1px solid #334155;border-radius:4px 14px 14px 14px;padding:8px 10px}
-  .mine .bubble{background:#1d4ed8;border-color:#2563eb;border-radius:14px 4px 14px 14px}
+  .bubble{max-width:84%;background:linear-gradient(145deg,#1e2d42,#172337);border:1px solid rgba(148,163,184,.16);border-radius:5px 16px 16px 16px;padding:9px 11px;box-shadow:0 8px 20px rgba(0,0,0,.14)}
+  .mine .bubble{background:linear-gradient(145deg,#2563eb,#1d4ed8);border-color:rgba(147,197,253,.25);border-radius:16px 5px 16px 16px;box-shadow:0 9px 24px rgba(37,99,235,.2)}
   .sender{font-size:10px;font-weight:800;color:#93c5fd;margin-bottom:3px}
   .mine .sender{color:#bfdbfe}
   .message{font-size:14px;line-height:1.38;color:#f8fafc;white-space:pre-wrap;word-break:break-word}
   .time{font-size:9px;color:#64748b;margin-top:4px;text-align:right}
   .mine .time{color:#bfdbfe}
-  .composer{background:#162032;border:1px solid #1e3a5f;border-radius:16px;padding:10px;margin-top:10px}
+  .composer{background:linear-gradient(145deg,rgba(30,41,59,.92),rgba(15,23,42,.95));border:1px solid rgba(96,165,250,.17);border-radius:17px;padding:10px;margin-top:10px;box-shadow:0 16px 38px rgba(0,0,0,.16)}
   .input-row{display:flex;gap:8px;align-items:flex-end}
   .input{flex:1;min-height:44px;max-height:120px;resize:vertical;background:#0f172a;border:1px solid #334155;border-radius:11px;color:#f0f6ff;padding:10px 11px;font:14px/1.35 inherit;outline:none}
   .input:focus{border-color:#3b82f6;box-shadow:0 0 0 2px rgba(59,130,246,.12)}
