@@ -243,7 +243,21 @@ export default function AICommandCenterPage() {
                               <div className="ai-result-name">{item.name}</div>
                               <div className="ai-result-meta">
                                 <span>{item.reference || "No reference"}</span>
-                                <span className="ai-result-value">{item.on_hand} {item.unit || ""}</span>
+                                <span className="ai-result-value">{item.price !== null ? "$" + Number(item.price).toFixed(2) + " · " : ""}{item.on_hand} {item.unit || ""}</span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {entry.response.results.orders.length > 0 && (
+                        <div className="ai-results">
+                          {entry.response.results.orders.slice(0, 6).map((order, index) => (
+                            <div className="ai-result" key={order.item + "-" + index}>
+                              <div className="ai-result-name">{order.item}</div>
+                              <div className="ai-result-meta">
+                                <span>{order.vendor || "Vendor not set"}</span>
+                                <span className="ai-result-value">{order.status} · {order.received ?? order.ordered ?? order.requested ?? 0}</span>
                               </div>
                             </div>
                           ))}
