@@ -30,6 +30,9 @@ type Order = {
   expected_delivery_date?: string | null;
   notes: string | null;
   alert_note?: string | null;
+  current_price?: number | null;
+  current_units_per_box?: number | null;
+  current_price_source?: string | null;
 };
 
 const CSS = `
@@ -98,6 +101,10 @@ export default function OrdersPage() {
   const [receivingId, setReceivingId] = useState<string | null>(null);
   const [qtyReceivedInput, setQtyReceivedInput] = useState<string>("");
   const [partialNoteInput, setPartialNoteInput] = useState<string>("");
+  const [receivingPriceInput, setReceivingPriceInput] = useState<string>("");
+  const [receivingPackageQtyInput, setReceivingPackageQtyInput] = useState<string>("1");
+  const [receivingVendorInput, setReceivingVendorInput] = useState<string>("");
+  const [receivingSourceInput, setReceivingSourceInput] = useState<string>("Invoice");
 
   async function loadOrders() {
     try {
@@ -109,10 +116,22 @@ export default function OrdersPage() {
       const rows = (data as Order[]) ?? [];
       const ids = [...new Set(rows.map(r => r.item_id).filter(Boolean))] as string[];
       if (ids.length > 0) {
-        const { data: notesData } = await supabase.from("items").select("id,alert_note,notes").in("id", ids);
-        if (notesData) {
-          const noteMap = Object.fromEntries(notesData.map((n: any) => [n.id, n.alert_note || n.notes]));
-          rows.forEach(r => { if (r.item_id) r.alert_note = noteMap[r.item_id] || null; });
+        const { data: itemData } = await supabase
+          .from("items")
+          .select("id,alert_note,notes,price,units_per_box,price_source,vendor")
+          .in("id", ids);
+        if (itemData) {
+          const itemMap = Object.fromEntries(itemData.map((item: any) => [item.id, item]));
+          rows.forEach(row => {
+            if (!row.item_id) return;
+            const item = itemMap[row.item_id];
+            if (!item) return;
+            row.alert_note = item.alert_note || item.notes || null;
+            row.current_price = item.price;
+            row.current_units_per_box = item.units_per_box;
+            row.current_price_source = item.price_source;
+            if (!row.vendor && item.vendor) row.vendor = item.vendor;
+          });
         }
       }
       setOrders(rows);
@@ -149,6 +168,26 @@ export default function OrdersPage() {
     finally { setUpdating(null); }
   }
 
+  function openReceiving(order: Order) {
+    setReceivingId(order.id);
+    setQtyReceivedInput("");
+    setPartialNoteInput("");
+    setReceivingPriceInput("");
+    setReceivingPackageQtyInput(String(order.current_units_per_box || 1));
+    setReceivingVendorInput(order.vendor || "");
+    setReceivingSourceInput("Invoice");
+  }
+
+  function closeReceiving() {
+    setReceivingId(null);
+    setQtyReceivedInput("");
+    setPartialNoteInput("");
+    setReceivingPriceInput("");
+    setReceivingPackageQtyInput("1");
+    setReceivingVendorInput("");
+    setReceivingSourceInput("Invoice");
+  }
+
   async function receiveOrderIntoInventory(order: Order, complete: boolean) {
     if (updating) return;
 
@@ -168,19 +207,37 @@ export default function OrdersPage() {
       return;
     }
 
+    const packagePrice = receivingPriceInput.trim() ? Number(receivingPriceInput) : null;
+    const packageQty = receivingPackageQtyInput.trim() ? Number(receivingPackageQtyInput) : 1;
+    if (packagePrice !== null && (!Number.isFinite(packagePrice) || packagePrice < 0)) {
+      alert("Please enter a valid invoice price.");
+      return;
+    }
+    if (packagePrice !== null && (!Number.isInteger(packageQty) || packageQty < 1)) {
+      alert("Units in the package must be a whole number of at least 1.");
+      return;
+    }
+
     const actionLabel = complete ? "complete this order" : "keep the rest awaiting";
-    if (!confirm(`Receive ${qtyReceived} of "${order.item_name}" into MAIN STERILE SUPPLY inventory and ${actionLabel}?`)) {
+    const pricingSummary = packagePrice === null
+      ? "No pricing change will be made."
+      : `Invoice price: $${packagePrice.toFixed(2)} per package of ${packageQty} ($${(packagePrice / packageQty).toFixed(2)} each).`;
+    if (!confirm(`Receive ${qtyReceived} of "${order.item_name}" into MAIN STERILE SUPPLY inventory and ${actionLabel}?\n\n${pricingSummary}`)) {
       return;
     }
 
     setUpdating(order.id);
     try {
-      const { data, error } = await supabase.rpc("receive_order_stock", {
+      const { data, error } = await supabase.rpc("receive_order_with_pricing", {
         p_order_id: order.id,
         p_qty: qtyReceived,
         p_complete: complete,
         p_staff: staffName,
         p_partial_note: complete ? null : partialNote,
+        p_package_price: packagePrice,
+        p_units_per_package: packagePrice === null ? null : packageQty,
+        p_vendor: packagePrice === null ? null : receivingVendorInput.trim() || null,
+        p_price_source: packagePrice === null ? null : receivingSourceInput || "Invoice",
       });
 
       if (error) throw error;
@@ -189,22 +246,30 @@ export default function OrdersPage() {
         status: Order["status"];
         total_received: number;
         inventory_on_hand: number;
+        pricing_updated: boolean;
+        package_price: number | null;
+        unit_cost: number | null;
       };
 
       const receivedAt = complete ? new Date().toISOString() : null;
-      setOrders(prev => prev.map(o => o.id === order.id ? {
-        ...o,
+      setOrders(prev => prev.map(row => row.id === order.id ? {
+        ...row,
         status: result.status,
         qty_actual_received: result.total_received,
         received_by: staffName,
         received_at: receivedAt,
         partial_note: complete ? null : partialNote,
-      } as Order : o));
+        current_price: result.package_price ?? row.current_price,
+        current_units_per_box: result.package_price !== null ? packageQty : row.current_units_per_box,
+        current_price_source: result.package_price !== null ? receivingSourceInput : row.current_price_source,
+        vendor: result.package_price !== null ? receivingVendorInput || row.vendor : row.vendor,
+      } as Order : row));
 
-      setReceivingId(null);
-      setQtyReceivedInput("");
-      setPartialNoteInput("");
-      alert(`Received ${qtyReceived}. Main Sterile Supply now has ${result.inventory_on_hand} on hand.`);
+      closeReceiving();
+      const priceMessage = result.package_price !== null
+        ? ` Price recorded at $${Number(result.package_price).toFixed(2)} per package${result.unit_cost !== null ? ` ($${Number(result.unit_cost).toFixed(2)} each)` : ""}.`
+        : "";
+      alert(`Received ${qtyReceived}. Main Sterile Supply now has ${result.inventory_on_hand} on hand.${priceMessage}`);
     } catch (error: any) {
       alert(`Could not receive this order: ${error?.message || "Unknown error"}`);
     } finally {
@@ -356,6 +421,63 @@ export default function OrdersPage() {
                         step="1"
                         style={{ width:"100%", borderRadius:8, border:"1px solid rgba(16,185,129,0.3)", background:"#111827", color:"#f0f6ff", padding:"11px 12px", fontSize:16, fontWeight:800, textAlign:"center", fontFamily:"inherit", outline:"none", marginBottom:10 }}
                       />
+
+                      <div style={{ background:"rgba(59,130,246,0.07)", border:"1px solid rgba(59,130,246,0.2)", borderRadius:10, padding:"10px", marginBottom:10 }}>
+                        <div style={{ fontSize:12, color:"#93c5fd", fontWeight:800, marginBottom:3 }}>Invoice pricing (optional)</div>
+                        <div style={{ fontSize:10, color:"#64748b", marginBottom:8 }}>
+                          Enter the actual package price from the invoice. Leave price blank to receive inventory without changing pricing.
+                          {order.current_price != null && <span style={{color:"#94a3b8"}}> Current saved price: <strong style={{color:"#f0f6ff"}}>${Number(order.current_price).toFixed(2)}</strong>.</span>}
+                        </div>
+                        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:7, marginBottom:7 }}>
+                          <div>
+                            <div style={{fontSize:9,color:"#64748b",fontWeight:800,margin:"0 0 4px 2px"}}>PACKAGE PRICE</div>
+                            <input
+                              type="number"
+                              min="0"
+                              step="0.01"
+                              inputMode="decimal"
+                              value={receivingPriceInput}
+                              onChange={e => setReceivingPriceInput(e.target.value)}
+                              placeholder="0.00"
+                              style={{width:"100%",borderRadius:8,border:"1px solid rgba(59,130,246,0.25)",background:"#111827",color:"#f0f6ff",padding:"9px",fontSize:13,fontFamily:"inherit",outline:"none"}}
+                            />
+                          </div>
+                          <div>
+                            <div style={{fontSize:9,color:"#64748b",fontWeight:800,margin:"0 0 4px 2px"}}>UNITS IN PACKAGE</div>
+                            <input
+                              type="number"
+                              min="1"
+                              step="1"
+                              inputMode="numeric"
+                              value={receivingPackageQtyInput}
+                              onChange={e => setReceivingPackageQtyInput(e.target.value)}
+                              style={{width:"100%",borderRadius:8,border:"1px solid rgba(59,130,246,0.25)",background:"#111827",color:"#f0f6ff",padding:"9px",fontSize:13,fontFamily:"inherit",outline:"none"}}
+                            />
+                          </div>
+                        </div>
+                        <input
+                          value={receivingVendorInput}
+                          onChange={e => setReceivingVendorInput(e.target.value)}
+                          placeholder="Vendor"
+                          style={{width:"100%",borderRadius:8,border:"1px solid rgba(59,130,246,0.25)",background:"#111827",color:"#f0f6ff",padding:"9px",fontSize:12,fontFamily:"inherit",outline:"none",marginBottom:7}}
+                        />
+                        <select
+                          value={receivingSourceInput}
+                          onChange={e => setReceivingSourceInput(e.target.value)}
+                          style={{width:"100%",borderRadius:8,border:"1px solid rgba(59,130,246,0.25)",background:"#111827",color:"#f0f6ff",padding:"9px",fontSize:12,fontFamily:"inherit",outline:"none"}}
+                        >
+                          <option value="Invoice">Invoice</option>
+                          <option value="Packing slip">Packing slip</option>
+                          <option value="Vendor quote">Vendor quote</option>
+                          <option value="Contract">Contract</option>
+                          <option value="Other">Other</option>
+                        </select>
+                        {receivingPriceInput && Number(receivingPriceInput) >= 0 && Number(receivingPackageQtyInput) > 0 && (
+                          <div style={{fontSize:11,color:"#6ee7b7",fontWeight:800,marginTop:8,textAlign:"center"}}>
+                            Cost per individual unit: ${(Number(receivingPriceInput) / Number(receivingPackageQtyInput)).toFixed(2)}
+                          </div>
+                        )}
+                      </div>
                       <button
                         onClick={() => receiveOrderIntoInventory(order, true)}
                         disabled={updating === order.id}
@@ -381,7 +503,7 @@ export default function OrdersPage() {
                         >
                           {updating === order.id ? "Receiving…" : "📦 Add Partial & Keep Awaiting"}
                         </button>
-                        <button onClick={() => { setReceivingId(null); setQtyReceivedInput(""); setPartialNoteInput(""); }} className="btn btn-gh">Cancel</button>
+                        <button onClick={closeReceiving} className="btn btn-gh">Cancel</button>
                       </div>
                     </div>
                   );
@@ -429,12 +551,12 @@ export default function OrdersPage() {
                     </button>
                   )}
                   {!isReadOnly && (order.status === "ORDERED" || order.status === "BACKORDERED" || order.status === "AWAITING") && receivingId !== order.id && (
-                    <button onClick={() => { setReceivingId(order.id); setQtyReceivedInput(""); setPartialNoteInput(""); }} disabled={updating === order.id} className="btn btn-ok">
+                    <button onClick={() => openReceiving(order)} disabled={updating === order.id} className="btn btn-ok">
                       {order.status === "AWAITING" ? "📦 Receive Rest" : "📦 Mark Received"}
                     </button>
                   )}
                   {!isReadOnly && order.status === "PENDING" && receivingId !== order.id && (
-                    <button onClick={() => { setReceivingId(order.id); setQtyReceivedInput(""); setPartialNoteInput(""); }} disabled={updating === order.id} className="btn btn-gh" style={{ fontSize:11 }}>
+                    <button onClick={() => openReceiving(order)} disabled={updating === order.id} className="btn btn-gh" style={{ fontSize:11 }}>
                       📦 Receive Now
                     </button>
                   )}
