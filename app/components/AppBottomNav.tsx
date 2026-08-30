@@ -2,11 +2,12 @@
 
 import { usePathname, useRouter } from "next/navigation";
 
-type IconName = "home" | "inventory" | "scan" | "chat";
+type IconName = "home" | "inventory" | "ai" | "scan" | "chat";
 
 const ITEMS: Array<{ label: string; icon: IconName; href: string }> = [
   { label: "Home", icon: "home", href: "/" },
   { label: "Inventory", icon: "inventory", href: "/inventory" },
+  { label: "AI", icon: "ai", href: "/ai" },
   { label: "Scan", icon: "scan", href: "/scan-item" },
   { label: "Chat", icon: "chat", href: "/chat" },
 ];
@@ -19,6 +20,9 @@ function NavIcon({ name }: { name: IconName }) {
   }
   if (name === "inventory") {
     return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h7v7H4zm9 0h7v7h-7zM4 13h7v7H4zm9 0h7v7h-7z"/></svg>;
+  }
+  if (name === "ai") {
+    return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 2 1.35 5.15a5 5 0 0 0 3.5 3.5L22 12l-5.15 1.35a5 5 0 0 0-3.5 3.5L12 22l-1.35-5.15a5 5 0 0 0-3.5-3.5L2 12l5.15-1.35a5 5 0 0 0 3.5-3.5z"/></svg>;
   }
   if (name === "scan") {
     return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9V5a1 1 0 0 1 1-1h4M15 4h4a1 1 0 0 1 1 1v4M20 15v4a1 1 0 0 1-1 1h-4M9 20H5a1 1 0 0 1-1-1v-4M7 12h10"/></svg>;
@@ -42,8 +46,8 @@ export default function AppBottomNav() {
           .app-mobile-nav-spacer{display:block;height:92px}
           .app-mobile-nav{
             position:fixed;z-index:1000;left:50%;bottom:18px;transform:translateX(-50%);
-            width:min(440px,calc(100vw - 32px));min-height:70px;padding:8px;
-            display:grid;grid-template-columns:repeat(4,1fr);gap:5px;
+            width:min(520px,calc(100vw - 32px));min-height:70px;padding:8px;
+            display:grid;grid-template-columns:repeat(5,1fr);gap:5px;
             background:linear-gradient(145deg,rgba(17,27,46,.91),rgba(8,13,25,.94));
             border:1px solid rgba(96,165,250,.22);border-radius:22px;
             box-shadow:0 24px 70px rgba(0,0,0,.52),inset 0 1px rgba(255,255,255,.055);
@@ -73,7 +77,7 @@ export default function AppBottomNav() {
           .app-mobile-nav{
             position:fixed;z-index:1000;left:10px;right:10px;bottom:8px;
             min-height:67px;padding:7px 8px calc(7px + env(safe-area-inset-bottom));
-            display:grid;grid-template-columns:repeat(4,1fr);gap:4px;
+            display:grid;grid-template-columns:repeat(5,1fr);gap:4px;
             background:linear-gradient(145deg,rgba(17,27,46,.96),rgba(8,13,25,.97));
             border:1px solid rgba(96,165,250,.2);border-radius:21px;
             box-shadow:0 20px 55px rgba(0,0,0,.55),inset 0 1px rgba(255,255,255,.035);

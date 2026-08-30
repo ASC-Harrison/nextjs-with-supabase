@@ -15,10 +15,11 @@ const PREOP_ONLY_EMAILS = ["andrea.burris88@icloud.com"];
 type Area = { id: string; name: string; total: number; low: number; };
 
 
-type DashboardIconName = "inventory" | "chat" | "scan" | "orders";
+type DashboardIconName = "ai" | "inventory" | "chat" | "scan" | "orders";
 
 function DashboardIcon({ name }: { name: DashboardIconName }) {
   const common = { width: 24, height: 24, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 1.8, strokeLinecap: "round" as const, strokeLinejoin: "round" as const, "aria-hidden": true };
+  if (name === "ai") return <svg {...common}><path d="m12 2 1.35 5.15a5 5 0 0 0 3.5 3.5L22 12l-5.15 1.35a5 5 0 0 0-3.5 3.5L12 22l-1.35-5.15a5 5 0 0 0-3.5-3.5L2 12l5.15-1.35a5 5 0 0 0 3.5-3.5z"/></svg>;
   if (name === "inventory") return <svg {...common}><rect x="3.5" y="4" width="7" height="7" rx="1.5"/><rect x="13.5" y="4" width="7" height="7" rx="1.5"/><rect x="3.5" y="14" width="7" height="6" rx="1.5"/><rect x="13.5" y="14" width="7" height="6" rx="1.5"/></svg>;
   if (name === "chat") return <svg {...common}><path d="M5 5h14a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-8l-5.2 3v-3H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2z"/><path d="M8 11h.01M12 11h.01M16 11h.01"/></svg>;
   if (name === "scan") return <svg {...common}><path d="M4 9V5a1 1 0 0 1 1-1h4M15 4h4a1 1 0 0 1 1 1v4M20 15v4a1 1 0 0 1-1 1h-4M9 20H5a1 1 0 0 1-1-1v-4M7 12h10"/></svg>;
@@ -347,6 +348,11 @@ export default function Home() {
         <section style={{marginBottom:16}}>
           <div style={{fontSize:11,fontWeight:900,color:"#64748b",textTransform:"uppercase",letterSpacing:"1px",margin:"0 3px 9px"}}>Daily Work</div>
           <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(190px,1fr))",gap:9}}>
+            <button className="dashboard-card dashboard-card-primary" onClick={() => router.push("/ai")} style={{...card,background:"linear-gradient(145deg,#312e81,#0369a1)",border:"1px solid rgba(103,232,249,.3)"}}>
+              <div className="dashboard-icon"><DashboardIcon name="ai" /></div>
+              <div style={{fontSize:16,fontWeight:900}}>AI Command Center</div>
+              <div style={{fontSize:11,color:"#bae6fd",marginTop:4}}>Ask questions and prepare safe actions</div>
+            </button>
             <button className="dashboard-card dashboard-card-primary" onClick={() => router.push("/inventory")} style={{...card,background:"linear-gradient(145deg,#1d4ed8,#2563eb)",border:"1px solid rgba(147,197,253,.35)"}}>
               <div className="dashboard-icon"><DashboardIcon name="inventory" /></div>
               <div style={{fontSize:16,fontWeight:900}}>Open Inventory</div>
