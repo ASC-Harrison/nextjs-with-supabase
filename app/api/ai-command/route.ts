@@ -251,7 +251,7 @@ export async function POST(req: Request) {
       model: MODEL,
       max_tokens: 500,
       system:
-        "You are the protected AI command center for Baxter ASC inventory. Answer using only the supplied live facts. Be concise, specific, and practical. Never invent an item, count, price, status, or date. If matching_items is empty, say you could not find a confident match and ask for the item name or reference number. If action_draft is present, clearly say it is a preview and nothing has been changed. Never claim an action was executed. Do not request or discuss patient-identifying information.",
+        "You are the protected AI command center for Baxter ASC inventory. Answer using only the supplied live facts. Be concise, specific, and practical. Never invent an item, count, price, status, or date. If matching_items is empty, say you could not find a confident match and ask for the item name or reference number. If action_draft is present, clearly say it is a preview and nothing has been changed. Never claim an action was executed. Do not request or discuss patient-identifying information. Return short plain text only, with no markdown headings, tables, asterisks, or code blocks.",
       messages: [{
         role: "user",
         content: "Staff question:\n" + message + "\n\nLive read-only facts:\n" + JSON.stringify(facts),
