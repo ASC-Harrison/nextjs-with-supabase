@@ -14,7 +14,26 @@ const PREOP_ONLY_EMAILS = ["andrea.burris88@icloud.com"];
 
 type Area = { id: string; name: string; total: number; low: number; };
 
-const SKEL_CSS = `@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.4}}.skel{animation:pulse 1.5s ease-in-out infinite}`;
+
+type DashboardIconName = "inventory" | "chat" | "scan" | "orders";
+
+function DashboardIcon({ name }: { name: DashboardIconName }) {
+  const common = { width: 24, height: 24, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 1.8, strokeLinecap: "round" as const, strokeLinejoin: "round" as const, "aria-hidden": true };
+  if (name === "inventory") return <svg {...common}><rect x="3.5" y="4" width="7" height="7" rx="1.5"/><rect x="13.5" y="4" width="7" height="7" rx="1.5"/><rect x="3.5" y="14" width="7" height="6" rx="1.5"/><rect x="13.5" y="14" width="7" height="6" rx="1.5"/></svg>;
+  if (name === "chat") return <svg {...common}><path d="M5 5h14a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-8l-5.2 3v-3H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2z"/><path d="M8 11h.01M12 11h.01M16 11h.01"/></svg>;
+  if (name === "scan") return <svg {...common}><path d="M4 9V5a1 1 0 0 1 1-1h4M15 4h4a1 1 0 0 1 1 1v4M20 15v4a1 1 0 0 1-1 1h-4M9 20H5a1 1 0 0 1-1-1v-4M7 12h10"/></svg>;
+  return <svg {...common}><path d="M4 7.5 12 3l8 4.5v9L12 21l-8-4.5z"/><path d="m4 7.5 8 4.5 8-4.5M12 12v9"/></svg>;
+}
+
+const SKEL_CSS = `
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.4}}
+.skel{animation:pulse 1.5s ease-in-out infinite}
+.dashboard-card,.dashboard-mini-card,.area-card{transition:transform .2s ease,border-color .2s ease,box-shadow .2s ease,background .2s ease}
+.dashboard-icon{width:43px;height:43px;border-radius:13px;display:grid;place-items:center;margin-bottom:13px;color:#bfdbfe;background:linear-gradient(145deg,rgba(59,130,246,.2),rgba(6,182,212,.08));border:1px solid rgba(96,165,250,.18);box-shadow:inset 0 1px rgba(255,255,255,.04)}
+.dashboard-card-primary .dashboard-icon{color:#fff;background:rgba(255,255,255,.14);border-color:rgba(255,255,255,.18)}
+.live-dot{width:7px;height:7px;border-radius:50%;background:#34d399;box-shadow:0 0 0 4px rgba(52,211,153,.09),0 0 14px rgba(52,211,153,.55)}
+@media(hover:hover){.dashboard-card:hover,.area-card:hover{transform:translateY(-3px);border-color:rgba(96,165,250,.3)!important;box-shadow:0 22px 48px rgba(0,0,0,.25)!important}.dashboard-mini-card:hover{transform:translateY(-2px);border-color:rgba(96,165,250,.24)!important}}
+`;
 
 export default function Home() {
   const router = useRouter();
@@ -300,6 +319,9 @@ export default function Home() {
                 <div style={{color:"#94a3b8",fontSize:12,marginTop:5}}>Building supplies, orders, alerts, and staff tools</div>
               </div>
             </div>
+            <div style={{display:"flex",alignItems:"center",gap:8,background:"rgba(16,185,129,.07)",border:"1px solid rgba(52,211,153,.15)",borderRadius:999,padding:"7px 11px",fontSize:10,color:"#6ee7b7",fontWeight:850,letterSpacing:".3px"}}>
+              <span className="live-dot" /> LIVE SYNC
+            </div>
             {userEmail && (
               <div style={{display:"flex",alignItems:"center",gap:8,background:"rgba(15,23,42,.72)",border:"1px solid rgba(148,163,184,.16)",borderRadius:12,padding:"8px 9px 8px 12px"}}>
                 <span style={{fontSize:11,color:"#94a3b8",maxWidth:230,overflow:"hidden",textOverflow:"ellipsis"}}>{userEmail}{isAdmin ? " · Admin" : " · Staff"}</span>
@@ -325,24 +347,24 @@ export default function Home() {
         <section style={{marginBottom:16}}>
           <div style={{fontSize:11,fontWeight:900,color:"#64748b",textTransform:"uppercase",letterSpacing:"1px",margin:"0 3px 9px"}}>Daily Work</div>
           <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(190px,1fr))",gap:9}}>
-            <button onClick={() => router.push("/inventory")} style={{...card,background:"linear-gradient(145deg,#1d4ed8,#2563eb)",border:"1px solid rgba(147,197,253,.35)"}}>
-              <div style={{fontSize:27,marginBottom:12}}>▦</div>
+            <button className="dashboard-card dashboard-card-primary" onClick={() => router.push("/inventory")} style={{...card,background:"linear-gradient(145deg,#1d4ed8,#2563eb)",border:"1px solid rgba(147,197,253,.35)"}}>
+              <div className="dashboard-icon"><DashboardIcon name="inventory" /></div>
               <div style={{fontSize:16,fontWeight:900}}>Open Inventory</div>
               <div style={{fontSize:11,color:"#bfdbfe",marginTop:4}}>View and adjust building totals</div>
             </button>
-            <button onClick={() => router.push("/chat")} style={card}>
-              <div style={{fontSize:27,marginBottom:12}}>💬</div>
+            <button className="dashboard-card" onClick={() => router.push("/chat")} style={card}>
+              <div className="dashboard-icon"><DashboardIcon name="chat" /></div>
               <div style={{fontSize:16,fontWeight:900}}>Staff Chat</div>
               <div style={{fontSize:11,color:"#94a3b8",marginTop:4}}>Message the team in real time</div>
             </button>
-            <button onClick={() => router.push("/scan-item")} style={card}>
-              <div style={{fontSize:27,marginBottom:12}}>⌗</div>
+            <button className="dashboard-card" onClick={() => router.push("/scan-item")} style={card}>
+              <div className="dashboard-icon"><DashboardIcon name="scan" /></div>
               <div style={{fontSize:16,fontWeight:900}}>Scan Item</div>
               <div style={{fontSize:11,color:"#94a3b8",marginTop:4}}>Find supplies by reference number</div>
             </button>
             {isAdmin && (
-              <button onClick={() => router.push("/orders")} style={card}>
-                <div style={{fontSize:27,marginBottom:12}}>📦</div>
+              <button className="dashboard-card" onClick={() => router.push("/orders")} style={card}>
+                <div className="dashboard-icon"><DashboardIcon name="orders" /></div>
                 <div style={{fontSize:16,fontWeight:900}}>Orders & Receiving</div>
                 <div style={{fontSize:11,color:"#94a3b8",marginTop:4}}>Track orders and receive deliveries</div>
               </button>
@@ -358,7 +380,7 @@ export default function Home() {
               {label:"Pre-Op / PACU",icon:"🏥",href:"/preop",color:"#5eead4"},
               {label:"Pre-Op Testing",icon:"🧪",href:"/preop-testing",color:"#7dd3fc"},
             ].map(link => (
-              <button key={link.href} onClick={() => router.push(link.href)} style={{
+              <button className="dashboard-mini-card" key={link.href} onClick={() => router.push(link.href)} style={{
                 ...btnBase,marginBottom:0,padding:14,background:"rgba(30,41,59,.72)",
                 color:link.color,border:"1px solid rgba(148,163,184,.14)",borderRadius:14
               }}>{link.icon} {link.label}</button>
@@ -402,7 +424,7 @@ export default function Home() {
                 ["📋","Admin Table","/admin"],
                 ["🩺","Preference Cards","/pref-cards"],
               ].map(([icon,label,href]) => (
-                <button key={href} onClick={() => router.push(href)} style={{
+                <button className="dashboard-mini-card" key={href} onClick={() => router.push(href)} style={{
                   ...btnBase,marginBottom:0,padding:"11px 10px",fontSize:12,
                   background:"rgba(30,41,59,.66)",color:"#cbd5e1",
                   border:"1px solid rgba(148,163,184,.12)",borderRadius:11
@@ -424,7 +446,7 @@ export default function Home() {
           ) : (
             <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(190px,1fr))",gap:8}}>
               {areas.map(area => (
-                <button key={area.id} onClick={() => router.push(`/areas/${area.id}`)} style={{
+                <button className="area-card" key={area.id} onClick={() => router.push(`/areas/${area.id}`)} style={{
                   background:area.low > 0 ? "linear-gradient(145deg,rgba(127,29,29,.22),rgba(30,41,59,.76))" : "rgba(30,41,59,.64)",
                   border:`1px solid ${area.low > 0 ? "rgba(248,113,113,.28)" : "rgba(148,163,184,.12)"}`,
                   borderRadius:14,padding:"13px 12px",cursor:"pointer",textAlign:"left",fontFamily:"inherit",minHeight:78

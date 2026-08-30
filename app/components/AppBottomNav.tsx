@@ -37,6 +37,37 @@ export default function AppBottomNav() {
       <style>{`
         .app-mobile-nav{display:none}
         .app-mobile-nav-spacer{display:none}
+
+        @media(min-width:701px){
+          .app-mobile-nav-spacer{display:block;height:92px}
+          .app-mobile-nav{
+            position:fixed;z-index:1000;left:50%;bottom:18px;transform:translateX(-50%);
+            width:min(440px,calc(100vw - 32px));min-height:70px;padding:8px;
+            display:grid;grid-template-columns:repeat(4,1fr);gap:5px;
+            background:linear-gradient(145deg,rgba(17,27,46,.91),rgba(8,13,25,.94));
+            border:1px solid rgba(96,165,250,.22);border-radius:22px;
+            box-shadow:0 24px 70px rgba(0,0,0,.52),inset 0 1px rgba(255,255,255,.055);
+            backdrop-filter:blur(24px) saturate(1.3);-webkit-backdrop-filter:blur(24px) saturate(1.3);
+          }
+          .app-mobile-nav::before{
+            content:'';position:absolute;inset:-1px 24% auto;height:1px;
+            background:linear-gradient(90deg,transparent,#38bdf8,transparent);
+          }
+          .app-mobile-nav button{
+            position:relative;border:0;border-radius:15px;background:transparent;color:#64748b;
+            padding:9px 10px 7px;font:800 11px/1 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+            display:flex;align-items:center;justify-content:center;gap:8px;cursor:pointer;
+          }
+          .app-mobile-nav button.active{
+            color:#dbeafe;background:linear-gradient(145deg,rgba(37,99,235,.3),rgba(6,182,212,.12));
+            box-shadow:inset 0 0 0 1px rgba(96,165,250,.16),0 8px 22px rgba(2,6,23,.25);
+          }
+          .app-mobile-nav .nav-icon{width:20px;height:20px;display:grid;place-items:center}
+          .app-mobile-nav .nav-icon svg{width:100%;height:100%;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+          .app-mobile-nav button:nth-child(2) .nav-icon svg path{fill:currentColor;stroke:none}
+          .app-mobile-nav button:nth-child(3){color:#bae6fd}
+          .app-mobile-nav button:nth-child(3):not(.active){background:rgba(14,165,233,.08)}
+        }
         @media(max-width:700px){
           .app-mobile-nav-spacer{display:block;height:calc(88px + env(safe-area-inset-bottom))}
           .app-mobile-nav{
