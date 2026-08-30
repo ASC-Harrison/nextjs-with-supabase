@@ -37,14 +37,18 @@ type Order = {
 
 const CSS = `
   *,*::before,*::after{box-sizing:border-box;}
-  body{margin:0;background:#0a0f1e;font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','Segoe UI',sans-serif;}
-  .root{min-height:100vh;background:#0a0f1e;color:#f0f6ff;padding:0 16px 60px;}
-  .wrap{max-width:700px;margin:0 auto;}
-  .back-btn{display:inline-flex;align-items:center;gap:6px;background:#1e2d42;border:1px solid #1e3a5f;border-radius:10px;padding:8px 16px;font-size:13px;font-weight:600;color:#94a3b8;cursor:pointer;margin-top:16px;margin-bottom:16px;font-family:inherit;}
-  .title{font-size:26px;font-weight:900;color:#f0f6ff;letter-spacing:-0.8px;margin-bottom:4px;}
-  .sub{font-size:13px;color:#64748b;margin-bottom:20px;}
-  .stats-row{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:20px;}
-  .stat{background:#162032;border:1px solid #1e3a5f;border-radius:12px;padding:14px;text-align:center;}
+  body{margin:0;background:#080d19;font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','Segoe UI',sans-serif;}
+  .root{min-height:100vh;color:#f0f6ff;padding:12px 14px 90px;background:radial-gradient(circle at 12% 0%,rgba(37,99,235,.16),transparent 31%),radial-gradient(circle at 100% 22%,rgba(45,212,191,.07),transparent 28%),#080d19;}
+  .wrap{max-width:900px;margin:0 auto;}
+  .back-btn{display:inline-flex;align-items:center;gap:6px;background:rgba(30,41,59,.72);border:1px solid rgba(148,163,184,.14);border-radius:10px;padding:8px 13px;font-size:12px;font-weight:750;color:#94a3b8;cursor:pointer;margin-bottom:10px;font-family:inherit;}
+  .orders-hero{position:relative;overflow:hidden;background:linear-gradient(145deg,rgba(30,41,59,.96),rgba(15,23,42,.96));border:1px solid rgba(96,165,250,.2);border-radius:21px;padding:18px;margin-bottom:13px;box-shadow:0 22px 55px rgba(0,0,0,.24);}
+  .orders-hero::before{content:'';position:absolute;inset:0 0 auto;height:3px;background:linear-gradient(90deg,#2563eb,#06b6d4,#2dd4bf);}
+  .hero-line{display:flex;align-items:center;gap:12px;}
+  .hero-icon{width:46px;height:46px;border-radius:14px;display:grid;place-items:center;background:linear-gradient(145deg,#2563eb,#0891b2);box-shadow:0 11px 24px rgba(37,99,235,.27);font-size:22px;}
+  .title{font-size:24px;font-weight:950;color:#f8fafc;letter-spacing:-0.7px;margin-bottom:3px;}
+  .sub{font-size:11px;color:#94a3b8;}
+  .stats-row{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:16px;}
+  .stat{background:rgba(2,6,23,.4);border:1px solid rgba(148,163,184,.11);border-radius:12px;padding:11px;text-align:center;box-shadow:inset 0 1px rgba(255,255,255,.02);}
   .stat-val{font-size:24px;font-weight:900;letter-spacing:-1px;}
   .stat-lbl{font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;margin-top:2px;}
   .filter-row{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;}
@@ -53,7 +57,7 @@ const CSS = `
   .filter-btn.off{background:#1e2d42;color:#64748b;border-color:#1e3a5f;}
   .filter-btn.off:hover{color:#f0f6ff;}
   .refresh-btn{background:#1e2d42;border:1px solid #1e3a5f;border-radius:8px;color:#94a3b8;padding:8px 14px;cursor:pointer;font-size:12px;font-weight:700;font-family:inherit;margin-bottom:12px;}
-  .order-card{background:#162032;border:1px solid #1e3a5f;border-radius:14px;padding:16px;margin-bottom:12px;position:relative;overflow:hidden;}
+  .order-card{background:linear-gradient(145deg,rgba(30,41,59,.85),rgba(15,23,42,.9));border:1px solid rgba(148,163,184,.13);border-radius:16px;padding:15px;margin-bottom:10px;position:relative;overflow:hidden;box-shadow:0 14px 34px rgba(0,0,0,.13);transition:transform .18s ease,border-color .18s ease,box-shadow .18s ease;}
   .order-card.PENDING::before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px;background:#f59e0b;}
   .order-card.ORDERED::before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px;background:#3b82f6;}
   .order-card.BACKORDERED::before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px;background:#ef4444;}
@@ -77,7 +81,9 @@ const CSS = `
   .backorder-note{font-size:11px;color:#fca5a5;margin-bottom:4px;}
   .empty{text-align:center;padding:48px 20px;color:#334155;font-size:13px;}
   .loading{text-align:center;padding:40px;color:#64748b;font-size:13px;}
-  .auto-refresh{font-size:11px;color:#334155;margin-bottom:12px;}
+  .auto-refresh{font-size:11px;color:#475569;margin-bottom:12px;}
+  @media(hover:hover){.order-card:hover{transform:translateY(-1px);border-color:rgba(96,165,250,.22);box-shadow:0 18px 40px rgba(0,0,0,.18);}}
+  @media(max-width:560px){.root{padding:9px 9px 90px}.stats-row{grid-template-columns:1fr 1fr}.orders-hero{padding:15px}.title{font-size:21px}}
 `;
 
 const STATUS_FILTERS = ["ALL", "PENDING", "ORDERED", "BACKORDERED", "AWAITING", "RECEIVED"];
@@ -299,11 +305,17 @@ export default function OrdersPage() {
       <style dangerouslySetInnerHTML={{ __html: CSS }} />
       <div className="root">
         <div className="wrap">
-          <button onClick={() => router.push("/")} className="back-btn">← Back</button>
-          <div className="title">Order Management</div>
-          <div className="sub">Track all order requests — pending, ordered, backordered, and received.</div>
+          <button onClick={() => router.push("/")} className="back-btn">← Dashboard</button>
+          <section className="orders-hero">
+            <div className="hero-line">
+              <div className="hero-icon">📦</div>
+              <div>
+                <div className="title">Orders & Receiving</div>
+                <div className="sub">Track requests, deliveries, inventory updates, and invoice pricing.</div>
+              </div>
+            </div>
 
-          <div className="stats-row">
+            <div className="stats-row">
             <div className="stat">
               <div className="stat-val" style={{ color: "#fcd34d" }}>{pending}</div>
               <div className="stat-lbl">Pending</div>
@@ -320,7 +332,8 @@ export default function OrdersPage() {
               <div className="stat-val" style={{ color: "#6ee7b7" }}>{received}</div>
               <div className="stat-lbl">Received</div>
             </div>
-          </div>
+            </div>
+          </section>
 
           <div className="filter-row">
             {STATUS_FILTERS.map(f => (
