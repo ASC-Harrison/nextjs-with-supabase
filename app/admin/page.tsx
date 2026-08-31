@@ -885,6 +885,7 @@ export default function AdminPage() {
             <IconButton onClick={() => setTab("ai")} active={tab === "ai"}>✦ AI Workspace</IconButton>
             <IconButton onClick={() => setTab("inventory")} active={tab === "inventory"}>Inventory Editor</IconButton>
             <IconButton onClick={() => setTab("prefcards")} active={tab === "prefcards"}>Pref Cards + Pulls</IconButton>
+            <Link href="/admin/pref-card-scan" className="rounded-2xl bg-cyan-300 px-4 py-2.5 text-sm font-extrabold text-slate-950 ring-1 ring-cyan-200/40 hover:bg-cyan-200">📷 Scan Pref Card</Link>
             <IconButton onClick={() => setTab("orders")} active={tab === "orders"}>Incoming Orders</IconButton>
           </div>
         </div>
