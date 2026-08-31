@@ -209,6 +209,44 @@ export default function OrdersPage() {
     setReceivingSourceInput("Invoice");
   }
 
+  async function markReceivedWithoutInventory(order: Order) {
+    const orderedQty = order.qty_actual_ordered || order.qty_requested;
+    const alreadyReceived = order.qty_actual_received || 0;
+    const outstanding = Math.max(orderedQty - alreadyReceived, 0);
+    const warning = outstanding > 0
+      ? `\n\nThis will NOT add the remaining ${outstanding} to inventory.`
+      : "\n\nThis will not change any inventory count.";
+
+    if (!confirm(`Mark "${order.item_name}" as received?${warning}`)) return;
+
+    setUpdating(order.id);
+    const receivedAt = new Date().toISOString();
+    const update = {
+      status: "RECEIVED" as const,
+      received_at: receivedAt,
+      received_by: staffName,
+    };
+
+    try {
+      const { error } = await supabase
+        .from("order_requests")
+        .update(update)
+        .eq("id", order.id)
+        .select("id")
+        .single();
+
+      if (error) throw error;
+
+      setOrders(prev => prev.map(row =>
+        row.id === order.id ? { ...row, ...update } : row
+      ));
+    } catch (error) {
+      alert(`Could not mark this order received: ${error instanceof Error ? error.message : "Unknown error"}`);
+    } finally {
+      setUpdating(null);
+    }
+  }
+
   async function receiveOrderIntoInventory(order: Order, complete: boolean) {
     if (updating) return;
 
@@ -579,13 +617,18 @@ export default function OrdersPage() {
                     </button>
                   )}
                   {!isReadOnly && (order.status === "ORDERED" || order.status === "BACKORDERED" || order.status === "AWAITING") && receivingId !== order.id && (
-                    <button onClick={() => openReceiving(order)} disabled={updating === order.id} className="btn btn-ok">
-                      {order.status === "AWAITING" ? "📦 Receive Rest" : "📦 Mark Received"}
+                    <button onClick={() => openReceiving(order)} disabled={updating === order.id} className="btn btn-ac">
+                      {order.status === "AWAITING" ? "📦 Add Remaining Inventory" : "📦 Add to Inventory"}
                     </button>
                   )}
                   {!isReadOnly && order.status === "PENDING" && receivingId !== order.id && (
-                    <button onClick={() => openReceiving(order)} disabled={updating === order.id} className="btn btn-gh" style={{ fontSize:11 }}>
-                      📦 Receive Now
+                    <button onClick={() => openReceiving(order)} disabled={updating === order.id} className="btn btn-ac" style={{ fontSize:11 }}>
+                      📦 Add to Inventory
+                    </button>
+                  )}
+                  {!isReadOnly && order.status !== "RECEIVED" && receivingId !== order.id && (
+                    <button onClick={() => markReceivedWithoutInventory(order)} disabled={updating === order.id} className="btn btn-ok">
+                      {updating === order.id ? "Saving…" : "✅ Received"}
                     </button>
                   )}
                   {!isReadOnly && (
