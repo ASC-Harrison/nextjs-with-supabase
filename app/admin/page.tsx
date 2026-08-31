@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabaseClient";
 
-type AdminTab = "inventory" | "prefcards" | "orders";
+type AdminTab = "ai" | "inventory" | "prefcards" | "orders";
 
 type Row = {
   storage_area_id: string;
@@ -218,7 +218,8 @@ function lineStatusColor(status: string) {
 }
 
 export default function AdminPage() {
-  const [tab, setTab] = useState<AdminTab>("inventory");
+  const [tab, setTab] = useState<AdminTab>("ai");
+  const [adminAiPrompt, setAdminAiPrompt] = useState("");
   const [, setLocked] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
 
@@ -803,6 +804,14 @@ export default function AdminPage() {
     pendingUnits: orderLines.reduce((sum, row) => sum + Math.max((row.qty_ordered ?? 0) - (row.qty_received ?? 0), 0), 0),
   }), [activeOrderItems, orderLines]);
 
+  function openAiWorkspace(prompt?: string) {
+    const nextPrompt = (prompt ?? adminAiPrompt).trim();
+    if (nextPrompt && typeof window !== "undefined") {
+      window.sessionStorage.setItem("asc_ai_prefill", nextPrompt);
+    }
+    if (typeof window !== "undefined") window.location.assign("/ai");
+  }
+
   const openPrefItems = useMemo(() => prefItems.filter((x) => x.status === "OPEN"), [prefItems]);
   const holdPrefItems = useMemo(() => prefItems.filter((x) => x.status === "HOLD"), [prefItems]);
   const prnPrefItems = useMemo(() => prefItems.filter((x) => x.status === "PRN"), [prefItems]);
@@ -832,9 +841,9 @@ export default function AdminPage() {
         <div className="mx-auto w-full max-w-6xl px-4 py-4">
           <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
             <div className="min-w-0">
-              <div className="text-[11px] tracking-[0.25em] text-white/45">BAXTER ASC • ADMIN CONSOLE</div>
-              <h1 className="mt-1 text-3xl font-extrabold leading-tight">Admin Center <span className="text-white/55">(Unlocked)</span></h1>
-              <p className="mt-1 text-sm text-white/60">Inventory editing, pref card building, and incoming order tracking.</p>
+              <div className="text-[11px] tracking-[0.25em] text-white/45">BAXTER ASC • AI ADMIN WORKSPACE</div>
+              <h1 className="mt-1 text-3xl font-extrabold leading-tight">AI Admin <span className="text-cyan-300">(Protected)</span></h1>
+              <p className="mt-1 text-sm text-white/60">Ask AI first, then use protected manual tools when a confirmed change is needed.</p>
             </div>
             <div className="flex w-full flex-col gap-2 md:w-auto md:items-end">
               <div className="flex w-full flex-wrap gap-2 md:w-auto md:justify-end">
@@ -844,7 +853,13 @@ export default function AdminPage() {
               </div>
               <div className="grid grid-cols-4 gap-2 w-full md:w-auto">
                 <StatChip label="STATE" value="OPEN" tone="good" />
-                {tab === "inventory" ? (
+                {tab === "ai" ? (
+                  <>
+                    <StatChip label="MODE" value="AI" tone="good" />
+                    <StatChip label="ACCESS" value="READ" />
+                    <StatChip label="CHANGES" value="CONFIRM" tone="warn" />
+                  </>
+                ) : tab === "inventory" ? (
                   <>
                     <StatChip label="TOTAL" value={inventoryStats.total} />
                     <StatChip label="LOW" value={inventoryStats.low} tone={inventoryStats.low ? "warn" : "neutral"} />
@@ -867,7 +882,8 @@ export default function AdminPage() {
             </div>
           </div>
           <div className="mt-4 flex flex-wrap gap-2">
-            <IconButton onClick={() => setTab("inventory")} active={tab === "inventory"}>Inventory Table</IconButton>
+            <IconButton onClick={() => setTab("ai")} active={tab === "ai"}>✦ AI Workspace</IconButton>
+            <IconButton onClick={() => setTab("inventory")} active={tab === "inventory"}>Inventory Editor</IconButton>
             <IconButton onClick={() => setTab("prefcards")} active={tab === "prefcards"}>Pref Cards + Pulls</IconButton>
             <IconButton onClick={() => setTab("orders")} active={tab === "orders"}>Incoming Orders</IconButton>
           </div>
@@ -876,8 +892,88 @@ export default function AdminPage() {
 
       <div className="mx-auto w-full max-w-6xl px-4 py-6">
 
-        {/* ══ INVENTORY TAB — upgraded ══════════════════════════════════════ */}
-        {tab === "inventory" ? (
+        {/* ══ AI ADMIN WORKSPACE ═══════════════════════════════════════════ */}
+        {tab === "ai" ? (
+          <section className="space-y-5">
+            <div className="relative overflow-hidden rounded-[32px] border border-cyan-300/20 bg-gradient-to-br from-slate-900 via-blue-950/80 to-slate-950 p-5 shadow-2xl shadow-blue-950/40 md:p-8">
+              <div className="pointer-events-none absolute -right-20 -top-20 h-64 w-64 rounded-full bg-cyan-400/10 blur-3xl" />
+              <div className="relative">
+                <div className="inline-flex items-center gap-2 rounded-full bg-emerald-400/10 px-3 py-1.5 text-[10px] font-black tracking-[0.18em] text-emerald-200 ring-1 ring-emerald-300/20">
+                  <span className="h-2 w-2 rounded-full bg-emerald-300" /> SAFE AI MODE
+                </div>
+                <h2 className="mt-5 max-w-2xl text-3xl font-black tracking-tight md:text-5xl">Run the building in plain language.</h2>
+                <p className="mt-3 max-w-2xl text-sm leading-6 text-white/60 md:text-base">
+                  Ask about inventory, incoming orders, pricing, preference cards, or problems. AI can analyze live data and prepare the next step, but it cannot silently change a count.
+                </p>
+
+                <form
+                  className="mt-6 rounded-3xl border border-white/10 bg-black/30 p-3 backdrop-blur"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    openAiWorkspace();
+                  }}
+                >
+                  <label htmlFor="admin-ai-command" className="sr-only">Ask AI Admin</label>
+                  <textarea
+                    id="admin-ai-command"
+                    value={adminAiPrompt}
+                    onChange={(event) => setAdminAiPrompt(event.target.value)}
+                    rows={3}
+                    placeholder="Example: Show me low items with no price and prepare an order plan…"
+                    className="w-full resize-none bg-transparent px-2 py-2 text-base text-white outline-none placeholder:text-white/30"
+                  />
+                  <div className="flex flex-col gap-2 border-t border-white/10 pt-3 sm:flex-row sm:items-center sm:justify-between">
+                    <span className="text-[11px] text-white/40">Read and preview only • confirmation required for changes</span>
+                    <button
+                      type="submit"
+                      disabled={!adminAiPrompt.trim()}
+                      className="rounded-2xl bg-cyan-300 px-5 py-3 text-sm font-black text-slate-950 transition hover:bg-cyan-200 disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      Open AI Command Center →
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+
+            <div className="grid gap-3 md:grid-cols-2">
+              {[
+                ["Inventory Intelligence", "Find low stock, unusual counts, and items that need attention.", "What inventory needs attention right now? Show the most important problems first.", "📦"],
+                ["Procurement Copilot", "Review incoming, partial, and backordered supplies without changing on-hand counts.", "Review all incoming orders, partial receipts, and backorders. What should I handle first?", "🚚"],
+                ["Pricing Intelligence", "Find missing prices and estimate where cost records need cleanup.", "Which active items are missing pricing, and which saved prices should I review?", "💵"],
+                ["Preference Card Review", "Prepare a focused review of procedure supplies and possible gaps.", "Help me review preference cards and identify supply gaps or unusual quantities.", "🩺"],
+              ].map(([title, description, prompt, icon]) => (
+                <button
+                  key={title}
+                  type="button"
+                  onClick={() => openAiWorkspace(prompt)}
+                  className="group rounded-3xl border border-white/10 bg-white/[0.035] p-5 text-left transition hover:-translate-y-0.5 hover:border-cyan-300/30 hover:bg-cyan-300/[0.06]"
+                >
+                  <div className="flex items-start gap-4">
+                    <span className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-white/[0.06] text-2xl ring-1 ring-white/10">{icon}</span>
+                    <span>
+                      <span className="block text-base font-black text-white">{title}</span>
+                      <span className="mt-1 block text-sm leading-5 text-white/50">{description}</span>
+                      <span className="mt-3 block text-xs font-black text-cyan-300">Ask AI →</span>
+                    </span>
+                  </div>
+                </button>
+              ))}
+            </div>
+
+            <div className="rounded-3xl border border-amber-300/20 bg-amber-300/[0.06] p-5">
+              <div className="flex gap-3">
+                <span className="text-xl">🛡️</span>
+                <div>
+                  <h3 className="font-black text-amber-100">Your inventory stays protected</h3>
+                  <p className="mt-1 text-sm leading-6 text-amber-100/60">
+                    AI may read, summarize, filter, and prepare actions. Inventory edits, receiving, posting used supplies, and order changes remain in the protected tools above and require a person to complete them.
+                  </p>
+                </div>
+              </div>
+            </div>
+          </section>
+        ) : tab === "inventory" ? (
           <>
             {/* Status summary cards */}
             <div className="mb-4 grid grid-cols-2 gap-3 md:grid-cols-4">

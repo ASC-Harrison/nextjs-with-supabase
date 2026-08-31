@@ -128,7 +128,14 @@ export default function AICommandCenterPage() {
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
       if (!data.session) router.replace("/login");
-      else setAuthReady(true);
+      else {
+        setAuthReady(true);
+        const prefill = window.sessionStorage.getItem("asc_ai_prefill");
+        if (prefill) {
+          setDraft(prefill);
+          window.sessionStorage.removeItem("asc_ai_prefill");
+        }
+      }
     });
   }, [router]);
 
