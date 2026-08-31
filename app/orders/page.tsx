@@ -95,7 +95,8 @@ export default function OrdersPage() {
   const [filter, setFilter] = useState("ALL");
   const [updating, setUpdating] = useState<string | null>(null);
   const [isReadOnly] = useState(() => typeof localStorage !== "undefined" && localStorage.getItem("asc_readonly") === "true");
-  const [staffName, setStaffName] = useState("Admin");\n  const receiveIntentHandled = useRef(false);
+  const [staffName, setStaffName] = useState("Admin");
+  const receiveIntentHandled = useRef(false);
 
   useEffect(() => {
     supabase.auth.getSession().then(({data}) => {
