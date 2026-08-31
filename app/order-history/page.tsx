@@ -69,7 +69,7 @@ const CSS = `
   .step.active{color:#f0f6ff;font-weight:700;}
   .empty{text-align:center;padding:48px;color:#334155;font-size:13px;}
   .loading{text-align:center;padding:40px;color:#64748b;}
-  .count{font-size:11px;color:#334155;margin-bottom:8px;}
+  .count{font-size:11px;color:#334155;margin-bottom:8px;}\n  .receive-btn{width:100%;margin-top:12px;border:0;border-radius:10px;background:#10b981;color:#fff;padding:11px 14px;font:800 13px inherit;cursor:pointer;}\n  .receive-btn:hover{background:#059669;}
 `;
 
 export default function OrderHistoryPage() {
@@ -227,6 +227,15 @@ export default function OrderHistoryPage() {
                         </div>
                       )}
                     </div>
+                    {["PENDING", "ORDERED", "BACKORDERED", "AWAITING"].includes(order.status) && (
+                      <button
+                        type="button"
+                        className="receive-btn"
+                        onClick={() => router.push("/orders?receive=" + encodeURIComponent(order.id))}
+                      >
+                        📦 Enter Received Quantity
+                      </button>
+                    )}
                   </div>
                 </div>
               ))}
