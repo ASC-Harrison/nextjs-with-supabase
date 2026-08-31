@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@supabase/supabase-js";
 
@@ -96,6 +96,7 @@ export default function OrdersPage() {
   const [updating, setUpdating] = useState<string | null>(null);
   const [isReadOnly] = useState(() => typeof localStorage !== "undefined" && localStorage.getItem("asc_readonly") === "true");
   const [staffName, setStaffName] = useState("Admin");
+  const receiveIntentHandled = useRef(false);
 
   useEffect(() => {
     supabase.auth.getSession().then(({data}) => {
@@ -141,6 +142,20 @@ export default function OrdersPage() {
         }
       }
       setOrders(rows);
+
+      if (!receiveIntentHandled.current && typeof window !== "undefined") {
+        const receiveId = new URLSearchParams(window.location.search).get("receive");
+        const target = receiveId ? rows.find(row => row.id === receiveId) : null;
+        if (target) {
+          receiveIntentHandled.current = true;
+          window.history.replaceState({}, "", "/orders");
+          if (target.status === "RECEIVED") {
+            alert("This order has already been received.");
+          } else {
+            openReceiving(target);
+          }
+        }
+      }
     } catch {}
     finally { setLoading(false); }
   }
