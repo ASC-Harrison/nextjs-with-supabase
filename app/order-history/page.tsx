@@ -70,8 +70,13 @@ const CSS = `
   .empty{text-align:center;padding:48px;color:#334155;font-size:13px;}
   .loading{text-align:center;padding:40px;color:#64748b;}
   .count{font-size:11px;color:#334155;margin-bottom:8px;}
-  .receive-btn{width:100%;margin-top:12px;border:0;border-radius:10px;background:#10b981;color:#fff;padding:11px 14px;font:800 13px inherit;cursor:pointer;}
-  .receive-btn:hover{background:#059669;}
+  .order-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px;}
+  .receive-btn,.received-only-btn{width:100%;border:0;border-radius:10px;color:#fff;padding:11px 14px;font:800 13px inherit;cursor:pointer;}
+  .receive-btn{background:#2563eb;}
+  .receive-btn:hover{background:#1d4ed8;}
+  .received-only-btn{background:#10b981;}
+  .received-only-btn:hover{background:#059669;}
+  .receive-btn:disabled,.received-only-btn:disabled{opacity:.55;cursor:not-allowed;}
 `;
 
 export default function OrderHistoryPage() {
@@ -81,6 +86,7 @@ export default function OrderHistoryPage() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("ALL");
   const [staffFilter, setStaffFilter] = useState("ALL");
+  const [updatingOrderId, setUpdatingOrderId] = useState<string | null>(null);
 
   useEffect(() => {
     supabase
@@ -132,6 +138,40 @@ export default function OrderHistoryPage() {
     if (status === "ORDERED") return "badge badge-ordered";
     if (status === "BACKORDERED") return "badge badge-backordered";
     return "badge badge-received";
+  }
+
+  async function markReceivedOnly(order: Order) {
+    const orderedQty = order.qty_actual_ordered || order.qty_requested;
+    const alreadyReceived = order.qty_actual_received || 0;
+    const outstanding = Math.max(orderedQty - alreadyReceived, 0);
+    const warning = outstanding > 0
+      ? `\n\nThis will NOT add the remaining ${outstanding} to inventory.`
+      : "\n\nThis will not change any inventory count.";
+
+    if (!confirm(`Mark "${order.item_name}" as received?${warning}`)) return;
+
+    setUpdatingOrderId(order.id);
+    const receivedAt = new Date().toISOString();
+    try {
+      const { error } = await supabase
+        .from("order_requests")
+        .update({ status: "RECEIVED", received_at: receivedAt })
+        .eq("id", order.id)
+        .select("id")
+        .single();
+
+      if (error) throw error;
+
+      setOrders(prev => prev.map(row =>
+        row.id === order.id
+          ? { ...row, status: "RECEIVED", received_at: receivedAt }
+          : row
+      ));
+    } catch (error) {
+      alert(`Could not mark this order received: ${error instanceof Error ? error.message : "Unknown error"}`);
+    } finally {
+      setUpdatingOrderId(null);
+    }
   }
 
   return (
@@ -230,13 +270,24 @@ export default function OrderHistoryPage() {
                       )}
                     </div>
                     {["PENDING", "ORDERED", "BACKORDERED", "AWAITING"].includes(order.status) && (
-                      <button
-                        type="button"
-                        className="receive-btn"
-                        onClick={() => router.push("/orders?receive=" + encodeURIComponent(order.id))}
-                      >
-                        ✅ Received
-                      </button>
+                      <div className="order-actions">
+                        <button
+                          type="button"
+                          className="receive-btn"
+                          disabled={updatingOrderId === order.id}
+                          onClick={() => router.push("/orders?receive=" + encodeURIComponent(order.id))}
+                        >
+                          📦 Add to Inventory
+                        </button>
+                        <button
+                          type="button"
+                          className="received-only-btn"
+                          disabled={updatingOrderId === order.id}
+                          onClick={() => markReceivedOnly(order)}
+                        >
+                          {updatingOrderId === order.id ? "Saving…" : "✅ Received"}
+                        </button>
+                      </div>
                     )}
                   </div>
                 </div>
