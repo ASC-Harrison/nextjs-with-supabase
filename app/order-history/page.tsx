@@ -235,7 +235,7 @@ export default function OrderHistoryPage() {
                         className="receive-btn"
                         onClick={() => router.push("/orders?receive=" + encodeURIComponent(order.id))}
                       >
-                        📦 Enter Received Quantity
+                        ✅ Received
                       </button>
                     )}
                   </div>
