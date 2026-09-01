@@ -21,7 +21,6 @@ import {
   TrendingUp,
   WalletCards,
 } from "lucide-react";
-import { useSessionTimeout } from "@/lib/use-session-timeout";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -180,8 +179,6 @@ const CSS = `
 
 export default function FinanceCopilotPage() {
   const router = useRouter();
-  useSessionTimeout();
-
   const [state, setState] = useState<FinanceState>(DEFAULT_STATE);
   const [loaded, setLoaded] = useState(false);
   const [strategy, setStrategy] = useState<"avalanche" | "snowball">("avalanche");
@@ -195,15 +192,12 @@ export default function FinanceCopilotPage() {
   const [txType, setTxType] = useState<"expense" | "income">("expense");
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => {
-      if (!data.session) router.replace("/login");
-    });
     try {
       const saved = window.localStorage.getItem(STORAGE_KEY);
       if (saved) setState({ ...DEFAULT_STATE, ...JSON.parse(saved) });
     } catch {}
     setLoaded(true);
-  }, [router]);
+  }, []);
 
   useEffect(() => {
     if (!loaded) return;
