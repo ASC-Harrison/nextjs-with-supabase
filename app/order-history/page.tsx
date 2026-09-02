@@ -26,6 +26,7 @@ type Order = {
   received_at: string | null;
   expected_delivery_date: string | null;
   item_id: string | null;
+  notes: string | null;
 };
 
 const CSS = `
@@ -115,7 +116,8 @@ export default function OrderHistoryPage() {
         (o.item_name || "").toLowerCase().includes(q) ||
         (o.vendor || "").toLowerCase().includes(q) ||
         (o.reference_number || "").toLowerCase().includes(q) ||
-        (o.requested_by || "").toLowerCase().includes(q)
+        (o.requested_by || "").toLowerCase().includes(q) ||
+        (o.notes || "").toLowerCase().includes(q)
       );
     }
     return list;
@@ -247,6 +249,11 @@ export default function OrderHistoryPage() {
                         <span style={{ color:"#6ee7b7" }}> · Received: <strong>{order.qty_actual_received}</strong></span>
                       )}
                     </div>
+                    {order.notes && (
+                      <div style={{ fontSize:12, color:"#93c5fd", marginTop:8, marginBottom:8, background:"rgba(59,130,246,0.08)", border:"1px solid rgba(59,130,246,0.25)", borderRadius:7, padding:"7px 9px", lineHeight:1.45 }}>
+                        📝 <strong>Note for Brooklyn:</strong> {order.notes}
+                      </div>
+                    )}
 
                     <div className="timeline-steps">
                       <div className={"step done"}>

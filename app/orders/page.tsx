@@ -418,6 +418,11 @@ export default function OrdersPage() {
                     {order.alert_note && (
                       <div style={{ fontSize:11, color:"#fcd34d", marginTop:2, marginBottom:4, background:"rgba(245,158,11,0.08)", border:"1px solid rgba(245,158,11,0.2)", borderRadius:6, padding:"3px 8px", display:"inline-block" }}>⚡ {order.alert_note}</div>
                     )}
+                    {order.notes && (
+                      <div style={{ fontSize:12, color:"#93c5fd", marginTop:4, marginBottom:7, background:"rgba(59,130,246,0.08)", border:"1px solid rgba(59,130,246,0.25)", borderRadius:7, padding:"6px 9px", lineHeight:1.45 }}>
+                        📝 <strong>Note for Brooklyn:</strong> {order.notes}
+                      </div>
+                    )}
                     <div className="order-meta">
                       {"Ref: " + (order.reference_number || "—") + " · Vendor: " + (order.vendor || "—") + " · " + (order.unit || "—")}<br />
                       {"Requested: "}<strong style={{ color: "#f0f6ff" }}>{order.qty_requested}</strong>

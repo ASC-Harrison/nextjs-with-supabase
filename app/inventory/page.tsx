@@ -324,6 +324,7 @@ export default function InventoryPage() {
   const [totalsShowInactive,setTotalsShowInactive]=useState(false);
   const [totalsEditOpen,setTotalsEditOpen]=useState(false);
   const [quickOrderQty,setQuickOrderQty]=useState("");
+  const [quickOrderNote,setQuickOrderNote]=useState("");
   const [quickOrderSending,setQuickOrderSending]=useState(false);
   const [totalsEditRow,setTotalsEditRow]=useState<BuildingTotalRow|null>(null);
   const [setOnHandInput,setSetOnHandInput]=useState<string>("");
@@ -371,6 +372,7 @@ export default function InventoryPage() {
   const ORDER_PIN = "1620";
   const [orderReqOpen, setOrderReqOpen] = useState(false);
   const [orderReqItems, setOrderReqItems] = useState<Record<string,number|string>>({});
+  const [orderReqNotes, setOrderReqNotes] = useState<Record<string,string>>({});
   const [orderReqSending, setOrderReqSending] = useState(false);
   const [orderReqDone, setOrderReqDone] = useState(false);
   const [orderReqSearch, setOrderReqSearch] = useState("");
@@ -515,7 +517,7 @@ export default function InventoryPage() {
 
   async function loadOrderRowsForItem(itemId:string,mode2:"modal"|"totals"="modal"){if(mode2==="modal"){setOrderStatusLoading(true);setOrderStatusRows([]);}else{setTotalsOrderLoading(true);setTotalsOrderRows([]);}try{const{data,error}=await supabase.from("purchase_order_items").select("id,qty_ordered,qty_received,status,notes,purchase_orders(id,po_number,vendor,status,expected_date,order_date,notes)").eq("item_id",itemId).order("created_at",{ascending:false});if(error)throw error;if(mode2==="modal")setOrderStatusRows((data as OrderStatusRow[])??[]);else setTotalsOrderRows((data as OrderStatusRow[])??[]);}catch(e:any){if(mode2==="modal"){alert(`Order status failed: ${e?.message??"unknown error"}`);setOrderStatusOpen(false);}else setTotalsOrderRows([]);}finally{if(mode2==="modal")setOrderStatusLoading(false);else setTotalsOrderLoading(false);}}
   async function openOrderStatus(){if(!item?.id)return;setOrderStatusOpen(true);await loadOrderRowsForItem(item.id,"modal");}
-  async function openTotalsEditor(row:BuildingTotalRow){setTotalsEditRow(row);setSetOnHandInput("");setDeltaInput("");setQuickOrderQty("");setParInput(String(row.par_level??0));setVendorInput(row.vendor??"");setCategoryInput(row.category??"");setUnitInput(row.unit??"");setNotesInput(row.notes??"");setTotalsLowInput(String(row.low_level??0));setRefInput(row.reference_number??"");setTotalsOrderStatusInput(row.order_status||"IN STOCK");setTotalsBackorderedInput(!!row.backordered);setSupplySourceInput(row.supply_source||"VENDOR");setPriceInput(row.price!=null?String(row.price):"");setExpirationInput(row.expiration_date||"");setTotalsEditOpen(true);loadOrderRowsForItem(row.item_id,"totals").catch(()=>{});}
+  async function openTotalsEditor(row:BuildingTotalRow){setTotalsEditRow(row);setSetOnHandInput("");setDeltaInput("");setQuickOrderQty("");setQuickOrderNote("");setParInput(String(row.par_level??0));setVendorInput(row.vendor??"");setCategoryInput(row.category??"");setUnitInput(row.unit??"");setNotesInput(row.notes??"");setTotalsLowInput(String(row.low_level??0));setRefInput(row.reference_number??"");setTotalsOrderStatusInput(row.order_status||"IN STOCK");setTotalsBackorderedInput(!!row.backordered);setSupplySourceInput(row.supply_source||"VENDOR");setPriceInput(row.price!=null?String(row.price):"");setExpirationInput(row.expiration_date||"");setTotalsEditOpen(true);loadOrderRowsForItem(row.item_id,"totals").catch(()=>{});}
   function parseIntSafe(raw:string):number|null{const cleaned=raw.trim();if(!cleaned||!/^-?\d+$/.test(cleaned))return null;const n=Number(cleaned);return Number.isFinite(n)?n:null;}
 
   async function fetchWithRetry(url:string,options:RequestInit,retries=2,timeoutMs=12000):Promise<Response>{for(let attempt=0;attempt<=retries;attempt++){try{const controller=new AbortController();const timer=setTimeout(()=>controller.abort(),timeoutMs);const res=await fetch(url,{...options,signal:controller.signal});clearTimeout(timer);return res;}catch(e){if(attempt===retries)throw e;await new Promise(r=>setTimeout(r,800));}}throw new Error("Request failed after retries");}
@@ -921,6 +923,17 @@ export default function InventoryPage() {
             {(totalsEditRow.alert_note||totalsEditRow.notes) && (
               <div style={{fontSize:11,color:"#fcd34d",background:"rgba(245,158,11,0.08)",border:"1px solid rgba(245,158,11,0.2)",borderRadius:6,padding:"5px 8px",marginTop:6,marginBottom:8}}>⚡ {totalsEditRow.alert_note||totalsEditRow.notes}</div>
             )}
+            <div className="field" style={{marginTop:8}}>
+              <label className="f-lbl">Note for Brooklyn (optional)</label>
+              <textarea
+                value={quickOrderNote}
+                onChange={(e)=>setQuickOrderNote(e.target.value)}
+                maxLength={500}
+                rows={2}
+                className="inp inp-ta"
+                placeholder="Anything Brooklyn needs to know about this item…"
+              />
+            </div>
             <div className="fx mt2">
               <input value={quickOrderQty} onChange={(e)=>setQuickOrderQty(e.target.value.replace(/\D/g,""))} inputMode="numeric" className="inp" placeholder="Qty to order" style={{flex:1,fontSize:16,fontWeight:800,textAlign:"center"}} />
               <button
@@ -929,10 +942,11 @@ export default function InventoryPage() {
                   if(q===null||q<=0){alert("Enter a quantity to order.");return;}
                   setQuickOrderSending(true);
                   try{
-                    const res=await fetchWithRetry("/api/order-request",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({items:[{name:totalsEditRow.name,item_id:totalsEditRow.item_id,reference_number:totalsEditRow.reference_number||null,vendor:totalsEditRow.vendor||null,unit:totalsEditRow.unit||null,qty:q,alert_note:totalsEditRow.alert_note||totalsEditRow.notes||null}],requested_by:(staffName||"").trim()||"Staff"})});
+                    const res=await fetchWithRetry("/api/order-request",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({items:[{name:totalsEditRow.name,item_id:totalsEditRow.item_id,reference_number:totalsEditRow.reference_number||null,vendor:totalsEditRow.vendor||null,unit:totalsEditRow.unit||null,qty:q,alert_note:totalsEditRow.alert_note||totalsEditRow.notes||null,request_note:quickOrderNote.trim()||null}],requested_by:(staffName||"").trim()||"Staff"})});
                     const json=await res.json();
                     if(!json.ok)throw new Error(json.error);
                     setQuickOrderQty("");
+                    setQuickOrderNote("");
                     alert(`✅ Order request sent for ${q} × ${totalsEditRow.name}`);
                   }catch(e:any){
                     alert(e?.name==="AbortError"?"Request timed out — try again.":(e?.message??"Failed to send order request"));
@@ -1039,7 +1053,7 @@ export default function InventoryPage() {
               autoFocus
               onKeyDown={e=>{
                 if(e.key==="Enter"){
-                  if(orderPinInput===ORDER_PIN){setOrderPinOpen(false);setOrderReqItems({});setOrderReqDone(false);setOrderReqSearch("");setOrderReqLowOnly(false);setOrderReqOpen(true);}
+                  if(orderPinInput===ORDER_PIN){setOrderPinOpen(false);setOrderReqItems({});setOrderReqNotes({});setOrderReqDone(false);setOrderReqSearch("");setOrderReqLowOnly(false);setOrderReqOpen(true);}
                   else setOrderPinError(true);
                 }
               }}
@@ -1048,7 +1062,7 @@ export default function InventoryPage() {
             <div className="modal-footer">
               <button onClick={()=>setOrderPinOpen(false)} className="btn btn-gh" style={{flex:1}}>Cancel</button>
               <button onClick={()=>{
-                if(orderPinInput===ORDER_PIN){setOrderPinOpen(false);setOrderReqItems({});setOrderReqDone(false);setOrderReqSearch("");setOrderReqLowOnly(false);setOrderReqOpen(true);}
+                if(orderPinInput===ORDER_PIN){setOrderPinOpen(false);setOrderReqItems({});setOrderReqNotes({});setOrderReqDone(false);setOrderReqSearch("");setOrderReqLowOnly(false);setOrderReqOpen(true);}
                 else setOrderPinError(true);
               }} className="btn btn-ac" style={{flex:1}}>Submit</button>
             </div>
@@ -1108,8 +1122,14 @@ export default function InventoryPage() {
                         <label style={{display:"flex",alignItems:"flex-start",gap:10,cursor:"pointer"}}>
                           <input type="checkbox" checked={checked} onChange={(e)=>{
                             const next={...orderReqItems};
-                            if(e.target.checked)next[r.item_id]="";
-                            else delete next[r.item_id];
+                            if(e.target.checked) {
+                              next[r.item_id]="";
+                            } else {
+                              delete next[r.item_id];
+                              const nextNotes={...orderReqNotes};
+                              delete nextNotes[r.item_id];
+                              setOrderReqNotes(nextNotes);
+                            }
                             setOrderReqItems(next);
                           }} style={{marginTop:2,accentColor:"var(--ac)",width:16,height:16,flexShrink:0}} />
                           <div style={{flex:1,minWidth:0}}>
@@ -1131,9 +1151,20 @@ export default function InventoryPage() {
                           </div>
                         </label>
                         {checked && (
-                          <div style={{display:"flex",alignItems:"center",gap:8,marginTop:10,paddingLeft:26}}>
-                            <label style={{fontSize:11,color:"var(--text3)",fontWeight:700,flexShrink:0}}>QTY TO ORDER:</label>
-                            <input type="number" min={1} value={qty} onChange={(e)=>setOrderReqItems({...orderReqItems,[r.item_id]:Number(e.target.value)||1})} className="inp" style={{width:80,textAlign:"center",padding:"6px 8px",fontSize:14,fontWeight:800}} />
+                          <div style={{display:"flex",flexDirection:"column",gap:8,marginTop:10,paddingLeft:26}}>
+                            <div style={{display:"flex",alignItems:"center",gap:8}}>
+                              <label style={{fontSize:11,color:"var(--text3)",fontWeight:700,flexShrink:0}}>QTY TO ORDER:</label>
+                              <input type="number" min={1} value={qty} onChange={(e)=>setOrderReqItems({...orderReqItems,[r.item_id]:Number(e.target.value)||1})} className="inp" style={{width:80,textAlign:"center",padding:"6px 8px",fontSize:14,fontWeight:800}} />
+                            </div>
+                            <textarea
+                              value={orderReqNotes[r.item_id]||""}
+                              onChange={(e)=>setOrderReqNotes({...orderReqNotes,[r.item_id]:e.target.value})}
+                              maxLength={500}
+                              rows={2}
+                              className="inp inp-ta"
+                              placeholder="Note for Brooklyn about this item (optional)…"
+                              style={{fontSize:12}}
+                            />
                           </div>
                         )}
                       </div>
@@ -1147,7 +1178,7 @@ export default function InventoryPage() {
                     className="btn btn-ac"
                     style={{flex:1}}
                     onClick={async()=>{
-                      const selectedItems=totals.filter(r=>orderReqItems[r.item_id]!==undefined).map(r=>({name:r.name,item_id:r.item_id,reference_number:r.reference_number||null,vendor:r.vendor||null,unit:r.unit||null,qty:Number(orderReqItems[r.item_id])||1,alert_note:r.alert_note||r.notes||null}));
+                      const selectedItems=totals.filter(r=>orderReqItems[r.item_id]!==undefined).map(r=>({name:r.name,item_id:r.item_id,reference_number:r.reference_number||null,vendor:r.vendor||null,unit:r.unit||null,qty:Number(orderReqItems[r.item_id])||1,alert_note:r.alert_note||r.notes||null,request_note:orderReqNotes[r.item_id]?.trim()||null}));
                       if(!selectedItems.length)return;
                       setOrderReqSending(true);
                       try{

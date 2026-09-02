@@ -21,9 +21,25 @@ type OrderItem = {
   unit: string | null;
   qty: number;
   alert_note?: string | null;
+  request_note?: string | null;
 };
 
 const APP_URL = "https://nextjs-with-supabase-gamma-rosy.vercel.app";
+
+function cleanOrderNote(value: unknown) {
+  if (typeof value !== "string") return null;
+  const note = value.trim();
+  return note ? note.slice(0, 500) : null;
+}
+
+function escapeHtml(value: string) {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
 
 export async function POST(req: Request) {
   try {
@@ -45,6 +61,7 @@ export async function POST(req: Request) {
       unit: item.unit || null,
       qty_requested: item.qty,
       status: "PENDING",
+      notes: cleanOrderNote(item.request_note),
     }));
 
     const { data: savedOrders, error: saveError } = await supabase
@@ -70,7 +87,8 @@ export async function POST(req: Request) {
         <tr style="border-bottom:1px solid #e2e8f0;">
           <td style="padding:12px 14px;font-size:14px;color:#1e293b;font-weight:600;">
             ${item.name}
-            ${item.alert_note ? `<div style="margin-top:4px;font-size:11px;color:#d97706;background:#fffbeb;border:1px solid #fde68a;border-radius:4px;padding:2px 6px;display:inline-block">⚡ ${item.alert_note}</div>` : ""}
+            ${item.alert_note ? `<div style="margin-top:4px;font-size:11px;color:#d97706;background:#fffbeb;border:1px solid #fde68a;border-radius:4px;padding:2px 6px;display:inline-block">⚡ ${escapeHtml(item.alert_note)}</div>` : ""}
+            ${cleanOrderNote(item.request_note) ? `<div style="margin-top:7px;font-size:12px;line-height:1.45;color:#1e40af;background:#eff6ff;border:1px solid #bfdbfe;border-radius:6px;padding:7px 9px;"><strong>📝 Note for Brooklyn:</strong><br/>${escapeHtml(cleanOrderNote(item.request_note)!)}</div>` : ""}
           </td>
           <td style="padding:12px 14px;font-size:13px;color:#475569;">${item.reference_number || "—"}</td>
           <td style="padding:12px 14px;font-size:13px;color:#475569;">${item.vendor || "—"}</td>
