@@ -27,6 +27,10 @@ type Order = {
   expected_delivery_date: string | null;
   item_id: string | null;
   notes: string | null;
+  last_follow_up_note?: string | null;
+  last_follow_up_by?: string | null;
+  last_follow_up_at?: string | null;
+  follow_up_count?: number | null;
 };
 
 const CSS = `
@@ -78,6 +82,8 @@ const CSS = `
   .received-only-btn{background:#10b981;}
   .received-only-btn:hover{background:#059669;}
   .receive-btn:disabled,.received-only-btn:disabled{opacity:.55;cursor:not-allowed;}
+  .followup-btn{grid-column:1/-1;width:100%;border:1px solid rgba(168,85,247,.3);border-radius:10px;background:rgba(168,85,247,.15);color:#d8b4fe;padding:10px 14px;font:800 12px inherit;cursor:pointer;}
+  .followup-btn:disabled{opacity:.55;cursor:not-allowed;}
 `;
 
 export default function OrderHistoryPage() {
@@ -88,6 +94,9 @@ export default function OrderHistoryPage() {
   const [statusFilter, setStatusFilter] = useState("ALL");
   const [staffFilter, setStaffFilter] = useState("ALL");
   const [updatingOrderId, setUpdatingOrderId] = useState<string | null>(null);
+  const [followUpId, setFollowUpId] = useState<string | null>(null);
+  const [followUpNote, setFollowUpNote] = useState("");
+  const [followUpSending, setFollowUpSending] = useState(false);
 
   useEffect(() => {
     supabase
@@ -176,6 +185,37 @@ export default function OrderHistoryPage() {
     }
   }
 
+  async function sendFollowUp(order: Order) {
+    const note = followUpNote.trim();
+    if (!note) return alert("Type a note for Brooklyn first.");
+    setFollowUpSending(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error("Please sign in again.");
+      const res = await fetch("/api/order-follow-up", {
+        method: "POST",
+        headers: { "Content-Type":"application/json", Authorization:`Bearer ${session.access_token}` },
+        body: JSON.stringify({ order_id:order.id, note }),
+      });
+      const json = await res.json();
+      if (!res.ok || !json.ok) throw new Error(json.error || "Could not send follow-up");
+      setOrders(prev => prev.map(o => o.id === order.id ? {
+        ...o,
+        last_follow_up_note:json.follow_up.note,
+        last_follow_up_by:json.follow_up.sent_by,
+        last_follow_up_at:json.follow_up.sent_at,
+        follow_up_count:json.follow_up.count,
+      } : o));
+      setFollowUpId(null);
+      setFollowUpNote("");
+      alert("Follow-up sent to Brooklyn.");
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "Could not send follow-up");
+    } finally {
+      setFollowUpSending(false);
+    }
+  }
+
   return (
     <>
       <style dangerouslySetInnerHTML={{ __html: CSS }} />
@@ -254,6 +294,12 @@ export default function OrderHistoryPage() {
                         📝 <strong>Note for Brooklyn:</strong> {order.notes}
                       </div>
                     )}
+                    {order.last_follow_up_note && order.last_follow_up_at && (
+                      <div style={{ fontSize:11, color:"#d8b4fe", marginTop:8, background:"rgba(168,85,247,0.08)", border:"1px solid rgba(168,85,247,0.25)", borderRadius:7, padding:"7px 9px", lineHeight:1.45 }}>
+                        💬 <strong>Last follow-up:</strong> {order.last_follow_up_note}<br />
+                        <span style={{ color:"#64748b" }}>{order.last_follow_up_by || "Staff"} · {formatTime(order.last_follow_up_at)}{(order.follow_up_count || 0) > 1 ? ` · ${order.follow_up_count} follow-ups` : ""}</span>
+                      </div>
+                    )}
 
                     <div className="timeline-steps">
                       <div className={"step done"}>
@@ -276,8 +322,30 @@ export default function OrderHistoryPage() {
                         </div>
                       )}
                     </div>
+                    {followUpId === order.id && (
+                      <div style={{ marginTop:12, background:"rgba(168,85,247,0.08)", border:"1px solid rgba(168,85,247,0.25)", borderRadius:10, padding:12 }}>
+                        <div style={{ fontSize:12, color:"#d8b4fe", fontWeight:800, marginBottom:6 }}>Send Brooklyn a follow-up about this item</div>
+                        <textarea value={followUpNote} onChange={e=>setFollowUpNote(e.target.value.slice(0,500))} rows={3} placeholder="Can we please follow up on this item? We have not received it yet." style={{ width:"100%", borderRadius:8, border:"1px solid rgba(168,85,247,0.3)", background:"#111827", color:"#f0f6ff", padding:"9px 10px", fontSize:12, fontFamily:"inherit", outline:"none", resize:"vertical", marginBottom:8 }} />
+                        <div style={{ display:"flex", gap:8 }}>
+                          <button type="button" onClick={()=>sendFollowUp(order)} disabled={followUpSending || !followUpNote.trim()} style={{ flex:1, border:0, borderRadius:8, background:"#7c3aed", color:"#fff", padding:"10px", fontWeight:800 }}>
+                            {followUpSending ? "Sending…" : "✉️ Send to Brooklyn"}
+                          </button>
+                          <button type="button" onClick={()=>{setFollowUpId(null);setFollowUpNote("");}} disabled={followUpSending} style={{ border:"1px solid #1e3a5f", borderRadius:8, background:"#1e2d42", color:"#94a3b8", padding:"10px 14px", fontWeight:800 }}>Cancel</button>
+                        </div>
+                      </div>
+                    )}
                     {["PENDING", "ORDERED", "BACKORDERED", "AWAITING"].includes(order.status) && (
                       <div className="order-actions">
+                        {followUpId !== order.id && (
+                          <button
+                            type="button"
+                            className="followup-btn"
+                            disabled={updatingOrderId === order.id}
+                            onClick={()=>{setFollowUpId(order.id);setFollowUpNote("Can we please follow up on this item? We have not received it yet.");}}
+                          >
+                            💬 Follow Up With Brooklyn
+                          </button>
+                        )}
                         <button
                           type="button"
                           className="receive-btn"

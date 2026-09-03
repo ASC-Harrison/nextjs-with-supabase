@@ -33,6 +33,10 @@ type Order = {
   current_price?: number | null;
   current_units_per_box?: number | null;
   current_price_source?: string | null;
+  last_follow_up_note?: string | null;
+  last_follow_up_by?: string | null;
+  last_follow_up_at?: string | null;
+  follow_up_count?: number | null;
 };
 
 const CSS = `
@@ -112,6 +116,9 @@ export default function OrdersPage() {
   const [receivingPackageQtyInput, setReceivingPackageQtyInput] = useState<string>("1");
   const [receivingVendorInput, setReceivingVendorInput] = useState<string>("");
   const [receivingSourceInput, setReceivingSourceInput] = useState<string>("Invoice");
+  const [followUpId, setFollowUpId] = useState<string | null>(null);
+  const [followUpNote, setFollowUpNote] = useState("");
+  const [followUpSending, setFollowUpSending] = useState(false);
 
   async function loadOrders() {
     try {
@@ -336,6 +343,37 @@ export default function OrdersPage() {
     }
   }
 
+  async function sendFollowUp(order: Order) {
+    const note = followUpNote.trim();
+    if (!note) return alert("Type a note for Brooklyn first.");
+    setFollowUpSending(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error("Please sign in again.");
+      const res = await fetch("/api/order-follow-up", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({ order_id: order.id, note }),
+      });
+      const json = await res.json();
+      if (!res.ok || !json.ok) throw new Error(json.error || "Could not send follow-up");
+      setOrders(prev => prev.map(o => o.id === order.id ? {
+        ...o,
+        last_follow_up_note: json.follow_up.note,
+        last_follow_up_by: json.follow_up.sent_by,
+        last_follow_up_at: json.follow_up.sent_at,
+        follow_up_count: json.follow_up.count,
+      } : o));
+      setFollowUpId(null);
+      setFollowUpNote("");
+      alert("Follow-up sent to Brooklyn.");
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "Could not send follow-up");
+    } finally {
+      setFollowUpSending(false);
+    }
+  }
+
   const filtered = filter === "ALL" ? orders : orders.filter(o => o.status === filter);
   const pending = orders.filter(o => o.status === "PENDING").length;
   const ordered = orders.filter(o => o.status === "ORDERED").length;
@@ -466,6 +504,13 @@ export default function OrdersPage() {
                   <span className={getBadgeClass(order.status)}>{order.status}</span>
                 </div>
 
+                {order.last_follow_up_note && order.last_follow_up_at && (
+                  <div style={{ marginTop:8, background:"rgba(168,85,247,0.08)", border:"1px solid rgba(168,85,247,0.25)", borderRadius:8, padding:"7px 10px", fontSize:11, color:"#d8b4fe", lineHeight:1.45 }}>
+                    💬 <strong>Last follow-up to Brooklyn:</strong> {order.last_follow_up_note}<br />
+                    <span style={{ color:"#64748b" }}>{order.last_follow_up_by || "Staff"} · {formatTime(order.last_follow_up_at)}{(order.follow_up_count || 0) > 1 ? ` · ${order.follow_up_count} follow-ups` : ""}</span>
+                  </div>
+                )}
+
                 {/* Receiving adds stock and updates the order in one atomic database action. */}
                 {receivingId === order.id && (() => {
                   const orderedQty = order.qty_actual_ordered || order.qty_requested;
@@ -579,6 +624,24 @@ export default function OrdersPage() {
                     </div>
                   );
                 })()}
+                {followUpId === order.id && (
+                  <div style={{ marginTop:10, background:"rgba(168,85,247,0.08)", border:"1px solid rgba(168,85,247,0.25)", borderRadius:10, padding:12 }}>
+                    <div style={{ fontSize:12, color:"#d8b4fe", fontWeight:800, marginBottom:6 }}>Send Brooklyn a follow-up about this item</div>
+                    <textarea
+                      value={followUpNote}
+                      onChange={e => setFollowUpNote(e.target.value.slice(0,500))}
+                      placeholder="Can we please follow up on this item? We have not received it yet."
+                      rows={3}
+                      style={{ width:"100%", borderRadius:8, border:"1px solid rgba(168,85,247,0.3)", background:"#111827", color:"#f0f6ff", padding:"9px 10px", fontSize:12, fontFamily:"inherit", outline:"none", resize:"vertical", marginBottom:8 }}
+                    />
+                    <div style={{ display:"flex", gap:8 }}>
+                      <button onClick={()=>sendFollowUp(order)} disabled={followUpSending || !followUpNote.trim()} className="btn" style={{ flex:1, background:"#7c3aed", color:"#fff" }}>
+                        {followUpSending ? "Sending…" : "✉️ Send to Brooklyn"}
+                      </button>
+                      <button onClick={()=>{setFollowUpId(null);setFollowUpNote("");}} disabled={followUpSending} className="btn btn-gh">Cancel</button>
+                    </div>
+                  </div>
+                )}
                 <div className="action-row">
                   {!isReadOnly && order.status === "PENDING" && orderingId !== order.id && (
                     <button onClick={() => { setOrderingId(order.id); setExpectedDeliveryInput(""); }} disabled={updating === order.id} className="btn btn-ac">
@@ -634,6 +697,11 @@ export default function OrdersPage() {
                   {!isReadOnly && order.status !== "RECEIVED" && receivingId !== order.id && (
                     <button onClick={() => markReceivedWithoutInventory(order)} disabled={updating === order.id} className="btn btn-ok">
                       {updating === order.id ? "Saving…" : "✅ Received"}
+                    </button>
+                  )}
+                  {!isReadOnly && order.status !== "RECEIVED" && followUpId !== order.id && (
+                    <button onClick={()=>{setFollowUpId(order.id);setFollowUpNote("Can we please follow up on this item? We have not received it yet.");}} disabled={updating === order.id} className="btn" style={{ fontSize:11, background:"rgba(168,85,247,0.15)", color:"#d8b4fe", border:"1px solid rgba(168,85,247,0.3)" }}>
+                      💬 Follow Up With Brooklyn
                     </button>
                   )}
                   {!isReadOnly && (
