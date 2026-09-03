@@ -86,11 +86,14 @@ const PREMIUM_CSS = `
   .lock-btn.locked:hover { background:rgba(239,68,68,0.18); }
   .lock-btn.unlocked { background:var(--ok-dim); color:#6ee7b7; border-color:var(--ok-border); }
   .lock-btn.unlocked:hover { background:rgba(16,185,129,0.18); }
+  .mobile-tab-toggle { display:none; }
   .tab-bar { display:flex; gap:6px; margin-top:14px; background:var(--bg); border-radius:var(--r-md); padding:4px; border:1px solid var(--border2); overflow-x:auto; overscroll-behavior-x:contain; scrollbar-width:none; -webkit-overflow-scrolling:touch; }
   .tab-bar::-webkit-scrollbar { display:none; }
   .tab-btn { flex:1 0 auto; min-width:58px; border-radius:9px; padding:9px 8px; font-size:12px; font-weight:800; cursor:pointer; border:1px solid transparent; transition:var(--t); text-align:center; letter-spacing:0.2px; font-family:inherit; }
   @media(max-width:480px){
-    .tab-bar { margin-left:-8px; margin-right:-8px; padding:4px 8px; border-left:0; border-right:0; border-radius:10px; }
+    .mobile-tab-toggle { display:inline-flex; align-items:center; gap:6px; margin-top:7px; border:1px solid var(--border-ac); border-radius:var(--r-full); background:var(--ac-dim); color:var(--ac-bright); padding:5px 10px; font:800 11px/1.2 inherit; cursor:pointer; }
+    .tab-bar { display:none; margin-left:-8px; margin-right:-8px; padding:4px 8px; border-left:0; border-right:0; border-radius:10px; }
+    .tab-bar.open { display:flex; }
     .tab-btn { min-width:62px; padding:8px 7px; font-size:11px; }
   }
   .tab-btn.on { background:var(--ac); color:#fff; border-color:var(--ac); box-shadow:0 2px 10px rgba(59,130,246,0.35); }
@@ -294,6 +297,7 @@ export default function InventoryPage() {
   useSessionTimeout();
 
   const [tab,setTab]=useState<Tab>("Transaction");
+  const [tabMenuOpen,setTabMenuOpen]=useState(false);
   const [mode,setMode]=useState<Mode>("USE");
   const [qty,setQty]=useState(1);
   const [mainOverride,setMainOverride]=useState(false);
@@ -553,6 +557,9 @@ export default function InventoryPage() {
                   <div className="hdr-title">Baxter <span>ASC</span></div>
                 </div>
                 <div className="hdr-sub">Cabinet tracking + building totals + low stock alerts</div>
+                <button type="button" className="mobile-tab-toggle" aria-expanded={tabMenuOpen} aria-controls="inventory-tabs" onClick={()=>setTabMenuOpen(v=>!v)}>
+                  <span aria-hidden="true">☰</span><span>{tabMenuOpen?"Hide menu":`Menu · ${tab==="Transaction"?"Inventory":tab}`}</span>
+                </button>
               </div>
               <div style={{flexShrink:0,minWidth:0}}>
                 <div className="loc-badge">
@@ -564,13 +571,13 @@ export default function InventoryPage() {
                 </button>
               </div>
             </div>
-            <div className="tab-bar">
-              <TabBtn active={tab==="Transaction"} onClick={()=>setTab("Transaction")}>Tx</TabBtn>
-              <TabBtn active={tab==="Totals"} onClick={()=>setTab("Totals")}>Totals</TabBtn>
-              <TabBtn active={tab==="Sutures"} onClick={()=>{setTab("Sutures");void loadTotals();}}>Sutures</TabBtn>
-              <TabBtn active={false} onClick={()=>router.push("/chat")}>Chat</TabBtn>
-              <TabBtn active={tab==="Audit"} onClick={()=>setTab("Audit")}>Audit</TabBtn>
-              <TabBtn active={tab==="Settings"} onClick={()=>setTab("Settings")}>Settings</TabBtn>
+            <div id="inventory-tabs" className={`tab-bar ${tabMenuOpen?"open":""}`}>
+              <TabBtn active={tab==="Transaction"} onClick={()=>{setTab("Transaction");setTabMenuOpen(false);}}>Tx</TabBtn>
+              <TabBtn active={tab==="Totals"} onClick={()=>{setTab("Totals");setTabMenuOpen(false);}}>Totals</TabBtn>
+              <TabBtn active={tab==="Sutures"} onClick={()=>{setTab("Sutures");setTabMenuOpen(false);void loadTotals();}}>Sutures</TabBtn>
+              <TabBtn active={false} onClick={()=>{setTabMenuOpen(false);router.push("/chat");}}>Chat</TabBtn>
+              <TabBtn active={tab==="Audit"} onClick={()=>{setTab("Audit");setTabMenuOpen(false);}}>Audit</TabBtn>
+              <TabBtn active={tab==="Settings"} onClick={()=>{setTab("Settings");setTabMenuOpen(false);}}>Settings</TabBtn>
             </div>
           </div>
 
