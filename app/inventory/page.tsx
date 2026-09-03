@@ -86,9 +86,13 @@ const PREMIUM_CSS = `
   .lock-btn.locked:hover { background:rgba(239,68,68,0.18); }
   .lock-btn.unlocked { background:var(--ok-dim); color:#6ee7b7; border-color:var(--ok-border); }
   .lock-btn.unlocked:hover { background:rgba(16,185,129,0.18); }
-  .tab-bar { display:grid; grid-template-columns:repeat(6,1fr); gap:6px; margin-top:14px; background:var(--bg); border-radius:var(--r-md); padding:4px; border:1px solid var(--border2); }
-  @media(max-width:480px){.tab-bar{grid-template-columns:repeat(3,1fr);}}
-  .tab-btn { border-radius:9px; padding:9px 4px; font-size:12px; font-weight:800; cursor:pointer; border:1px solid transparent; transition:var(--t); text-align:center; letter-spacing:0.2px; font-family:inherit; }
+  .tab-bar { display:flex; gap:6px; margin-top:14px; background:var(--bg); border-radius:var(--r-md); padding:4px; border:1px solid var(--border2); overflow-x:auto; overscroll-behavior-x:contain; scrollbar-width:none; -webkit-overflow-scrolling:touch; }
+  .tab-bar::-webkit-scrollbar { display:none; }
+  .tab-btn { flex:1 0 auto; min-width:58px; border-radius:9px; padding:9px 8px; font-size:12px; font-weight:800; cursor:pointer; border:1px solid transparent; transition:var(--t); text-align:center; letter-spacing:0.2px; font-family:inherit; }
+  @media(max-width:480px){
+    .tab-bar { margin-left:-8px; margin-right:-8px; padding:4px 8px; border-left:0; border-right:0; border-radius:10px; }
+    .tab-btn { min-width:62px; padding:8px 7px; font-size:11px; }
+  }
   .tab-btn.on { background:var(--ac); color:#fff; border-color:var(--ac); box-shadow:0 2px 10px rgba(59,130,246,0.35); }
   .tab-btn.off { background:transparent; color:var(--text3); }
   .tab-btn.off:hover { color:var(--text); background:var(--surface); }
