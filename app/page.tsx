@@ -134,25 +134,20 @@ export default function Home() {
 
   async function loadAreas() {
     try {
-      const [areaRes, invRes] = await Promise.all([
-        supabase.from("storage_areas").select("id, name").order("name"),
-        supabase.from("storage_inventory_area_view").select("storage_area_id, on_hand, low_level").gt("par_level", 0)
-      ]);
-      const areaData = areaRes.data;
-      const invData = invRes.data;
-      if (!areaData) return;
-      const areaMap: Record<string, { total: number; low: number }> = {};
-      areaData.forEach(a => { areaMap[a.id] = { total: 0, low: 0 }; });
-      if (invData) {
-        invData.forEach((row: any) => {
-          if (!areaMap[row.storage_area_id]) return;
-          areaMap[row.storage_area_id].total++;
-          const isLow = (row.low_level ?? 0) > 0 && (row.on_hand ?? 0) <= (row.low_level ?? 0);
-          if (isLow) areaMap[row.storage_area_id].low++;
-        });
-      }
-      setAreas(areaData.map(a => ({ id: a.id, name: a.name, total: areaMap[a.id]?.total ?? 0, low: areaMap[a.id]?.low ?? 0 })));
-    } catch {}
+      const { data, error } = await supabase
+        .from("storage_area_inventory_summary")
+        .select("id,name,total,low")
+        .order("name");
+      if (error) throw error;
+      setAreas((data ?? []).map((area: any) => ({
+        id: area.id,
+        name: area.name,
+        total: Number(area.total ?? 0),
+        low: Number(area.low ?? 0),
+      })));
+    } catch (error) {
+      console.error("Area summary load failed:", error);
+    }
   }
 
   async function handleLogout() {
