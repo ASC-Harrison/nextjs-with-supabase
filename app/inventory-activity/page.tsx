@@ -9,7 +9,7 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 );
 
-const ADMIN_EMAILS = ["hogstud800@gmail.com", "brooklyncarter.0716@gmail.com"];
+const OWNER_EMAIL = "hogstud800@gmail.com";
 const PAGE_SIZE = 250;
 
 type Activity = {
@@ -71,7 +71,7 @@ export default function InventoryActivityPage() {
         router.replace("/login");
         return;
       }
-      if (!ADMIN_EMAILS.includes(email)) {
+      if (email !== OWNER_EMAIL) {
         router.replace("/");
         return;
       }
@@ -180,7 +180,7 @@ export default function InventoryActivityPage() {
             <button onClick={() => void loadActivity(true)} style={{ background: "rgba(37,99,235,.15)", border: "1px solid rgba(96,165,250,.3)", color: "#93c5fd", borderRadius: 10, padding: "8px 11px", cursor: "pointer", fontFamily: "inherit", fontWeight: 800 }}>↻ Refresh</button>
           </div>
           <div style={{ marginTop: 17 }}>
-            <div style={{ color: "#60a5fa", fontSize: 11, fontWeight: 900, textTransform: "uppercase", letterSpacing: 1.1 }}>Admin only · Read-only history</div>
+            <div style={{ color: "#60a5fa", fontSize: 11, fontWeight: 900, textTransform: "uppercase", letterSpacing: 1.1 }}>Private owner history · Read-only</div>
             <h1 style={{ fontSize: 27, margin: "5px 0 5px", letterSpacing: "-.5px" }}>Inventory Activity</h1>
             <p style={{ color: "#94a3b8", fontSize: 12, lineHeight: 1.5, margin: 0 }}>A detailed record of what was added, removed, or changed, including the count before and after.</p>
           </div>
