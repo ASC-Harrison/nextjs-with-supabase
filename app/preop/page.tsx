@@ -25,18 +25,12 @@ type Item = {
   alert_note?: string | null;
   is_box_item?: boolean;
   units_per_box?: number | null;
-  loose_units?: number;
 };
-
-function isBoxTracked(item: Item) {
-  const normalized = (item.unit || "").trim().toLowerCase();
-  return Boolean(item.is_box_item || normalized === "bx" || normalized === "box" || normalized === "boxes");
-}
 
 function inventoryUnitLabel(item: Item, qty: number) {
   const raw = (item.unit || "Each").trim();
   const normalized = raw.toLowerCase();
-  const isBox = isBoxTracked(item);
+  const isBox = item.is_box_item || normalized === "bx" || normalized === "box" || normalized === "boxes";
   if (isBox) return qty === 1 ? "Box" : "Boxes";
   if (normalized === "each" || normalized === "ea") return "Each";
   if (normalized === "case" || normalized === "ca") return qty === 1 ? "Case" : "Cases";
@@ -147,7 +141,6 @@ export default function PreOpPage() {
   // Per-item tx state
   const [txMode, setTxMode] = useState<Record<string, "USE"|"RESTOCK">>({});
   const [txQty, setTxQty] = useState<Record<string, number>>({});
-  const [boxSizeDraft, setBoxSizeDraft] = useState<Record<string, number>>({});
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
@@ -210,15 +203,12 @@ export default function PreOpPage() {
         if (ids.length > 0) {
           const { data: areaData } = await supabase
             .from("storage_inventory")
-            .select("item_id, on_hand, loose_units")
+            .select("item_id, on_hand")
             .eq("storage_area_id", MAIN_SUPPLY_ID)
             .in("item_id", ids);
           if (areaData) {
-            const areaMap = Object.fromEntries(areaData.map((r: any) => [r.item_id, r]));
-            rows.forEach((r: any) => {
-              r.on_hand = areaMap[r.item_id]?.on_hand ?? r.on_hand;
-              r.loose_units = areaMap[r.item_id]?.loose_units ?? 0;
-            });
+            const areaMap = Object.fromEntries(areaData.map((r: any) => [r.item_id, r.on_hand]));
+            rows.forEach(r => { r.on_hand = areaMap[r.item_id] ?? r.on_hand; });
           }
           // Fetch alert notes
           const { data: noteData } = await supabase
@@ -246,77 +236,47 @@ export default function PreOpPage() {
     setLoading(false);
   }
 
-  async function submitTx(item: Item, takeAs: "BOX" | "EACH" = isBoxTracked(item) ? "BOX" : "EACH") {
+  async function submitTx(item: Item) {
     if (!staffName.trim()) { setNamePrompt(true); return; }
+    const mode = txMode[item.item_id] || "USE";
     const qty = Math.max(1, Math.floor(txQty[item.item_id] || 1));
-    const boxItem = isBoxTracked(item);
-    const unitLabel = takeAs === "BOX" ? (qty === 1 ? "Box" : "Boxes") : "Each";
-
-    if (boxItem && takeAs === "EACH" && (!item.units_per_box || item.units_per_box <= 0)) {
-      setMsg({ id:item.item_id, type:"err", text:"Set the number of eaches in this box first." });
+    const unitLabel = inventoryUnitLabel(item, qty);
+    if (qty > item.on_hand && mode === "USE") {
+      setMsg({ id: item.item_id, type:"err", text:`Only ${item.on_hand} ${inventoryUnitLabel(item, item.on_hand)} available` });
       setTimeout(() => setMsg(null), 4000);
       return;
     }
-
-    const available = boxItem && takeAs === "EACH"
-      ? (item.on_hand * (item.units_per_box || 0)) + (item.loose_units || 0)
-      : item.on_hand;
-    if (qty > available) {
-      setMsg({ id:item.item_id, type:"err", text:`Only ${available} ${unitLabel} available` });
-      setTimeout(() => setMsg(null), 4000);
-      return;
-    }
-
-    setSubmitting(`${item.item_id}:${takeAs}`);
+    setSubmitting(item.item_id);
     try {
-      const { data, error } = await supabase.rpc("consume_inventory_unit", {
-        p_item_id: item.item_id,
-        p_area_id: MAIN_SUPPLY_ID,
-        p_qty: qty,
-        p_take_as: takeAs,
-      });
-      if (error) throw new Error(error.message);
-      const result = Array.isArray(data) ? data[0] : data;
-      setItems(prev => prev.map(i => i.item_id === item.item_id ? {
-        ...i,
-        on_hand: result?.boxes_remaining ?? i.on_hand,
-        loose_units: result?.eaches_remaining ?? i.loose_units ?? 0,
-      } : i));
-
+      if (mode === "USE") {
+        const { error } = await supabase.rpc("use_stock", {
+          p_item_id: item.item_id,
+          p_area_id: MAIN_SUPPLY_ID,
+          p_qty: qty,
+        });
+        if (error) throw new Error(error.message);
+        setItems(prev => prev.map(i => i.item_id === item.item_id ? { ...i, on_hand: Math.max(0, i.on_hand - qty) } : i));
+      } else {
+        const { error } = await supabase.rpc("add_stock", {
+          p_item_id: item.item_id,
+          p_area_id: MAIN_SUPPLY_ID,
+          p_qty: qty,
+        });
+        if (error) throw new Error(error.message);
+        setItems(prev => prev.map(i => i.item_id === item.item_id ? { ...i, on_hand: i.on_hand + qty } : i));
+      }
+      // Log audit
       await supabase.from("audit_log").insert({
         staff_name: staffName,
-        action: "USE_STOCK",
+        action: "SUBMIT_TX",
         area_name: "Pre-Op/PACU",
-        details: `Used=${qty} TakeAs=${takeAs} Item=${item.name} Source=Main Sterile Supply`,
+        details: `Mode=${mode} Qty=${qty} Unit=${unitLabel} Item=${item.name} Area=Pre-Op/PACU`,
       });
-      setMsg({ id:item.item_id, type:"ok", text:`Used ${qty} ${unitLabel}: ${item.name}` });
-      setTxQty(prev => ({ ...prev, [item.item_id]:1 }));
+      setMsg({ id: item.item_id, type:"ok", text: `${mode === "USE" ? "Used" : "Restocked"} ${qty} ${unitLabel}: ${item.name}` });
+      setTxQty(prev => ({ ...prev, [item.item_id]: 1 }));
       setTimeout(() => setMsg(null), 3000);
     } catch(e: any) {
-      setMsg({ id:item.item_id, type:"err", text:e?.message ?? "Transaction failed — check connection" });
-      setTimeout(() => setMsg(null), 5000);
-    }
-    setSubmitting(null);
-  }
-
-  async function saveBoxSize(item: Item) {
-    const units = Math.floor(boxSizeDraft[item.item_id] || 0);
-    if (units < 2) {
-      setMsg({ id:item.item_id, type:"err", text:"Enter at least 2 eaches per box." });
-      return;
-    }
-    setSubmitting(`${item.item_id}:SIZE`);
-    try {
-      const { error } = await supabase
-        .from("items")
-        .update({ is_box_item:true, units_per_box:units })
-        .eq("id", item.item_id);
-      if (error) throw new Error(error.message);
-      setItems(prev => prev.map(i => i.item_id === item.item_id ? { ...i, is_box_item:true, units_per_box:units } : i));
-      setMsg({ id:item.item_id, type:"ok", text:`Saved: 1 Box = ${units} Each` });
-      setTimeout(() => setMsg(null), 3000);
-    } catch(e:any) {
-      setMsg({ id:item.item_id, type:"err", text:e?.message ?? "Could not save box size" });
+      setMsg({ id: item.item_id, type:"err", text: e?.message ?? "Transaction failed — check connection" });
       setTimeout(() => setMsg(null), 5000);
     }
     setSubmitting(null);
@@ -455,8 +415,7 @@ export default function PreOpPage() {
             </div>
           ) : filtered.map(item => {
             const isLow = item.low_level > 0 && item.on_hand <= item.low_level;
-            const boxTracked = isBoxTracked(item);
-            const requestedQty = txQty[item.item_id] || 1;
+            const mode = txMode[item.item_id] || "USE";
             return (
               <div key={item.item_id} className="item-card ok">
                 <div className="item-name">{item.name}</div>
@@ -474,12 +433,7 @@ export default function PreOpPage() {
                 <div className="oh-row" style={{ marginTop:10 }}>
                   <div className={`oh-badge ${isLow ? "low" : "ok"}`}>
                     <div className={`oh-num ${isLow ? "low" : "ok"}`}>{item.on_hand}</div>
-                    <div className="oh-unit">{boxTracked ? (item.on_hand === 1 ? "unopened box" : "unopened boxes") : `${inventoryUnitLabel(item, item.on_hand)} on hand`}</div>
-                    {boxTracked && (item.loose_units || 0) > 0 && (
-                      <div style={{ fontSize:10, color:"#6ee7b7", fontWeight:800, marginTop:4 }}>
-                        + {item.loose_units} loose Each
-                      </div>
-                    )}
+                    <div className="oh-unit">{inventoryUnitLabel(item, item.on_hand)} on hand</div>
                   </div>
                   <div className="tx-row" style={{ justifyContent:"flex-end" }}>
                     <div className="qty-row" aria-label={`Quantity of ${item.name} to use`}>
@@ -509,62 +463,21 @@ export default function PreOpPage() {
                     <button
                       type="button"
                       className="submit-btn submit-use"
-                      disabled={Boolean(submitting) || item.on_hand <= 0}
-                      onClick={() => submitTx(item, boxTracked ? "BOX" : "EACH")}
+                      disabled={submitting === item.item_id || item.on_hand <= 0}
+                      onClick={() => submitTx(item)}
                     >
-                      {submitting === `${item.item_id}:${boxTracked ? "BOX" : "EACH"}`
+                      {submitting === item.item_id
                         ? "Saving…"
                         : item.on_hand <= 0
                           ? "Out of stock"
-                          : `Use ${requestedQty} ${boxTracked ? (requestedQty === 1 ? "Box" : "Boxes") : inventoryUnitLabel(item, requestedQty)}`}
+                          : `Use ${txQty[item.item_id] || 1} ${inventoryUnitLabel(item, txQty[item.item_id] || 1)}`}
                     </button>
-                    {boxTracked && item.units_per_box && (
-                      <button
-                        type="button"
-                        className="submit-btn"
-                        style={{ background:"linear-gradient(135deg,#f59e0b,#d97706)", color:"#fff" }}
-                        disabled={Boolean(submitting) || ((item.on_hand * item.units_per_box) + (item.loose_units || 0)) < requestedQty}
-                        onClick={() => submitTx(item, "EACH")}
-                      >
-                        {submitting === `${item.item_id}:EACH` ? "Saving…" : `Use ${requestedQty} Each`}
-                      </button>
-                    )}
                   </div>
                 </div>
-                {boxTracked && item.units_per_box ? (
+                {item.is_box_item && item.units_per_box && (
                   <div style={{ fontSize:10, color:"#64748b", marginTop:6 }}>
-                    Tracked as BOX · 1 Box = {item.units_per_box} Each
+                    1 Box = {item.units_per_box} Each
                   </div>
-                ) : boxTracked ? (
-                  <div style={{ marginTop:10, padding:10, background:"rgba(245,158,11,0.08)", border:"1px solid rgba(245,158,11,0.25)", borderRadius:8 }}>
-                    <div style={{ fontSize:11, color:"#fcd34d", fontWeight:800, marginBottom:7 }}>
-                      Set the box size to enable individual Each use
-                    </div>
-                    <div style={{ display:"flex", gap:8 }}>
-                      <input
-                        className="qty-inp"
-                        style={{ width:100 }}
-                        type="number"
-                        inputMode="numeric"
-                        min={2}
-                        placeholder="Each/box"
-                        value={boxSizeDraft[item.item_id] || ""}
-                        onChange={e => setBoxSizeDraft(prev => ({ ...prev, [item.item_id]:Math.max(0, Math.floor(Number(e.target.value) || 0)) }))}
-                        aria-label="Eaches per box"
-                      />
-                      <button
-                        type="button"
-                        className="btn"
-                        style={{ padding:"8px 12px", background:"#f59e0b", color:"#111827" }}
-                        disabled={Boolean(submitting)}
-                        onClick={() => saveBoxSize(item)}
-                      >
-                        {submitting === `${item.item_id}:SIZE` ? "Saving…" : "Save box size"}
-                      </button>
-                    </div>
-                  </div>
-                ) : (
-                  <div style={{ fontSize:10, color:"#64748b", marginTop:6 }}>Tracked as EACH</div>
                 )}
 
                 <button
