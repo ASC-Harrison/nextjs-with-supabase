@@ -23,7 +23,21 @@ type Item = {
   par_level: number;
   low_level: number;
   alert_note?: string | null;
+  is_box_item?: boolean;
+  units_per_box?: number | null;
 };
+
+function inventoryUnitLabel(item: Item, qty: number) {
+  const raw = (item.unit || "Each").trim();
+  const normalized = raw.toLowerCase();
+  const isBox = item.is_box_item || normalized === "bx" || normalized === "box" || normalized === "boxes";
+  if (isBox) return qty === 1 ? "Box" : "Boxes";
+  if (normalized === "each" || normalized === "ea") return "Each";
+  if (normalized === "case" || normalized === "ca") return qty === 1 ? "Case" : "Cases";
+  if (normalized === "bag") return qty === 1 ? "Bag" : "Bags";
+  if (normalized === "roll") return qty === 1 ? "Roll" : "Rolls";
+  return raw;
+}
 
 const CSS = `
   *,*::before,*::after{box-sizing:border-box;}
@@ -197,10 +211,19 @@ export default function PreOpPage() {
             rows.forEach(r => { r.on_hand = areaMap[r.item_id] ?? r.on_hand; });
           }
           // Fetch alert notes
-          const { data: noteData } = await supabase.from("items").select("id,alert_note").in("id", ids);
+          const { data: noteData } = await supabase
+            .from("items")
+            .select("id,alert_note,is_box_item,units_per_box,unit")
+            .in("id", ids);
           if (noteData) {
-            const noteMap = Object.fromEntries(noteData.map((n: any) => [n.id, n.alert_note]));
-            rows.forEach((r: any) => { r.alert_note = noteMap[r.item_id] || null; });
+            const itemMap = Object.fromEntries(noteData.map((n: any) => [n.id, n]));
+            rows.forEach((r: any) => {
+              const metadata = itemMap[r.item_id];
+              r.alert_note = metadata?.alert_note || null;
+              r.is_box_item = metadata?.is_box_item || false;
+              r.units_per_box = metadata?.units_per_box ?? null;
+              r.unit = metadata?.unit || r.unit;
+            });
           }
         }
         setItems(rows);
@@ -216,7 +239,13 @@ export default function PreOpPage() {
   async function submitTx(item: Item) {
     if (!staffName.trim()) { setNamePrompt(true); return; }
     const mode = txMode[item.item_id] || "USE";
-    const qty = txQty[item.item_id] || 1;
+    const qty = Math.max(1, Math.floor(txQty[item.item_id] || 1));
+    const unitLabel = inventoryUnitLabel(item, qty);
+    if (qty > item.on_hand && mode === "USE") {
+      setMsg({ id: item.item_id, type:"err", text:`Only ${item.on_hand} ${inventoryUnitLabel(item, item.on_hand)} available` });
+      setTimeout(() => setMsg(null), 4000);
+      return;
+    }
     setSubmitting(item.item_id);
     try {
       if (mode === "USE") {
@@ -241,9 +270,9 @@ export default function PreOpPage() {
         staff_name: staffName,
         action: "SUBMIT_TX",
         area_name: "Pre-Op/PACU",
-        details: `Mode=${mode} Qty=${qty} Item=${item.name} Area=Pre-Op/PACU`,
+        details: `Mode=${mode} Qty=${qty} Unit=${unitLabel} Item=${item.name} Area=Pre-Op/PACU`,
       });
-      setMsg({ id: item.item_id, type:"ok", text: `${mode === "USE" ? "Used" : "Restocked"} ${qty} × ${item.name}` });
+      setMsg({ id: item.item_id, type:"ok", text: `${mode === "USE" ? "Used" : "Restocked"} ${qty} ${unitLabel}: ${item.name}` });
       setTxQty(prev => ({ ...prev, [item.item_id]: 1 }));
       setTimeout(() => setMsg(null), 3000);
     } catch(e: any) {
@@ -399,6 +428,56 @@ export default function PreOpPage() {
 
                 {msg?.id === item.item_id && (
                   <div className={msg.type === "ok" ? "ok-msg" : "err-msg"}>{msg.text}</div>
+                )}
+
+                <div className="oh-row" style={{ marginTop:10 }}>
+                  <div className={`oh-badge ${isLow ? "low" : "ok"}`}>
+                    <div className={`oh-num ${isLow ? "low" : "ok"}`}>{item.on_hand}</div>
+                    <div className="oh-unit">{inventoryUnitLabel(item, item.on_hand)} on hand</div>
+                  </div>
+                  <div className="tx-row" style={{ justifyContent:"flex-end" }}>
+                    <div className="qty-row" aria-label={`Quantity of ${item.name} to use`}>
+                      <button
+                        type="button"
+                        className="qty-btn"
+                        onClick={() => setTxQty(prev => ({ ...prev, [item.item_id]: Math.max(1, (prev[item.item_id] || 1) - 1) }))}
+                        aria-label="Decrease quantity"
+                      >−</button>
+                      <input
+                        className="qty-inp"
+                        type="number"
+                        inputMode="numeric"
+                        min={1}
+                        max={Math.max(1, item.on_hand)}
+                        value={txQty[item.item_id] || 1}
+                        onChange={e => setTxQty(prev => ({ ...prev, [item.item_id]: Math.max(1, Math.floor(Number(e.target.value) || 1)) }))}
+                        aria-label="Quantity to use"
+                      />
+                      <button
+                        type="button"
+                        className="qty-btn"
+                        onClick={() => setTxQty(prev => ({ ...prev, [item.item_id]: Math.min(Math.max(1, item.on_hand), (prev[item.item_id] || 1) + 1) }))}
+                        aria-label="Increase quantity"
+                      >+</button>
+                    </div>
+                    <button
+                      type="button"
+                      className="submit-btn submit-use"
+                      disabled={submitting === item.item_id || item.on_hand <= 0}
+                      onClick={() => submitTx(item)}
+                    >
+                      {submitting === item.item_id
+                        ? "Saving…"
+                        : item.on_hand <= 0
+                          ? "Out of stock"
+                          : `Use ${txQty[item.item_id] || 1} ${inventoryUnitLabel(item, txQty[item.item_id] || 1)}`}
+                    </button>
+                  </div>
+                </div>
+                {item.is_box_item && item.units_per_box && (
+                  <div style={{ fontSize:10, color:"#64748b", marginTop:6 }}>
+                    1 Box = {item.units_per_box} Each
+                  </div>
                 )}
 
                 <button
