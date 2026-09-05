@@ -11,6 +11,7 @@ const supabase = createClient(
 
 const OWNER_EMAIL = "hogstud800@gmail.com";
 const PAGE_SIZE = 250;
+const REVIEW_THRESHOLD = 10;
 
 type Activity = {
   id: string;
@@ -31,8 +32,9 @@ type Activity = {
   changed_by: string | null;
 };
 
-type MovementFilter = "ALL" | "ADDED" | "REMOVED" | "PAR_CHANGED";
+type MovementFilter = "ALL" | "ADDED" | "REMOVED" | "PAR_CHANGED" | "REVIEW";
 type DateFilter = "TODAY" | "7_DAYS" | "30_DAYS" | "ALL";
+type LiveState = "CONNECTING" | "LIVE" | "OFFLINE";
 
 function numberValue(value: number | string | null) {
   return Number(value ?? 0);
@@ -43,9 +45,33 @@ function formatNumber(value: number | string | null) {
 }
 
 function personLabel(value: string | null) {
-  if (!value || value === "System") return "System / automated update";
-  if (value === "Legacy app") return "App user (older history)";
+  if (!value || value === "System" || value === "System / automated update") {
+    return "System / automated update";
+  }
+  if (value === "Legacy app" || value === "App user (older history)") {
+    return "App user (older history)";
+  }
+
+  const lower = value.toLowerCase();
+  if (lower.includes("brooklyncarter.0716@gmail.com") || lower === "brooklyn carter") return "Brooklyn Carter";
+  if (lower.includes("andrea.burris88@icloud.com") || lower === "andrea") return "Andrea";
+  if (lower.includes("wsummer006@gmail.com") || lower === "summer") return "Summer";
+  if (lower.includes("hogstud800@gmail.com") || lower === "jeremy" || lower === "jeremy johnson") return "Jeremy Johnson";
   return value;
+}
+
+function reviewReason(row: Activity) {
+  const oldCount = numberValue(row.old_on_hand);
+  const newCount = numberValue(row.new_on_hand);
+  const change = Math.abs(newCount - oldCount);
+  if (oldCount > 0 && newCount === 0) return "Item was set to zero";
+  if (change >= REVIEW_THRESHOLD) return `Large change of ${formatNumber(change)} ${row.unit || "Each"}`;
+  return "";
+}
+
+function csvCell(value: unknown) {
+  const text = String(value ?? "");
+  return `"${text.replace(/"/g, '""')}"`;
 }
 
 export default function InventoryActivityPage() {
@@ -59,6 +85,8 @@ export default function InventoryActivityPage() {
   const [movement, setMovement] = useState<MovementFilter>("ALL");
   const [dateFilter, setDateFilter] = useState<DateFilter>("7_DAYS");
   const [error, setError] = useState("");
+  const [liveState, setLiveState] = useState<LiveState>("CONNECTING");
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -86,8 +114,41 @@ export default function InventoryActivityPage() {
     if (authorized) void loadActivity(true);
   }, [authorized]);
 
-  async function loadActivity(reset: boolean) {
-    reset ? setLoading(true) : setLoadingMore(true);
+  useEffect(() => {
+    if (!authorized) return;
+
+    let refreshTimer: ReturnType<typeof setTimeout> | null = null;
+    const channel = supabase
+      .channel("private-inventory-activity")
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "inventory_change_log" },
+        () => {
+          if (refreshTimer) clearTimeout(refreshTimer);
+          refreshTimer = setTimeout(() => void loadActivity(true, true), 500);
+        }
+      )
+      .subscribe(status => {
+        if (status === "SUBSCRIBED") setLiveState("LIVE");
+        else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") setLiveState("OFFLINE");
+      });
+
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === "visible") void loadActivity(true, true);
+    };
+    document.addEventListener("visibilitychange", refreshWhenVisible);
+
+    return () => {
+      if (refreshTimer) clearTimeout(refreshTimer);
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
+      void supabase.removeChannel(channel);
+    };
+  }, [authorized]);
+
+  async function loadActivity(reset: boolean, quiet = false) {
+    if (!quiet) {
+      reset ? setLoading(true) : setLoadingMore(true);
+    }
     setError("");
 
     const start = reset ? 0 : rows.length;
@@ -104,6 +165,7 @@ export default function InventoryActivityPage() {
       const nextRows = (data ?? []) as Activity[];
       setRows(current => reset ? nextRows : [...current, ...nextRows]);
       setHasMore(nextRows.length === PAGE_SIZE);
+      setLastUpdated(new Date());
     }
 
     setLoading(false);
@@ -118,10 +180,10 @@ export default function InventoryActivityPage() {
 
     return rows.filter(row => {
       const countChanged = numberValue(row.old_on_hand) !== numberValue(row.new_on_hand);
-      const parChanged = numberValue(row.old_par_level) !== numberValue(row.new_par_level);
       const visibleDirection = countChanged ? row.direction : "PAR_CHANGED";
 
-      if (movement !== "ALL" && visibleDirection !== movement) return false;
+      if (movement === "REVIEW" && !reviewReason(row)) return false;
+      if (movement !== "ALL" && movement !== "REVIEW" && visibleDirection !== movement) return false;
 
       const changedTime = new Date(row.changed_at).getTime();
       if (dateFilter === "TODAY" && changedTime < startOfToday.getTime()) return false;
@@ -134,7 +196,7 @@ export default function InventoryActivityPage() {
         row.reference_number,
         row.vendor,
         row.storage_area_name,
-        row.changed_by,
+        personLabel(row.changed_by),
       ].some(value => value?.toLowerCase().includes(term));
     });
   }, [rows, search, movement, dateFilter]);
@@ -146,7 +208,46 @@ export default function InventoryActivityPage() {
       numberValue(row.new_on_hand) === numberValue(row.old_on_hand) &&
       numberValue(row.new_par_level) !== numberValue(row.old_par_level)
     ).length,
+    review: filteredRows.filter(row => Boolean(reviewReason(row))).length,
   }), [filteredRows]);
+
+  function exportCsv() {
+    const headers = [
+      "Date & Time", "Action", "Item", "Reference #", "Vendor", "Unit",
+      "Amount Changed", "Old Count", "New Count", "Location", "Changed By",
+      "Old PAR", "New PAR", "Needs Review"
+    ];
+
+    const lines = filteredRows.map(row => {
+      const difference = numberValue(row.new_on_hand) - numberValue(row.old_on_hand);
+      const action = difference > 0 ? "ADDED" : difference < 0 ? "REMOVED" : "PAR CHANGED";
+      return [
+        new Date(row.changed_at).toLocaleString(),
+        action,
+        row.item_name,
+        row.reference_number,
+        row.vendor,
+        row.unit || "Each",
+        difference,
+        numberValue(row.old_on_hand),
+        numberValue(row.new_on_hand),
+        row.storage_area_name,
+        personLabel(row.changed_by),
+        numberValue(row.old_par_level),
+        numberValue(row.new_par_level),
+        reviewReason(row),
+      ].map(csvCell).join(",");
+    });
+
+    const csv = [headers.map(csvCell).join(","), ...lines].join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `inventory-activity-${new Date().toISOString().slice(0, 10)}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  }
 
   if (!authorized || loading) {
     return (
@@ -175,22 +276,33 @@ export default function InventoryActivityPage() {
     <main style={{ minHeight: "100vh", background: "radial-gradient(circle at 10% 0%,rgba(37,99,235,.16),transparent 30%),#080d19", color: "#f8fafc", padding: "14px 14px 50px" }}>
       <div style={{ maxWidth: 1000, margin: "0 auto" }}>
         <header style={{ background: "linear-gradient(145deg,rgba(30,41,59,.96),rgba(15,23,42,.96))", border: "1px solid rgba(96,165,250,.2)", borderRadius: 22, padding: 18, marginBottom: 12, boxShadow: "0 22px 55px rgba(0,0,0,.24)" }}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 9, flexWrap: "wrap" }}>
             <button onClick={() => router.push("/")} style={{ background: "rgba(30,41,59,.8)", border: "1px solid rgba(148,163,184,.16)", color: "#cbd5e1", borderRadius: 10, padding: "8px 11px", cursor: "pointer", fontFamily: "inherit", fontWeight: 800 }}>← Home</button>
-            <button onClick={() => void loadActivity(true)} style={{ background: "rgba(37,99,235,.15)", border: "1px solid rgba(96,165,250,.3)", color: "#93c5fd", borderRadius: 10, padding: "8px 11px", cursor: "pointer", fontFamily: "inherit", fontWeight: 800 }}>↻ Refresh</button>
+            <div style={{ display: "flex", gap: 7 }}>
+              <button onClick={exportCsv} disabled={filteredRows.length === 0} style={{ background: "rgba(16,185,129,.12)", border: "1px solid rgba(52,211,153,.25)", color: "#6ee7b7", borderRadius: 10, padding: "8px 11px", cursor: "pointer", fontFamily: "inherit", fontWeight: 800 }}>↓ Export</button>
+              <button onClick={() => void loadActivity(true)} style={{ background: "rgba(37,99,235,.15)", border: "1px solid rgba(96,165,250,.3)", color: "#93c5fd", borderRadius: 10, padding: "8px 11px", cursor: "pointer", fontFamily: "inherit", fontWeight: 800 }}>↻ Refresh</button>
+            </div>
           </div>
           <div style={{ marginTop: 17 }}>
-            <div style={{ color: "#60a5fa", fontSize: 11, fontWeight: 900, textTransform: "uppercase", letterSpacing: 1.1 }}>Private owner history · Read-only</div>
+            <div style={{ display: "flex", alignItems: "center", gap: 7, flexWrap: "wrap" }}>
+              <div style={{ color: "#60a5fa", fontSize: 11, fontWeight: 900, textTransform: "uppercase", letterSpacing: 1.1 }}>Private owner history · Read-only</div>
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 5, color: liveState === "LIVE" ? "#6ee7b7" : liveState === "OFFLINE" ? "#fca5a5" : "#fcd34d", fontSize: 9, fontWeight: 900 }}>
+                <span style={{ width: 7, height: 7, borderRadius: "50%", background: "currentColor", boxShadow: liveState === "LIVE" ? "0 0 9px currentColor" : "none" }} />
+                {liveState === "LIVE" ? "LIVE UPDATES" : liveState}
+              </span>
+            </div>
             <h1 style={{ fontSize: 27, margin: "5px 0 5px", letterSpacing: "-.5px" }}>Inventory Activity</h1>
-            <p style={{ color: "#94a3b8", fontSize: 12, lineHeight: 1.5, margin: 0 }}>A detailed record of what was added, removed, or changed, including the count before and after.</p>
+            <p style={{ color: "#94a3b8", fontSize: 12, lineHeight: 1.5, margin: 0 }}>See who added or removed inventory, what changed, where it happened, and what may need your review.</p>
+            {lastUpdated && <div style={{ color: "#475569", fontSize: 9, marginTop: 7 }}>Last updated {lastUpdated.toLocaleTimeString()}</div>}
           </div>
         </header>
 
-        <section style={{ display: "grid", gridTemplateColumns: "repeat(3,minmax(0,1fr))", gap: 8, marginBottom: 12 }}>
+        <section style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(130px,1fr))", gap: 8, marginBottom: 12 }}>
           {[
             { label: "Added entries", value: summary.added, color: "#6ee7b7" },
             { label: "Removed entries", value: summary.removed, color: "#fca5a5" },
             { label: "PAR updates", value: summary.par, color: "#fcd34d" },
+            { label: "Needs review", value: summary.review, color: "#fb923c" },
           ].map(stat => (
             <div key={stat.label} style={{ background: "rgba(30,41,59,.75)", border: "1px solid rgba(148,163,184,.13)", borderRadius: 14, padding: "12px 10px" }}>
               <div style={{ fontSize: 22, lineHeight: 1, fontWeight: 950, color: stat.color }}>{stat.value}</div>
@@ -212,6 +324,7 @@ export default function InventoryActivityPage() {
               ["ADDED", "Added"],
               ["REMOVED", "Removed"],
               ["PAR_CHANGED", "PAR changed"],
+              ["REVIEW", "⚠ Needs review"],
             ] as [MovementFilter, string][]).map(([value, label]) => (
               <button key={value} onClick={() => setMovement(value)} style={filterButton(movement === value)}>{label}</button>
             ))}
@@ -225,6 +338,7 @@ export default function InventoryActivityPage() {
               <option value="ALL">All loaded history</option>
             </select>
           </div>
+          <div style={{ color: "#475569", fontSize: 9, marginTop: 8 }}>Needs Review flags changes of {REVIEW_THRESHOLD}+ units or an item being set to zero. It does not change inventory.</div>
         </section>
 
         {error && <div style={{ background: "rgba(127,29,29,.3)", border: "1px solid rgba(248,113,113,.3)", color: "#fecaca", borderRadius: 13, padding: 13, marginBottom: 10, fontSize: 12 }}>{error}</div>}
@@ -240,12 +354,16 @@ export default function InventoryActivityPage() {
             const color = kind === "ADDED" ? "#6ee7b7" : kind === "REMOVED" ? "#fca5a5" : "#fcd34d";
             const tint = kind === "ADDED" ? "rgba(16,185,129,.08)" : kind === "REMOVED" ? "rgba(239,68,68,.08)" : "rgba(245,158,11,.08)";
             const unit = row.unit || "Each";
+            const review = reviewReason(row);
 
             return (
-              <article key={row.id} style={{ background: `linear-gradient(145deg,${tint},rgba(15,23,42,.9))`, border: `1px solid ${kind === "ADDED" ? "rgba(52,211,153,.2)" : kind === "REMOVED" ? "rgba(248,113,113,.2)" : "rgba(251,191,36,.2)"}`, borderRadius: 16, padding: 14 }}>
+              <article key={row.id} style={{ background: `linear-gradient(145deg,${tint},rgba(15,23,42,.9))`, border: `1px solid ${review ? "rgba(251,146,60,.5)" : kind === "ADDED" ? "rgba(52,211,153,.2)" : kind === "REMOVED" ? "rgba(248,113,113,.2)" : "rgba(251,191,36,.2)"}`, borderRadius: 16, padding: 14 }}>
                 <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "flex-start" }}>
                   <div style={{ minWidth: 0 }}>
-                    <div style={{ color, fontSize: 10, fontWeight: 950, letterSpacing: ".7px" }}>{kind === "PAR_CHANGED" ? "PAR LEVEL CHANGED" : kind}</div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                      <span style={{ color, fontSize: 10, fontWeight: 950, letterSpacing: ".7px" }}>{kind === "PAR_CHANGED" ? "PAR LEVEL CHANGED" : kind}</span>
+                      {review && <span style={{ color: "#fdba74", background: "rgba(251,146,60,.12)", border: "1px solid rgba(251,146,60,.28)", borderRadius: 999, padding: "2px 6px", fontSize: 8, fontWeight: 950 }}>⚠ REVIEW</span>}
+                    </div>
                     <div style={{ color: "#f8fafc", fontSize: 16, fontWeight: 900, marginTop: 3, lineHeight: 1.25 }}>{row.item_name}</div>
                   </div>
                   {countChanged && (
@@ -255,9 +373,11 @@ export default function InventoryActivityPage() {
                   )}
                 </div>
 
+                {review && <div style={{ color: "#fed7aa", background: "rgba(124,45,18,.25)", borderRadius: 9, padding: "7px 9px", marginTop: 10, fontSize: 10, fontWeight: 800 }}>{review}</div>}
+
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(145px,1fr))", gap: 7, marginTop: 12 }}>
                   {countChanged && <Detail label="COUNT" value={`${formatNumber(row.old_on_hand)} → ${formatNumber(row.new_on_hand)} ${unit}`} />}
-                  <Detail label="LOCATION" value={row.storage_area_name || "Unknown location"} />
+                  <Detail label="LOCATION" value={(row.storage_area_name || "Unknown location").trim()} />
                   <Detail label="CHANGED BY" value={personLabel(row.changed_by)} />
                   <Detail label="DATE & TIME" value={new Date(row.changed_at).toLocaleString()} />
                   {row.reference_number && <Detail label="REFERENCE #" value={row.reference_number} />}
@@ -278,7 +398,7 @@ export default function InventoryActivityPage() {
             {loadingMore ? "Loading more…" : `Load more history (${rows.length} loaded)`}
           </button>
         )}
-        <div style={{ color: "#475569", textAlign: "center", fontSize: 10, marginTop: 13 }}>This screen cannot change inventory. It only displays the protected activity record.</div>
+        <div style={{ color: "#475569", textAlign: "center", fontSize: 10, marginTop: 13 }}>This screen cannot change inventory. It only displays your protected activity record.</div>
       </div>
     </main>
   );
