@@ -12,7 +12,7 @@ type LookupMode = "BARCODE" | "REF" | "NAME";
 type Area = { id: string; name: string };
 type Item = { id: string; name: string; barcode: string; reference_number?: string | null; order_status?: string | null; backordered?: boolean | null; };
 type AuditEvent = { id: string; ts: string; staff: string; action: "SCAN"|"LOOKUP_FOUND"|"LOOKUP_NOT_FOUND"|"ADD_ITEM"|"SUBMIT_TX"|"UNDO_TX"|"CHANGE_LOCATION"|"LOCK"|"UNLOCK"|"MAIN_OVERRIDE_ON"|"MAIN_OVERRIDE_OFF"|"SCANNER_OPEN"|"SCANNER_CLOSE"|"TOTALS_SET"|"TOTALS_ADJUST"|"AREA_LIST_LOAD"|"AREA_LIST_TOGGLE"|"AREA_ROW_EDIT_OPEN"|"AREA_ROW_EDIT_SAVE"|"ITEM_INACTIVE"|"ITEM_RESTORED"|"ITEM_STATUS_SAVE"; details?: string; };
-type BuildingTotalRow = { item_id: string; name: string; reference_number: string | null; vendor: string | null; category: string | null; total_on_hand: number | null; par_level: number | null; low_level: number | null; unit: string | null; notes: string | null; is_active: boolean | null; order_status?: string | null; backordered?: boolean | null; supply_source?: string | null; price?: number | null; expiration_date?: string | null; alert_note?: string | null; ordered_at?: string | null; };
+type BuildingTotalRow = { item_id: string; name: string; reference_number: string | null; vendor: string | null; category: string | null; total_on_hand: number | null; par_level: number | null; low_level: number | null; unit: string | null; notes: string | null; is_active: boolean | null; order_status?: string | null; backordered?: boolean | null; supply_source?: string | null; price?: number | null; expiration_date?: string | null; alert_note?: string | null; ordered_at?: string | null; open_order_id?: string | null; open_order_qty?: number | null; open_order_received?: number | null; open_order_requested_by?: string | null; };
 type AreaInvRow = { storage_area_id: string; storage_area_name: string; item_id: string; item_name: string; on_hand: number | null; par_level: number | null; low_level: number | null; unit: string | null; vendor: string | null; category: string | null; reference_number: string | null; notes: string | null; order_status?: string | null; backordered?: boolean | null; };
 type LastTx = { storage_area_id: string; mode: Mode; item_id: string; qty: number; mainOverride: boolean; item_name?: string; area_name?: string; ts: string; };
 type OrderStatusRow = { id: string; qty_ordered: number; qty_received: number; status: "ORDERED"|"BACKORDER"|"PARTIAL"|"RECEIVED"|"CANCELLED"; notes: string | null; purchase_orders?: { id?: string|null; po_number?: string|null; vendor?: string|null; status?: string|null; expected_date?: string|null; order_date?: string|null; notes?: string|null; }|null; };
@@ -28,7 +28,7 @@ function uid(): string { return `${Date.now()}_${Math.random().toString(16).slic
 function safeJsonParse<T>(raw: string | null, fallback: T): T { if (!raw) return fallback; try { return JSON.parse(raw) as T; } catch { return fallback; } }
 function getSessionUnlocked(): boolean { if (typeof window === "undefined") return false; return sessionStorage.getItem(SS.UNLOCKED) === "1"; }
 function setSessionUnlocked(value: boolean): void { if (typeof window === "undefined") return; if (value) sessionStorage.setItem(SS.UNLOCKED, "1"); else sessionStorage.removeItem(SS.UNLOCKED); }
-function supplySourceLabel(s: string|null|undefined): {label:string;cls:string} { if (s==="HOSPITAL") return {label:"Hospital",cls:"src-hosp"}; if (s==="BOTH") return {label:"Both",cls:"src-both"}; return {label:"Vendor",cls:"src-vend"}; }
+function supplySourceLabel(s: string|null|undefined): {label:string;cls:string} { if (s==="HOSPITAL") return {label:"Hospital",cls:"src-hosp"}; if (s==="BOTH") return {label:"Both",cls:"src-both"}; return {label:"Vendor",cls:"src-vend"}; }\nfunction hasOpenOrder(row: Pick<BuildingTotalRow, "order_status">): boolean { return ["PENDING","ORDERED","BACKORDERED","AWAITING"].includes((row.order_status||"").toUpperCase()); }\nfunction openOrderRemaining(row: Pick<BuildingTotalRow, "open_order_qty"|"open_order_received">): number|null { if(row.open_order_qty==null)return null; return Math.max(Number(row.open_order_qty||0)-Number(row.open_order_received||0),0); }
 
 const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!);
 
@@ -929,6 +929,20 @@ export default function InventoryPage() {
             <div style={{fontSize:16,fontWeight:800,color:"var(--text)",wordBreak:"break-word",letterSpacing:"-0.3px"}}>{totalsEditRow.name}</div>
             <div style={{fontSize:12,color:"var(--text2)",marginTop:3}}>{totalsEditRow.vendor??"—"} · {totalsEditRow.category??"—"}{totalsEditRow.reference_number?` · ${totalsEditRow.reference_number}`:""}</div>
           </div>
+          {hasOpenOrder(totalsEditRow) && (()=>{
+            const remaining=openOrderRemaining(totalsEditRow);
+            return (
+              <div className="alert-warn mb3" role="alert">
+                <div className="t">⚠️ Already on order · {totalsEditRow.order_status}</div>
+                <div className="b">
+                  {remaining!==null?`${remaining} ${totalsEditRow.unit||"unit"}${remaining===1?"":"s"} still expected. `:"This item already has an open order. "}
+                  {totalsEditRow.ordered_at?`Ordered ${new Date(totalsEditRow.ordered_at).toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"})}. `:""}
+                  {totalsEditRow.open_order_requested_by?`Requested by ${totalsEditRow.open_order_requested_by}.`:""}
+                </div>
+                <div style={{fontSize:11,fontWeight:800,color:"#fcd34d",marginTop:7}}>Only send another request if you intentionally need more.</div>
+              </div>
+            );
+          })()}
           <div className="c-panel mb3" style={{background:"rgba(59,130,246,0.06)",border:"1px solid rgba(59,130,246,0.2)"}}>
             <div className="s-title" style={{color:"#3b82f6"}}>📦 Order this item</div>
             {(totalsEditRow.alert_note||totalsEditRow.notes) && (
@@ -950,14 +964,14 @@ export default function InventoryPage() {
               <button
                 onClick={async()=>{
                   const q=parseIntSafe(quickOrderQty);
-                  if(q===null||q<=0){alert("Enter a quantity to order.");return;}
+                  if(q===null||q<=0){alert("Enter a quantity to order.");return;}\n                  if(hasOpenOrder(totalsEditRow)){const remaining=openOrderRemaining(totalsEditRow);const detail=remaining!==null?`There are still ${remaining} ${totalsEditRow.unit||"unit"}${remaining===1?"":"s"} expected.`:"This item already has an open order.";if(!confirm(`⚠️ ${totalsEditRow.name} is already ${totalsEditRow.order_status}.\\n\\n${detail}\\n\\nDo you intentionally want to request ${q} more?`))return;}
                   setQuickOrderSending(true);
                   try{
                     const res=await fetchWithRetry("/api/order-request",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({items:[{name:totalsEditRow.name,item_id:totalsEditRow.item_id,reference_number:totalsEditRow.reference_number||null,vendor:totalsEditRow.vendor||null,unit:totalsEditRow.unit||null,qty:q,alert_note:totalsEditRow.alert_note||totalsEditRow.notes||null,request_note:quickOrderNote.trim()||null}],requested_by:(staffName||"").trim()||"Staff"})});
                     const json=await res.json();
                     if(!json.ok)throw new Error(json.error);
-                    setQuickOrderQty("");
-                    setQuickOrderNote("");
+                    const orderedAt=new Date().toISOString();\n                    const requestedBy=(staffName||"").trim()||"Staff";\n                    setQuickOrderQty("");
+                    setQuickOrderNote("");\n                    setTotalsEditRow((current)=>current?{...current,order_status:"PENDING",ordered_at:orderedAt,open_order_qty:q,open_order_received:0,open_order_requested_by:requestedBy}:current);\n                    setTotals((current)=>current.map((row)=>row.item_id===totalsEditRow.item_id?{...row,order_status:"PENDING",ordered_at:orderedAt,open_order_qty:q,open_order_received:0,open_order_requested_by:requestedBy}:row));
                     alert(`✅ Order request sent for ${q} × ${totalsEditRow.name}`);
                   }catch(e:any){
                     alert(e?.name==="AbortError"?"Request timed out — try again.":(e?.message??"Failed to send order request"));
@@ -967,7 +981,7 @@ export default function InventoryPage() {
                 disabled={quickOrderSending}
                 className="btn btn-ac s0"
               >
-                {quickOrderSending?"Sending…":"📤 Send Order"}
+                {quickOrderSending?"Sending…":hasOpenOrder(totalsEditRow)?"⚠️ Request More Anyway":"📤 Send Order"}
               </button>
             </div>
           </div>
@@ -1150,9 +1164,9 @@ export default function InventoryPage() {
                             </div>
                             <div style={{fontSize:11,color:"var(--text2)",marginTop:2}}>{r.vendor||"—"} · Ref: {r.reference_number||"—"} · {r.unit||"—"}</div>
                             {(r.alert_note || r.notes) && <div style={{fontSize:11,color:"#fcd34d",marginTop:4,background:"rgba(245,158,11,0.08)",border:"1px solid rgba(245,158,11,0.2)",borderRadius:6,padding:"3px 8px"}}>⚡ {r.alert_note || r.notes}</div>}
-                            {(r.order_status === "ORDERED" || r.order_status === "PENDING") && (
+                            {hasOpenOrder(r) && (
                               <div style={{fontSize:11,color:"#fcd34d",marginTop:4,background:"rgba(245,158,11,0.08)",border:"1px solid rgba(245,158,11,0.3)",borderRadius:6,padding:"3px 8px"}}>
-                                ⚠️ Already on order{r.ordered_at ? ` — ordered ${new Date(r.ordered_at).toLocaleDateString("en-US",{month:"short",day:"numeric"})}` : ""} · {r.order_status}
+                                ⚠️ Already on order{openOrderRemaining(r)!==null ? ` — ${openOrderRemaining(r)} still expected` : ""}{r.ordered_at ? ` — ordered ${new Date(r.ordered_at).toLocaleDateString("en-US",{month:"short",day:"numeric"})}` : ""} · {r.order_status}
                               </div>
                             )}
                             <div style={{display:"flex",gap:10,marginTop:4}}>
@@ -1196,7 +1210,7 @@ export default function InventoryPage() {
                         const res=await fetch("/api/order-request",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({items:selectedItems,requested_by:(staffName||"").trim()||"Staff"})});
                         const json=await res.json();
                         if(!json.ok){alert(`Failed to send: ${json.error}`);}
-                        else{setOrderReqDone(true);}
+                        else{setOrderReqDone(true);void loadTotals();}
                       }catch(e:any){alert(`Error: ${e?.message}`);}
                       finally{setOrderReqSending(false);}
                     }}
