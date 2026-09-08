@@ -29,6 +29,8 @@ type Order = {
   received_by?: string | null;
   expected_delivery_date?: string | null;
   notes: string | null;
+  note_acknowledged_by?: string | null;
+  note_acknowledged_at?: string | null;
   alert_note?: string | null;
   current_price?: number | null;
   current_units_per_box?: number | null;
@@ -182,12 +184,20 @@ export default function OrdersPage() {
   }, []);
 
   async function updateStatus(id: string, status: string) {
+    const order = orders.find(row => row.id === id);
+    if (order?.notes && (status === "ORDERED" || status === "BACKORDERED")) {
+      if (!confirm(`Please confirm you read this note before continuing:\n\n"${order.notes}"`)) return;
+    }
     setUpdating(id);
     try {
       const update: Record<string, string | null> = { status };
       if (status === "ORDERED" || status === "BACKORDERED") {
-        update.confirmed_by = "Admin";
+        update.confirmed_by = staffName;
         update.confirmed_at = new Date().toISOString();
+        if (order?.notes) {
+          update.note_acknowledged_by = staffName;
+          update.note_acknowledged_at = new Date().toISOString();
+        }
       }
       if (status === "RECEIVED") {
         update.received_at = new Date().toISOString();
@@ -197,6 +207,8 @@ export default function OrdersPage() {
         update.confirmed_by = null;
         update.confirmed_at = null;
         update.received_at = null;
+        update.note_acknowledged_by = null;
+        update.note_acknowledged_at = null;
       }
       await supabase.from("order_requests").update(update).eq("id", id);
       setOrders(prev => prev.map(o => o.id === id ? { ...o, ...update } as Order : o));
@@ -502,6 +514,9 @@ export default function OrdersPage() {
                     {order.notes && (
                       <div style={{ fontSize:12, color:"#93c5fd", marginTop:4, marginBottom:7, background:"rgba(59,130,246,0.08)", border:"1px solid rgba(59,130,246,0.25)", borderRadius:7, padding:"6px 9px", lineHeight:1.45 }}>
                         📝 <strong>Note for Brooklyn:</strong> {order.notes}
+                        <div style={{marginTop:5,fontSize:11,fontWeight:800,color:order.note_acknowledged_at?"#6ee7b7":"#fcd34d"}}>
+                          {order.note_acknowledged_at ? `✅ Read by ${order.note_acknowledged_by||"Brooklyn"} · ${formatTime(order.note_acknowledged_at)}` : "⏳ Brooklyn must confirm she read this note"}
+                        </div>
                       </div>
                     )}
                     <div className="order-meta">
@@ -704,10 +719,11 @@ export default function OrdersPage() {
                       <div style={{ display:"flex", gap:8, alignItems:"center", flexWrap:"wrap" }}>
                         <input type="date" value={expectedDeliveryInput} onChange={e => setExpectedDeliveryInput(e.target.value)} style={{ borderRadius:8, border:"1px solid rgba(59,130,246,0.3)", background:"#111827", color:"#f0f6ff", padding:"8px 10px", fontSize:13, fontFamily:"inherit", outline:"none" }} />
                         <button onClick={async () => {
+                          if (order.status === "PENDING" && order.notes && !confirm(`Please confirm you read this note before continuing:\n\n"${order.notes}"`)) return;
                           setUpdating(order.id);
                           try {
                             const update: any = order.status === "PENDING"
-                              ? { status:"ORDERED", confirmed_by:"Admin", confirmed_at:new Date().toISOString() }
+                              ? { status:"ORDERED", confirmed_by:staffName, confirmed_at:new Date().toISOString(), ...(order.notes ? { note_acknowledged_by:staffName, note_acknowledged_at:new Date().toISOString() } : {}) }
                               : {};
                             if (expectedDeliveryInput) update.expected_delivery_date = expectedDeliveryInput;
                             else update.expected_delivery_date = null;
