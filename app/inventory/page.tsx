@@ -28,7 +28,9 @@ function uid(): string { return `${Date.now()}_${Math.random().toString(16).slic
 function safeJsonParse<T>(raw: string | null, fallback: T): T { if (!raw) return fallback; try { return JSON.parse(raw) as T; } catch { return fallback; } }
 function getSessionUnlocked(): boolean { if (typeof window === "undefined") return false; return sessionStorage.getItem(SS.UNLOCKED) === "1"; }
 function setSessionUnlocked(value: boolean): void { if (typeof window === "undefined") return; if (value) sessionStorage.setItem(SS.UNLOCKED, "1"); else sessionStorage.removeItem(SS.UNLOCKED); }
-function supplySourceLabel(s: string|null|undefined): {label:string;cls:string} { if (s==="HOSPITAL") return {label:"Hospital",cls:"src-hosp"}; if (s==="BOTH") return {label:"Both",cls:"src-both"}; return {label:"Vendor",cls:"src-vend"}; }\nfunction hasOpenOrder(row: Pick<BuildingTotalRow, "order_status">): boolean { return ["PENDING","ORDERED","BACKORDERED","AWAITING"].includes((row.order_status||"").toUpperCase()); }\nfunction openOrderRemaining(row: Pick<BuildingTotalRow, "open_order_qty"|"open_order_received">): number|null { if(row.open_order_qty==null)return null; return Math.max(Number(row.open_order_qty||0)-Number(row.open_order_received||0),0); }
+function supplySourceLabel(s: string|null|undefined): {label:string;cls:string} { if (s==="HOSPITAL") return {label:"Hospital",cls:"src-hosp"}; if (s==="BOTH") return {label:"Both",cls:"src-both"}; return {label:"Vendor",cls:"src-vend"}; }
+function hasOpenOrder(row: Pick<BuildingTotalRow, "order_status">): boolean { return ["PENDING","ORDERED","BACKORDERED","AWAITING"].includes((row.order_status||"").toUpperCase()); }
+function openOrderRemaining(row: Pick<BuildingTotalRow, "open_order_qty"|"open_order_received">): number|null { if(row.open_order_qty==null)return null; return Math.max(Number(row.open_order_qty||0)-Number(row.open_order_received||0),0); }
 
 const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!);
 
@@ -964,14 +966,19 @@ export default function InventoryPage() {
               <button
                 onClick={async()=>{
                   const q=parseIntSafe(quickOrderQty);
-                  if(q===null||q<=0){alert("Enter a quantity to order.");return;}\n                  if(hasOpenOrder(totalsEditRow)){const remaining=openOrderRemaining(totalsEditRow);const detail=remaining!==null?`There are still ${remaining} ${totalsEditRow.unit||"unit"}${remaining===1?"":"s"} expected.`:"This item already has an open order.";if(!confirm(`⚠️ ${totalsEditRow.name} is already ${totalsEditRow.order_status}.\\n\\n${detail}\\n\\nDo you intentionally want to request ${q} more?`))return;}
+                  if(q===null||q<=0){alert("Enter a quantity to order.");return;}
+                  if(hasOpenOrder(totalsEditRow)){const remaining=openOrderRemaining(totalsEditRow);const detail=remaining!==null?`There are still ${remaining} ${totalsEditRow.unit||"unit"}${remaining===1?"":"s"} expected.`:"This item already has an open order.";if(!confirm(`⚠️ ${totalsEditRow.name} is already ${totalsEditRow.order_status}.\\n\\n${detail}\\n\\nDo you intentionally want to request ${q} more?`))return;}
                   setQuickOrderSending(true);
                   try{
                     const res=await fetchWithRetry("/api/order-request",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({items:[{name:totalsEditRow.name,item_id:totalsEditRow.item_id,reference_number:totalsEditRow.reference_number||null,vendor:totalsEditRow.vendor||null,unit:totalsEditRow.unit||null,qty:q,alert_note:totalsEditRow.alert_note||totalsEditRow.notes||null,request_note:quickOrderNote.trim()||null}],requested_by:(staffName||"").trim()||"Staff"})});
                     const json=await res.json();
                     if(!json.ok)throw new Error(json.error);
-                    const orderedAt=new Date().toISOString();\n                    const requestedBy=(staffName||"").trim()||"Staff";\n                    setQuickOrderQty("");
-                    setQuickOrderNote("");\n                    setTotalsEditRow((current)=>current?{...current,order_status:"PENDING",ordered_at:orderedAt,open_order_qty:q,open_order_received:0,open_order_requested_by:requestedBy}:current);\n                    setTotals((current)=>current.map((row)=>row.item_id===totalsEditRow.item_id?{...row,order_status:"PENDING",ordered_at:orderedAt,open_order_qty:q,open_order_received:0,open_order_requested_by:requestedBy}:row));
+                    const orderedAt=new Date().toISOString();
+                    const requestedBy=(staffName||"").trim()||"Staff";
+                    setQuickOrderQty("");
+                    setQuickOrderNote("");
+                    setTotalsEditRow((current)=>current?{...current,order_status:"PENDING",ordered_at:orderedAt,open_order_qty:q,open_order_received:0,open_order_requested_by:requestedBy}:current);
+                    setTotals((current)=>current.map((row)=>row.item_id===totalsEditRow.item_id?{...row,order_status:"PENDING",ordered_at:orderedAt,open_order_qty:q,open_order_received:0,open_order_requested_by:requestedBy}:row));
                     alert(`✅ Order request sent for ${q} × ${totalsEditRow.name}`);
                   }catch(e:any){
                     alert(e?.name==="AbortError"?"Request timed out — try again.":(e?.message??"Failed to send order request"));
