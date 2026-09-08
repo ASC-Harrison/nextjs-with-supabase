@@ -466,6 +466,8 @@ export default function InventoryPage() {
 
   useEffect(()=>{
     const refreshTimers=new Map<string,ReturnType<typeof setTimeout>>();
+    let fullRefreshTimer:ReturnType<typeof setTimeout>|null=null;
+    const refreshAllSoon=()=>{if(fullRefreshTimer)clearTimeout(fullRefreshTimer);fullRefreshTimer=setTimeout(()=>{void loadTotals();},350);};
     const channel=supabase
       .channel("inventory-live-sync")
       .on("postgres_changes",{event:"*",schema:"public",table:"storage_inventory"},(payload:any)=>{
@@ -489,10 +491,16 @@ export default function InventoryPage() {
           refreshTimers.delete(itemId);
         },500));
       })
+      .on("postgres_changes",{event:"*",schema:"public",table:"items"},refreshAllSoon)
+      .on("postgres_changes",{event:"*",schema:"public",table:"order_requests"},refreshAllSoon)
       .subscribe();
 
+    const refreshVisible=()=>{if(document.visibilityState==="visible")void loadTotals();};
+    document.addEventListener("visibilitychange",refreshVisible);
     return()=>{
       refreshTimers.forEach((timer)=>clearTimeout(timer));
+      if(fullRefreshTimer)clearTimeout(fullRefreshTimer);
+      document.removeEventListener("visibilitychange",refreshVisible);
       void supabase.removeChannel(channel);
     };
   },[]);// eslint-disable-line
