@@ -375,7 +375,8 @@ export default function OrdersPage() {
       const priceMessage = result.package_price !== null
         ? ` Price recorded at $${Number(result.package_price).toFixed(2)} per package${result.unit_cost !== null ? ` ($${Number(result.unit_cost).toFixed(2)} each)` : ""}.`
         : "";
-      alert(`Received ${qtyReceived}. Main Sterile Supply now has ${result.inventory_on_hand} on hand.${priceMessage}`);
+      const previousOnHand = result.inventory_on_hand - qtyReceived;
+      alert(`Inventory updated correctly: ${previousOnHand} previously on hand + ${qtyReceived} received = ${result.inventory_on_hand} now on hand in Main Sterile Supply.${priceMessage}`);
     } catch (error: any) {
       alert(`Could not receive this order: ${error?.message || "Unknown error"}`);
     } finally {
