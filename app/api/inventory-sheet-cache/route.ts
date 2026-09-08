@@ -34,7 +34,14 @@ export async function GET() {
   const latestOrderByItem = new Map<string, { id:string; date:string; status:string; orderedQty:number; receivedQty:number; requestedBy:string|null }>();
   for (const order of ordersResult.data ?? []) {
     if (order.item_id && !latestOrderByItem.has(order.item_id)) {
-      latestOrderByItem.set(order.item_id, {\n        id: order.id,\n        date: order.created_at,\n        status: order.status,\n        orderedQty: Number(order.qty_actual_ordered ?? order.qty_requested ?? 0),\n        receivedQty: Number(order.qty_actual_received ?? 0),\n        requestedBy: order.requested_by ?? null,\n      });
+      latestOrderByItem.set(order.item_id, {
+        id: order.id,
+        date: order.created_at,
+        status: order.status,
+        orderedQty: Number(order.qty_actual_ordered ?? order.qty_requested ?? 0),
+        receivedQty: Number(order.qty_actual_received ?? 0),
+        requestedBy: order.requested_by ?? null,
+      });
     }
   }
 
@@ -58,7 +65,12 @@ export async function GET() {
       price: item.price,
       expiration_date: item.expiration_date,
       alert_note: item.alert_note,
-      ordered_at: latestOrder?.date ?? null,\n      order_status: latestOrder?.status ?? item.order_status,\n      open_order_id: latestOrder?.id ?? null,\n      open_order_qty: latestOrder?.orderedQty ?? null,\n      open_order_received: latestOrder?.receivedQty ?? null,\n      open_order_requested_by: latestOrder?.requestedBy ?? null,
+      ordered_at: latestOrder?.date ?? null,
+      order_status: latestOrder?.status ?? item.order_status,
+      open_order_id: latestOrder?.id ?? null,
+      open_order_qty: latestOrder?.orderedQty ?? null,
+      open_order_received: latestOrder?.receivedQty ?? null,
+      open_order_requested_by: latestOrder?.requestedBy ?? null,
     };
     })
     .sort((a, b) => (a.name ?? "").localeCompare(b.name ?? ""));
