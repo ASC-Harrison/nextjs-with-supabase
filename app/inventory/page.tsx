@@ -31,6 +31,7 @@ function setSessionUnlocked(value: boolean): void { if (typeof window === "undef
 function supplySourceLabel(s: string|null|undefined): {label:string;cls:string} { if (s==="HOSPITAL") return {label:"Hospital",cls:"src-hosp"}; if (s==="BOTH") return {label:"Both",cls:"src-both"}; return {label:"Vendor",cls:"src-vend"}; }
 function hasOpenOrder(row: Pick<BuildingTotalRow, "order_status">): boolean { return ["PENDING","ORDERED","BACKORDERED","AWAITING"].includes((row.order_status||"").toUpperCase()); }
 function openOrderRemaining(row: Pick<BuildingTotalRow, "open_order_qty"|"open_order_received">): number|null { if(row.open_order_qty==null)return null; return Math.max(Number(row.open_order_qty||0)-Number(row.open_order_received||0),0); }
+function quantityMentionInNote(note: string): number|null { const match=note.match(/\b(\d+)\s*(?:case(?:s)?|box(?:es)?|bx)\b/i); if(!match)return null; const value=Number(match[1]); return Number.isFinite(value)&&value>0?value:null; }
 
 const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!);
 
@@ -951,22 +952,25 @@ export default function InventoryPage() {
               <div style={{fontSize:11,color:"#fcd34d",background:"rgba(245,158,11,0.08)",border:"1px solid rgba(245,158,11,0.2)",borderRadius:6,padding:"5px 8px",marginTop:6,marginBottom:8}}>⚡ {totalsEditRow.alert_note||totalsEditRow.notes}</div>
             )}
             <div className="field" style={{marginTop:8}}>
-              <label className="f-lbl">Note for Brooklyn (optional)</label>
+              <label className="f-lbl">Note for Brooklyn (optional — does not set quantity)</label>
               <textarea
                 value={quickOrderNote}
                 onChange={(e)=>setQuickOrderNote(e.target.value)}
                 maxLength={500}
                 rows={2}
                 className="inp inp-ta"
-                placeholder="Anything Brooklyn needs to know about this item…"
+                placeholder="Extra message only — enter cases/boxes in Quantity below…"
               />
             </div>
+            <label className="f-lbl" style={{marginTop:10}}>Quantity to order ({totalsEditRow.unit||"units"}) — required</label>
             <div className="fx mt2">
               <input value={quickOrderQty} onChange={(e)=>setQuickOrderQty(e.target.value.replace(/\D/g,""))} inputMode="numeric" className="inp" placeholder="Qty to order" style={{flex:1,fontSize:16,fontWeight:800,textAlign:"center"}} />
               <button
                 onClick={async()=>{
                   const q=parseIntSafe(quickOrderQty);
                   if(q===null||q<=0){alert("Enter a quantity to order.");return;}
+                  const notedQty=quantityMentionInNote(quickOrderNote);
+                  if(notedQty!==null&&notedQty!==q){alert(`The Quantity box says ${q} ${totalsEditRow.unit||"units"}, but your note says ${notedQty} cases/boxes. Change the Quantity box so they match before sending.`);return;}
                   if(hasOpenOrder(totalsEditRow)){const remaining=openOrderRemaining(totalsEditRow);const detail=remaining!==null?`There are still ${remaining} ${totalsEditRow.unit||"unit"}${remaining===1?"":"s"} expected.`:"This item already has an open order.";if(!confirm(`⚠️ ${totalsEditRow.name} is already ${totalsEditRow.order_status}.\\n\\n${detail}\\n\\nDo you intentionally want to request ${q} more?`))return;}
                   setQuickOrderSending(true);
                   try{
@@ -1155,7 +1159,7 @@ export default function InventoryPage() {
                           <input type="checkbox" checked={checked} onChange={(e)=>{
                             const next={...orderReqItems};
                             if(e.target.checked) {
-                              next[r.item_id]="";
+                              next[r.item_id]=1;
                             } else {
                               delete next[r.item_id];
                               const nextNotes={...orderReqNotes};
@@ -1186,7 +1190,7 @@ export default function InventoryPage() {
                           <div style={{display:"flex",flexDirection:"column",gap:8,marginTop:10,paddingLeft:26}}>
                             <div style={{display:"flex",alignItems:"center",gap:8}}>
                               <label style={{fontSize:11,color:"var(--text3)",fontWeight:700,flexShrink:0}}>QTY TO ORDER:</label>
-                              <input type="number" min={1} value={qty} onChange={(e)=>setOrderReqItems({...orderReqItems,[r.item_id]:Number(e.target.value)||1})} className="inp" style={{width:80,textAlign:"center",padding:"6px 8px",fontSize:14,fontWeight:800}} />
+                              <input type="number" min={1} value={qty} onChange={(e)=>setOrderReqItems({...orderReqItems,[r.item_id]:e.target.value.replace(/\D/g,"")})} className="inp" style={{width:80,textAlign:"center",padding:"6px 8px",fontSize:14,fontWeight:800}} />
                             </div>
                             <textarea
                               value={orderReqNotes[r.item_id]||""}
@@ -1210,8 +1214,15 @@ export default function InventoryPage() {
                     className="btn btn-ac"
                     style={{flex:1}}
                     onClick={async()=>{
-                      const selectedItems=totals.filter(r=>orderReqItems[r.item_id]!==undefined).map(r=>({name:r.name,item_id:r.item_id,reference_number:r.reference_number||null,vendor:r.vendor||null,unit:r.unit||null,qty:Number(orderReqItems[r.item_id])||1,alert_note:r.alert_note||r.notes||null,request_note:orderReqNotes[r.item_id]?.trim()||null}));
-                      if(!selectedItems.length)return;
+                      const selectedRows=totals.filter(r=>orderReqItems[r.item_id]!==undefined);
+                      if(!selectedRows.length)return;
+                      for(const row of selectedRows){
+                        const requestedQty=Number(orderReqItems[row.item_id]);
+                        if(!Number.isFinite(requestedQty)||requestedQty<=0){alert(`Enter a quantity for ${row.name}.`);return;}
+                        const notedQty=quantityMentionInNote(orderReqNotes[row.item_id]||"");
+                        if(notedQty!==null&&notedQty!==requestedQty){alert(`${row.name}: the Quantity box says ${requestedQty} ${row.unit||"units"}, but the note says ${notedQty} cases/boxes. Change the Quantity box so they match before sending.`);return;}
+                      }
+                      const selectedItems=selectedRows.map(r=>({name:r.name,item_id:r.item_id,reference_number:r.reference_number||null,vendor:r.vendor||null,unit:r.unit||null,qty:Number(orderReqItems[r.item_id]),alert_note:r.alert_note||r.notes||null,request_note:orderReqNotes[r.item_id]?.trim()||null}));
                       setOrderReqSending(true);
                       try{
                         const res=await fetch("/api/order-request",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({items:selectedItems,requested_by:(staffName||"").trim()||"Staff"})});
