@@ -14,7 +14,7 @@ export async function GET() {
       .select("item_id,building_on_hand"),
     supabaseAdmin
       .from("order_requests")
-      .select("item_id,created_at,status")
+      .select("id,item_id,created_at,status,qty_requested,qty_actual_ordered,qty_actual_received,requested_by")
       .in("status", ["PENDING","ORDERED","BACKORDERED","AWAITING"])
       .order("created_at", { ascending:false }),
   ]);
@@ -31,10 +31,17 @@ export async function GET() {
     (totalsResult.data ?? []).map((row) => [row.item_id, Number(row.building_on_hand ?? 0)]),
   );
 
-  const latestOrderByItem = new Map<string, { date:string; status:string }>();
+  const latestOrderByItem = new Map<string, { id:string; date:string; status:string; orderedQty:number; receivedQty:number; requestedBy:string|null }>();
   for (const order of ordersResult.data ?? []) {
     if (order.item_id && !latestOrderByItem.has(order.item_id)) {
-      latestOrderByItem.set(order.item_id, { date:order.created_at, status:order.status });
+      latestOrderByItem.set(order.item_id, {
+        id: order.id,
+        date: order.created_at,
+        status: order.status,
+        orderedQty: Number(order.qty_actual_ordered ?? order.qty_requested ?? 0),
+        receivedQty: Number(order.qty_actual_received ?? 0),
+        requestedBy: order.requested_by ?? null,
+      });
     }
   }
 
@@ -60,6 +67,10 @@ export async function GET() {
       alert_note: item.alert_note,
       ordered_at: latestOrder?.date ?? null,
       order_status: latestOrder?.status ?? item.order_status,
+      open_order_id: latestOrder?.id ?? null,
+      open_order_qty: latestOrder?.orderedQty ?? null,
+      open_order_received: latestOrder?.receivedQty ?? null,
+      open_order_requested_by: latestOrder?.requestedBy ?? null,
     };
     })
     .sort((a, b) => (a.name ?? "").localeCompare(b.name ?? ""));
