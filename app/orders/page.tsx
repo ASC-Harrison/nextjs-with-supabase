@@ -178,9 +178,29 @@ export default function OrdersPage() {
   }
 
   useEffect(() => {
+    let refreshTimer: ReturnType<typeof setTimeout> | null = null;
+    const refreshSoon = () => {
+      if (refreshTimer) clearTimeout(refreshTimer);
+      refreshTimer = setTimeout(loadOrders, 250);
+    };
     loadOrders();
-    const interval = setInterval(loadOrders, 15000);
-    return () => clearInterval(interval);
+    const channel = supabase
+      .channel("orders-live-sync")
+      .on("postgres_changes", { event:"*", schema:"public", table:"order_requests" }, refreshSoon)
+      .on("postgres_changes", { event:"*", schema:"public", table:"items" }, refreshSoon)
+      .subscribe();
+    const interval = setInterval(loadOrders, 60000);
+    const onFocus = () => loadOrders();
+    const onVisibility = () => { if (document.visibilityState === "visible") loadOrders(); };
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      if (refreshTimer) clearTimeout(refreshTimer);
+      clearInterval(interval);
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisibility);
+      void supabase.removeChannel(channel);
+    };
   }, []);
 
   async function updateStatus(id: string, status: string) {
