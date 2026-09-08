@@ -957,17 +957,17 @@ export default function InventoryPage() {
           <div className="c-panel mb3" style={{background:"rgba(59,130,246,0.06)",border:"1px solid rgba(59,130,246,0.2)"}}>
             <div className="s-title" style={{color:"#3b82f6"}}>📦 Order this item</div>
             {(totalsEditRow.alert_note||totalsEditRow.notes) && (
-              <div style={{fontSize:11,color:"#fcd34d",background:"rgba(245,158,11,0.08)",border:"1px solid rgba(245,158,11,0.2)",borderRadius:6,padding:"5px 8px",marginTop:6,marginBottom:8}}>⚡ {totalsEditRow.alert_note||totalsEditRow.notes}</div>
+              <div style={{fontSize:11,color:"#fcd34d",background:"rgba(245,158,11,0.08)",border:"1px solid rgba(245,158,11,0.2)",borderRadius:6,padding:"5px 8px",marginTop:6,marginBottom:8}}><strong>Permanent item alert (shows every time):</strong> {totalsEditRow.alert_note||totalsEditRow.notes}</div>
             )}
             <div className="field" style={{marginTop:8}}>
-              <label className="f-lbl">Note for Brooklyn (optional — does not set quantity)</label>
+              <label className="f-lbl">One-time note for this order only (optional)</label>
               <textarea
                 value={quickOrderNote}
                 onChange={(e)=>setQuickOrderNote(e.target.value)}
                 maxLength={500}
                 rows={2}
                 className="inp inp-ta"
-                placeholder="Extra message only — enter cases/boxes in Quantity below…"
+                placeholder="Sent with this order only — it will not stay on the inventory item…"
               />
             </div>
             <label className="f-lbl" style={{marginTop:10}}>Quantity to order ({totalsEditRow.unit||"units"}) — required</label>
@@ -1123,7 +1123,7 @@ export default function InventoryPage() {
                 <div style={{fontSize:48,marginBottom:12}}>✅</div>
                 <div style={{fontSize:16,fontWeight:800,color:"var(--text)"}}>Order Request Sent!</div>
                 <div style={{fontSize:13,color:"var(--text2)",marginTop:8}}>Email sent to both contacts.</div>
-                <button onClick={()=>setOrderReqOpen(false)} className="btn btn-ac btn-full" style={{marginTop:20}}>Done</button>
+                <button onClick={()=>{setOrderReqOpen(false);setOrderReqItems({});setOrderReqNotes({});}} className="btn btn-ac btn-full" style={{marginTop:20}}>Done</button>
               </div>
             ) : (
               <>
@@ -1182,7 +1182,7 @@ export default function InventoryPage() {
                               {isLow && <span style={{fontSize:9,fontWeight:800,color:"#fca5a5",background:"rgba(239,68,68,0.15)",border:"1px solid rgba(239,68,68,0.3)",borderRadius:4,padding:"1px 6px"}}>LOW</span>}
                             </div>
                             <div style={{fontSize:11,color:"var(--text2)",marginTop:2}}>{r.vendor||"—"} · Ref: {r.reference_number||"—"} · {r.unit||"—"}</div>
-                            {(r.alert_note || r.notes) && <div style={{fontSize:11,color:"#fcd34d",marginTop:4,background:"rgba(245,158,11,0.08)",border:"1px solid rgba(245,158,11,0.2)",borderRadius:6,padding:"3px 8px"}}>⚡ {r.alert_note || r.notes}</div>}
+                            {(r.alert_note || r.notes) && <div style={{fontSize:11,color:"#fcd34d",marginTop:4,background:"rgba(245,158,11,0.08)",border:"1px solid rgba(245,158,11,0.2)",borderRadius:6,padding:"3px 8px"}}><strong>Permanent item alert:</strong> {r.alert_note || r.notes}</div>}
                             {hasOpenOrder(r) && (
                               <div style={{fontSize:11,color:"#fcd34d",marginTop:4,background:"rgba(245,158,11,0.08)",border:"1px solid rgba(245,158,11,0.3)",borderRadius:6,padding:"3px 8px"}}>
                                 ⚠️ Already on order{openOrderRemaining(r)!==null ? ` — ${openOrderRemaining(r)} still expected` : ""}{r.ordered_at ? ` — ordered ${new Date(r.ordered_at).toLocaleDateString("en-US",{month:"short",day:"numeric"})}` : ""} · {r.order_status}
@@ -1206,7 +1206,7 @@ export default function InventoryPage() {
                               maxLength={500}
                               rows={2}
                               className="inp inp-ta"
-                              placeholder="Note for Brooklyn about this item (optional)…"
+                              placeholder="One-time note for this order only — clears after sending…"
                               style={{fontSize:12}}
                             />
                           </div>
@@ -1216,7 +1216,7 @@ export default function InventoryPage() {
                   })}
                 </div>
                 <div style={{position:"sticky",bottom:0,background:"var(--card)",paddingTop:14,borderTop:"1px solid var(--border)",display:"flex",gap:10}}>
-                  <button onClick={()=>setOrderReqOpen(false)} className="btn btn-gh" style={{flex:1}}>Cancel</button>
+                  <button onClick={()=>{setOrderReqOpen(false);setOrderReqItems({});setOrderReqNotes({});}} className="btn btn-gh" style={{flex:1}}>Cancel</button>
                   <button
                     disabled={orderReqSending||Object.keys(orderReqItems).length===0}
                     className="btn btn-ac"
@@ -1236,7 +1236,7 @@ export default function InventoryPage() {
                         const res=await fetch("/api/order-request",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({items:selectedItems,requested_by:(staffName||"").trim()||"Staff"})});
                         const json=await res.json();
                         if(!json.ok){alert(`Failed to send: ${json.error}`);}
-                        else{setOrderReqDone(true);void loadTotals();}
+                        else{setOrderReqItems({});setOrderReqNotes({});setOrderReqDone(true);void loadTotals();}
                       }catch(e:any){alert(`Error: ${e?.message}`);}
                       finally{setOrderReqSending(false);}
                     }}
