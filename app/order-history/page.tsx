@@ -99,15 +99,37 @@ export default function OrderHistoryPage() {
   const [followUpSending, setFollowUpSending] = useState(false);
 
   useEffect(() => {
-    supabase
-      .from("order_requests")
-      .select("*")
-      .order("created_at", { ascending: false })
-      .limit(500)
-      .then(({ data }) => {
-        setOrders((data as Order[]) ?? []);
-        setLoading(false);
-      });
+    let refreshTimer: ReturnType<typeof setTimeout> | null = null;
+    const loadHistory = () => {
+      supabase
+        .from("order_requests")
+        .select("*")
+        .order("created_at", { ascending: false })
+        .limit(500)
+        .then(({ data }) => {
+          setOrders((data as Order[]) ?? []);
+          setLoading(false);
+        });
+    };
+    const refreshSoon = () => {
+      if (refreshTimer) clearTimeout(refreshTimer);
+      refreshTimer = setTimeout(loadHistory, 250);
+    };
+    loadHistory();
+    const channel = supabase
+      .channel("order-history-live-sync")
+      .on("postgres_changes", { event:"*", schema:"public", table:"order_requests" }, refreshSoon)
+      .subscribe();
+    const onFocus = () => loadHistory();
+    const onVisibility = () => { if (document.visibilityState === "visible") loadHistory(); };
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      if (refreshTimer) clearTimeout(refreshTimer);
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisibility);
+      void supabase.removeChannel(channel);
+    };
   }, []);
 
   const staffList = useMemo(() => {

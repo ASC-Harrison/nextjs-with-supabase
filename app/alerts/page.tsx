@@ -44,9 +44,26 @@ export default function AlertsPage() {
   }
 
   useEffect(() => {
+    let refreshTimer: ReturnType<typeof setTimeout> | null = null;
+    const refreshSoon = () => {
+      if (refreshTimer) clearTimeout(refreshTimer);
+      refreshTimer = setTimeout(loadAlerts, 350);
+    };
     loadAlerts();
-    const interval = setInterval(loadAlerts, 60 * 1000); // refresh every minute
-    return () => clearInterval(interval);
+    const channel = supabase
+      .channel("alerts-live-sync")
+      .on("postgres_changes", { event:"*", schema:"public", table:"storage_inventory" }, refreshSoon)
+      .on("postgres_changes", { event:"*", schema:"public", table:"items" }, refreshSoon)
+      .subscribe();
+    const interval = setInterval(loadAlerts, 60 * 1000);
+    const refreshVisible = () => { if (document.visibilityState === "visible") loadAlerts(); };
+    document.addEventListener("visibilitychange", refreshVisible);
+    return () => {
+      if (refreshTimer) clearTimeout(refreshTimer);
+      clearInterval(interval);
+      document.removeEventListener("visibilitychange", refreshVisible);
+      void supabase.removeChannel(channel);
+    };
   }, []);
 
   return (

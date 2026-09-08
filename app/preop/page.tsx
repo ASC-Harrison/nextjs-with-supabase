@@ -124,9 +124,33 @@ export default function PreOpPage() {
   }
 
   useEffect(() => {
+    let requestTimer: ReturnType<typeof setTimeout> | null = null;
+    let inventoryTimer: ReturnType<typeof setTimeout> | null = null;
+    const refreshRequests = () => {
+      if (requestTimer) clearTimeout(requestTimer);
+      requestTimer = setTimeout(loadMyRequests, 250);
+    };
+    const refreshInventory = () => {
+      if (inventoryTimer) clearTimeout(inventoryTimer);
+      inventoryTimer = setTimeout(loadItems, 350);
+    };
     loadMyRequests();
-    const interval = setInterval(loadMyRequests, 20000);
-    return () => clearInterval(interval);
+    const channel = supabase
+      .channel("preop-live-sync")
+      .on("postgres_changes", { event:"*", schema:"public", table:"restock_requests" }, refreshRequests)
+      .on("postgres_changes", { event:"*", schema:"public", table:"storage_inventory" }, refreshInventory)
+      .on("postgres_changes", { event:"*", schema:"public", table:"items" }, refreshInventory)
+      .subscribe();
+    const interval = setInterval(() => { loadMyRequests(); loadItems(); }, 60000);
+    const refreshVisible = () => { if (document.visibilityState === "visible") { loadMyRequests(); loadItems(); } };
+    document.addEventListener("visibilitychange", refreshVisible);
+    return () => {
+      if (requestTimer) clearTimeout(requestTimer);
+      if (inventoryTimer) clearTimeout(inventoryTimer);
+      clearInterval(interval);
+      document.removeEventListener("visibilitychange", refreshVisible);
+      void supabase.removeChannel(channel);
+    };
   }, []);
 
   // Order request state
