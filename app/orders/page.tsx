@@ -56,6 +56,13 @@ const CSS = `
   .stat-val{font-size:24px;font-weight:900;letter-spacing:-1px;}
   .stat-lbl{font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;margin-top:2px;}
   .filter-row{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;}
+  .search-box{position:relative;margin-bottom:12px;}
+  .search-input{width:100%;border:1px solid rgba(96,165,250,.25);border-radius:12px;background:rgba(15,23,42,.92);color:#f0f6ff;padding:12px 42px 12px 40px;font:700 14px/1.2 inherit;outline:none;box-shadow:inset 0 1px rgba(255,255,255,.02);transition:border-color .18s ease,box-shadow .18s ease;}
+  .search-input:focus{border-color:#3b82f6;box-shadow:0 0 0 3px rgba(59,130,246,.14);}
+  .search-input::placeholder{color:#64748b;font-weight:600;}
+  .search-icon{position:absolute;left:13px;top:50%;transform:translateY(-50%);font-size:15px;pointer-events:none;}
+  .search-clear{position:absolute;right:8px;top:50%;transform:translateY(-50%);width:29px;height:29px;border:0;border-radius:8px;background:#1e2d42;color:#94a3b8;cursor:pointer;font:900 14px/1 inherit;}
+  .search-summary{font-size:11px;color:#64748b;margin:-5px 2px 12px;}
   .filter-btn{border-radius:8px;padding:8px 14px;font-size:12px;font-weight:700;cursor:pointer;border:1.5px solid;transition:all 0.18s;font-family:inherit;}
   .filter-btn.on{background:#3b82f6;color:#fff;border-color:#3b82f6;}
   .filter-btn.off{background:#1e2d42;color:#64748b;border-color:#1e3a5f;}
@@ -96,7 +103,7 @@ export default function OrdersPage() {
   const router = useRouter();
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState("ALL");
+  const [filter, setFilter] = useState("ALL");\n  const [search, setSearch] = useState("");
   const [updating, setUpdating] = useState<string | null>(null);
   const [isReadOnly] = useState(() => typeof localStorage !== "undefined" && localStorage.getItem("asc_readonly") === "true");
   const [staffName, setStaffName] = useState("Admin");
@@ -374,7 +381,21 @@ export default function OrdersPage() {
     }
   }
 
-  const filtered = filter === "ALL" ? orders : orders.filter(o => o.status === filter);
+  const normalizedSearch = search.trim().toLowerCase();
+  const filtered = orders
+    .filter(order => filter === "ALL" || order.status === filter)
+    .filter(order => {
+      if (!normalizedSearch) return true;
+      return [
+        order.item_name,
+        order.reference_number,
+        order.vendor,
+        order.requested_by,
+        order.status,
+        order.notes,
+        order.last_follow_up_note,
+      ].some(value => String(value || "").toLowerCase().includes(normalizedSearch));
+    });
   const pending = orders.filter(o => o.status === "PENDING").length;
   const ordered = orders.filter(o => o.status === "ORDERED").length;
   const backordered = orders.filter(o => o.status === "BACKORDERED").length;
@@ -434,6 +455,25 @@ export default function OrdersPage() {
             ))}
           </div>
 
+          <div className="search-box">
+            <span className="search-icon" aria-hidden="true">🔎</span>
+            <input
+              type="search"
+              value={search}
+              onChange={event => setSearch(event.target.value)}
+              className="search-input"
+              placeholder="Search item, ref #, vendor, requester, or status…"
+              aria-label="Search orders"
+              autoComplete="off"
+            />
+            {search && (
+              <button type="button" onClick={() => setSearch("")} className="search-clear" aria-label="Clear order search">✕</button>
+            )}
+          </div>
+          {(search || filter !== "ALL") && (
+            <div className="search-summary">{filtered.length} of {orders.length} orders shown</div>
+          )}
+
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
             <div className="auto-refresh">Auto-refreshes every 15 seconds</div>
             <button onClick={loadOrders} className="refresh-btn">⟳ Refresh Now</button>
@@ -443,9 +483,11 @@ export default function OrdersPage() {
             <div className="loading">Loading orders…</div>
           ) : filtered.length === 0 ? (
             <div className="empty">
-              {filter === "ALL"
-                ? "No orders yet. Send an order request from the Totals tab."
-                : "No " + filter.toLowerCase() + " orders."}
+              {search
+                ? `No orders match “${search}”.`
+                : filter === "ALL"
+                  ? "No orders yet. Send an order request from the Totals tab."
+                  : "No " + filter.toLowerCase() + " orders."}
             </div>
           ) : (
             filtered.map(order => (
