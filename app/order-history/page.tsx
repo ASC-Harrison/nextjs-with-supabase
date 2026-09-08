@@ -97,6 +97,11 @@ export default function OrderHistoryPage() {
   const [followUpId, setFollowUpId] = useState<string | null>(null);
   const [followUpNote, setFollowUpNote] = useState("");
   const [followUpSending, setFollowUpSending] = useState(false);
+  const [receivingOrder, setReceivingOrder] = useState<Order | null>(null);
+  const [receiveQty, setReceiveQty] = useState("");
+  const [receivePrice, setReceivePrice] = useState("");
+  const [receiveUnitsPerPackage, setReceiveUnitsPerPackage] = useState("1");
+  const [receiveSaving, setReceiveSaving] = useState(false);
 
   useEffect(() => {
     let refreshTimer: ReturnType<typeof setTimeout> | null = null;
@@ -173,6 +178,68 @@ export default function OrderHistoryPage() {
     return "badge badge-received";
   }
 
+  function openAddToInventory(order: Order) {
+    const orderedQty = order.qty_actual_ordered || order.qty_requested;
+    const alreadyReceived = order.qty_actual_received || 0;
+    setReceiveQty(String(Math.max(orderedQty - alreadyReceived, 1)));
+    setReceivePrice("");
+    setReceiveUnitsPerPackage("1");
+    setReceivingOrder(order);
+  }
+
+  async function addReceivedInventory() {
+    if (!receivingOrder || receiveSaving) return;
+    const qty = Number(receiveQty);
+    const packagePrice = receivePrice.trim() ? Number(receivePrice) : null;
+    const packageQty = Number(receiveUnitsPerPackage || "1");
+    if (!Number.isInteger(qty) || qty <= 0) {
+      alert("Enter a valid whole-number quantity received.");
+      return;
+    }
+    if (packagePrice !== null && (!Number.isFinite(packagePrice) || packagePrice < 0)) {
+      alert("Enter a valid invoice price.");
+      return;
+    }
+    if (!Number.isInteger(packageQty) || packageQty < 1) {
+      alert("Units in the package must be at least 1.");
+      return;
+    }
+    if (!confirm(`Add ${qty} of "${receivingOrder.item_name}" to Main Sterile Supply and mark this order received?`)) return;
+
+    setReceiveSaving(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const staff = session?.user?.user_metadata?.full_name || session?.user?.email || "Administrator";
+      const { data, error } = await supabase.rpc("receive_order_with_pricing", {
+        p_order_id: receivingOrder.id,
+        p_qty: qty,
+        p_complete: true,
+        p_staff: staff,
+        p_partial_note: null,
+        p_package_price: packagePrice,
+        p_units_per_package: packagePrice === null ? null : packageQty,
+        p_vendor: packagePrice === null ? null : receivingOrder.vendor || null,
+        p_price_source: packagePrice === null ? null : "Invoice",
+      });
+      if (error) throw error;
+      const result = data as { status: Order["status"]; total_received: number; inventory_on_hand: number; package_price: number | null; unit_cost: number | null; };
+      const receivedAt = new Date().toISOString();
+      setOrders(prev => prev.map(row => row.id === receivingOrder.id ? {
+        ...row,
+        status: result.status,
+        qty_actual_received: result.total_received,
+        received_at: receivedAt,
+      } : row));
+      const previousOnHand = result.inventory_on_hand - qty;
+      setReceivingOrder(null);
+      alert(`Inventory updated: ${previousOnHand} previously on hand + ${qty} received = ${result.inventory_on_hand} now in Main Sterile Supply.`);
+    } catch (error) {
+      alert(`Could not receive this order: ${error instanceof Error ? error.message : "Unknown error"}`);
+    } finally {
+      setReceiveSaving(false);
+    }
+  }
+
   async function markReceivedOnly(order: Order) {
     const orderedQty = order.qty_actual_ordered || order.qty_requested;
     const alreadyReceived = order.qty_actual_received || 0;
@@ -243,6 +310,29 @@ export default function OrderHistoryPage() {
       <style dangerouslySetInnerHTML={{ __html: CSS }} />
       <div className="root">
         <div className="wrap">
+          {receivingOrder && (
+            <div style={{position:"fixed",inset:0,zIndex:1000,background:"rgba(2,6,23,.82)",display:"grid",placeItems:"center",padding:16}} onClick={()=>{if(!receiveSaving)setReceivingOrder(null);}}>
+              <div style={{width:"min(430px,100%)",background:"#111827",border:"1px solid rgba(96,165,250,.28)",borderRadius:18,padding:18,boxShadow:"0 24px 70px rgba(0,0,0,.55)"}} onClick={event=>event.stopPropagation()}>
+                <div style={{fontSize:18,fontWeight:900,marginBottom:4}}>📦 Add & Receive</div>
+                <div style={{fontSize:13,color:"#cbd5e1",marginBottom:16}}>{receivingOrder.item_name}</div>
+                <label style={{display:"block",fontSize:11,fontWeight:800,color:"#94a3b8",marginBottom:5}}>AMOUNT RECEIVED</label>
+                <input className="inp" inputMode="numeric" value={receiveQty} onChange={event=>setReceiveQty(event.target.value.replace(/\D/g,""))} style={{marginBottom:12,fontSize:18,fontWeight:900,textAlign:"center"}} />
+                <label style={{display:"block",fontSize:11,fontWeight:800,color:"#94a3b8",marginBottom:5}}>INVOICE PRICE PER PACKAGE (OPTIONAL)</label>
+                <input className="inp" inputMode="decimal" value={receivePrice} onChange={event=>setReceivePrice(event.target.value.replace(/[^0-9.]/g,""))} placeholder="Leave blank if unknown" style={{marginBottom:12}} />
+                {receivePrice.trim() && (
+                  <>
+                    <label style={{display:"block",fontSize:11,fontWeight:800,color:"#94a3b8",marginBottom:5}}>UNITS IN PACKAGE</label>
+                    <input className="inp" inputMode="numeric" value={receiveUnitsPerPackage} onChange={event=>setReceiveUnitsPerPackage(event.target.value.replace(/\D/g,""))} style={{marginBottom:12}} />
+                  </>
+                )}
+                <div style={{fontSize:11,color:"#64748b",lineHeight:1.5,marginBottom:14}}>This adds the amount to the existing Main Sterile Supply count and marks this order received. It does not replace the old count.</div>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:9}}>
+                  <button type="button" className="received-only-btn" style={{background:"#334155"}} disabled={receiveSaving} onClick={()=>setReceivingOrder(null)}>Cancel</button>
+                  <button type="button" className="receive-btn" disabled={receiveSaving} onClick={addReceivedInventory}>{receiveSaving ? "Adding…" : "Add & Receive"}</button>
+                </div>
+              </div>
+            </div>
+          )}
           <button onClick={() => router.push("/")} className="back-btn">← Back</button>
 
           <div className="header">
@@ -372,7 +462,7 @@ export default function OrderHistoryPage() {
                           type="button"
                           className="receive-btn"
                           disabled={updatingOrderId === order.id}
-                          onClick={() => router.push("/orders?receive=" + encodeURIComponent(order.id))}
+                          onClick={() => openAddToInventory(order)}
                         >
                           📦 Add to Inventory
                         </button>
