@@ -103,7 +103,8 @@ export default function OrdersPage() {
   const router = useRouter();
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState("ALL");\n  const [search, setSearch] = useState("");
+  const [filter, setFilter] = useState("ALL");
+  const [search, setSearch] = useState("");
   const [updating, setUpdating] = useState<string | null>(null);
   const [isReadOnly] = useState(() => typeof localStorage !== "undefined" && localStorage.getItem("asc_readonly") === "true");
   const [staffName, setStaffName] = useState("Admin");
