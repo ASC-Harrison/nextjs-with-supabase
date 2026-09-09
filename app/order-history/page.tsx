@@ -32,6 +32,10 @@ type Order = {
   last_follow_up_by?: string | null;
   last_follow_up_at?: string | null;
   follow_up_count?: number | null;
+  issue_note?: string | null;
+  issue_reported_by?: string | null;
+  issue_reported_at?: string | null;
+  issue_previous_status?: string | null;
 };
 
 const CSS = `
@@ -59,9 +63,11 @@ const CSS = `
   .tl-dot.ORDERED{background:#3b82f6;border-color:#3b82f6;}
   .tl-dot.BACKORDERED{background:#ef4444;border-color:#ef4444;}
   .tl-dot.RECEIVED{background:#10b981;border-color:#10b981;}
+  .tl-dot.ISSUE{background:#f97316;border-color:#f97316;}
   .tl-card{background:#162032;border:1px solid #1e3a5f;border-radius:14px;padding:14px;}
   .tl-card.RECEIVED{border-color:rgba(16,185,129,0.3);}
   .tl-card.BACKORDERED{border-color:rgba(239,68,68,0.3);}
+  .tl-card.ISSUE{border-color:rgba(249,115,22,0.45);}
   .tl-name{font-size:14px;font-weight:800;color:#f0f6ff;word-break:break-word;margin-bottom:4px;}
   .tl-meta{font-size:11px;color:#64748b;line-height:1.6;}
   .badge{display:inline-flex;align-items:center;padding:2px 8px;border-radius:9999px;font-size:10px;font-weight:800;}
@@ -69,6 +75,11 @@ const CSS = `
   .badge-ordered{background:rgba(59,130,246,0.15);color:#93c5fd;border:1px solid rgba(59,130,246,0.3);}
   .badge-backordered{background:rgba(239,68,68,0.15);color:#fca5a5;border:1px solid rgba(239,68,68,0.3);}
   .badge-received{background:rgba(16,185,129,0.15);color:#6ee7b7;border:1px solid rgba(16,185,129,0.3);}
+  .badge-issue{background:rgba(249,115,22,0.15);color:#fdba74;border:1px solid rgba(249,115,22,0.35);}
+  .view-tabs{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px;}
+  .view-tab{border:1px solid #1e3a5f;border-radius:11px;background:#111827;color:#94a3b8;padding:11px 12px;font:800 13px inherit;cursor:pointer;}
+  .view-tab.active{background:#1d4ed8;border-color:#3b82f6;color:#fff;}
+  .view-tab.issue-active{background:#c2410c;border-color:#f97316;color:#fff;}
   .timeline-steps{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap;}
   .step{font-size:10px;color:#64748b;display:flex;align-items:center;gap:4px;}
   .step.done{color:#6ee7b7;}
@@ -85,6 +96,9 @@ const CSS = `
   .receive-btn:disabled,.received-only-btn:disabled{opacity:.55;cursor:not-allowed;}
   .followup-btn{grid-column:1/-1;width:100%;border:1px solid rgba(168,85,247,.3);border-radius:10px;background:rgba(168,85,247,.15);color:#d8b4fe;padding:10px 14px;font:800 12px inherit;cursor:pointer;}
   .followup-btn:disabled{opacity:.55;cursor:not-allowed;}
+  .issue-btn{grid-column:1/-1;width:100%;border:1px solid rgba(249,115,22,.35);border-radius:10px;background:rgba(249,115,22,.13);color:#fdba74;padding:10px 14px;font:800 12px inherit;cursor:pointer;}
+  .resolve-issue-btn{grid-column:1/-1;width:100%;border:0;border-radius:10px;background:#2563eb;color:#fff;padding:11px 14px;font:800 13px inherit;cursor:pointer;}
+  .issue-btn:disabled,.resolve-issue-btn:disabled{opacity:.55;cursor:not-allowed;}
 `;
 
 export default function OrderHistoryPage() {
@@ -93,6 +107,7 @@ export default function OrderHistoryPage() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("ALL");
+  const [orderView, setOrderView] = useState<"ORDERS" | "ISSUES">("ORDERS");
   const [staffFilter, setStaffFilter] = useState("ALL");
   const [updatingOrderId, setUpdatingOrderId] = useState<string | null>(null);
   const [followUpId, setFollowUpId] = useState<string | null>(null);
@@ -106,6 +121,9 @@ export default function OrderHistoryPage() {
   const [receivedOnlyOrder, setReceivedOnlyOrder] = useState<Order | null>(null);
   const [receivedOnlyQty, setReceivedOnlyQty] = useState("");
   const [receivedOnlySaving, setReceivedOnlySaving] = useState(false);
+  const [issueOrder, setIssueOrder] = useState<Order | null>(null);
+  const [issueNote, setIssueNote] = useState("");
+  const [issueSaving, setIssueSaving] = useState(false);
 
   useEffect(() => {
     let refreshTimer: ReturnType<typeof setTimeout> | null = null;
@@ -147,7 +165,7 @@ export default function OrderHistoryPage() {
   }, [orders]);
 
   const filtered = useMemo(() => {
-    let list = orders;
+    let list = orderView === "ISSUES" ? orders.filter(o => o.status === "ISSUE") : orders.filter(o => o.status !== "ISSUE");
     if (statusFilter !== "ALL") list = list.filter(o => o.status === statusFilter);
     if (staffFilter !== "ALL") list = list.filter(o => o.requested_by === staffFilter);
     if (search.trim()) {
@@ -161,13 +179,14 @@ export default function OrderHistoryPage() {
       );
     }
     return list;
-  }, [orders, statusFilter, staffFilter, search]);
+  }, [orders, orderView, statusFilter, staffFilter, search]);
 
   const totalOrders = orders.length;
   const totalReceived = orders.filter(o => o.status === "RECEIVED").length;
   const totalPending = orders.filter(o => o.status === "PENDING").length;
   const totalOrdered = orders.filter(o => o.status === "ORDERED").length;
   const totalBackordered = orders.filter(o => o.status === "BACKORDERED").length;
+  const totalIssues = orders.filter(o => o.status === "ISSUE").length;
 
   function formatDate(ts: string) {
     return new Date(ts).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
@@ -180,6 +199,7 @@ export default function OrderHistoryPage() {
     if (status === "PENDING") return "badge badge-pending";
     if (status === "ORDERED") return "badge badge-ordered";
     if (status === "BACKORDERED") return "badge badge-backordered";
+    if (status === "ISSUE") return "badge badge-issue";
     return "badge badge-received";
   }
 
@@ -298,6 +318,56 @@ This will not add or change inventory.`)) return;
     }
   }
 
+  async function markAsIssue() {
+    if (!issueOrder || issueSaving) return;
+    const note = issueNote.trim();
+    if (!note) return alert("Please describe the issue first.");
+    setIssueSaving(true);
+    const reportedAt = new Date().toISOString();
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const staff = session?.user?.user_metadata?.full_name || session?.user?.email || "Administrator";
+      const { error } = await supabase.from("order_requests").update({
+        status: "ISSUE",
+        issue_note: note,
+        issue_reported_by: staff,
+        issue_reported_at: reportedAt,
+        issue_previous_status: issueOrder.status,
+      }).eq("id", issueOrder.id).select("id").single();
+      if (error) throw error;
+      setOrders(prev => prev.map(row => row.id === issueOrder.id ? { ...row, status:"ISSUE", issue_note:note, issue_reported_by:staff, issue_reported_at:reportedAt, issue_previous_status:issueOrder.status } : row));
+      setIssueOrder(null);
+      setIssueNote("");
+      setOrderView("ISSUES");
+    } catch (error) {
+      alert(`Could not move this order to Issues: ${error instanceof Error ? error.message : "Unknown error"}`);
+    } finally {
+      setIssueSaving(false);
+    }
+  }
+
+  async function resolveIssue(order: Order) {
+    if (issueSaving) return;
+    const restoredStatus = order.issue_previous_status && order.issue_previous_status !== "ISSUE" ? order.issue_previous_status : "ORDERED";
+    if (!confirm(`Move "${order.item_name}" out of Issues and back to ${restoredStatus.toLowerCase()}?`)) return;
+    setIssueSaving(true);
+    try {
+      const { error } = await supabase.from("order_requests").update({
+        status: restoredStatus,
+        issue_note: null,
+        issue_reported_by: null,
+        issue_reported_at: null,
+        issue_previous_status: null,
+      }).eq("id", order.id).select("id").single();
+      if (error) throw error;
+      setOrders(prev => prev.map(row => row.id === order.id ? { ...row, status:restoredStatus, issue_note:null, issue_reported_by:null, issue_reported_at:null, issue_previous_status:null } : row));
+    } catch (error) {
+      alert(`Could not resolve this issue: ${error instanceof Error ? error.message : "Unknown error"}`);
+    } finally {
+      setIssueSaving(false);
+    }
+  }
+
   async function sendFollowUp(order: Order) {
     const note = followUpNote.trim();
     if (!note) return alert("Type a note for Brooklyn first.");
@@ -372,6 +442,21 @@ This will not add or change inventory.`)) return;
               </div>
             </div>
           )}
+          {issueOrder && (
+            <div style={{position:"fixed",inset:0,zIndex:1000,background:"rgba(2,6,23,.82)",display:"grid",placeItems:"center",padding:16}} onClick={()=>{if(!issueSaving)setIssueOrder(null);}}>
+              <div style={{width:"min(430px,100%)",background:"#111827",border:"1px solid rgba(249,115,22,.35)",borderRadius:18,padding:18,boxShadow:"0 24px 70px rgba(0,0,0,.55)"}} onClick={event=>event.stopPropagation()}>
+                <div style={{fontSize:18,fontWeight:900,marginBottom:4}}>⚠️ Move to Issues</div>
+                <div style={{fontSize:13,color:"#cbd5e1",marginBottom:14}}>{issueOrder.item_name}</div>
+                <label style={{display:"block",fontSize:11,fontWeight:800,color:"#fdba74",marginBottom:5}}>WHAT IS THE ISSUE?</label>
+                <textarea value={issueNote} onChange={event=>setIssueNote(event.target.value.slice(0,500))} rows={4} placeholder="Example: Wrong quantity delivered, damaged box, or vendor follow-up needed." style={{width:"100%",borderRadius:9,border:"1px solid rgba(249,115,22,.3)",background:"#0f172a",color:"#f0f6ff",padding:"10px 11px",fontSize:13,fontFamily:"inherit",outline:"none",resize:"vertical",marginBottom:12}} />
+                <div style={{fontSize:11,color:"#94a3b8",lineHeight:1.5,marginBottom:14}}>This only moves the order into the Issues view. It will not change the item or inventory count.</div>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:9}}>
+                  <button type="button" className="received-only-btn" style={{background:"#334155"}} disabled={issueSaving} onClick={()=>setIssueOrder(null)}>Cancel</button>
+                  <button type="button" className="received-only-btn" style={{background:"#ea580c"}} disabled={issueSaving || !issueNote.trim()} onClick={markAsIssue}>{issueSaving ? "Moving…" : "Move to Issues"}</button>
+                </div>
+              </div>
+            </div>
+          )}
           <button onClick={() => router.push("/")} className="back-btn">← Back</button>
 
           <div className="header">
@@ -400,6 +485,15 @@ This will not add or change inventory.`)) return;
               <div className="stat-val" style={{ color:"#6ee7b7" }}>{totalReceived}</div>
               <div className="stat-lbl">Received</div>
             </div>
+            <div className="stat">
+              <div className="stat-val" style={{ color:"#fdba74" }}>{totalIssues}</div>
+              <div className="stat-lbl">Issues</div>
+            </div>
+          </div>
+
+          <div className="view-tabs">
+            <button type="button" className={`view-tab ${orderView === "ORDERS" ? "active" : ""}`} onClick={()=>{setOrderView("ORDERS");setStatusFilter("ALL");}}>📋 Orders ({totalOrders - totalIssues})</button>
+            <button type="button" className={`view-tab ${orderView === "ISSUES" ? "issue-active" : ""}`} onClick={()=>{setOrderView("ISSUES");setStatusFilter("ALL");}}>⚠️ Issues ({totalIssues})</button>
           </div>
 
           <div className="controls">
@@ -410,6 +504,7 @@ This will not add or change inventory.`)) return;
               <option value="ORDERED">Ordered</option>
               <option value="BACKORDERED">Backordered</option>
               <option value="RECEIVED">Received</option>
+              {orderView === "ISSUES" && <option value="ISSUE">Issue</option>}
             </select>
             <select value={staffFilter} onChange={e => setStaffFilter(e.target.value)} className="inp inp-sel">
               <option value="ALL">All Staff</option>
@@ -447,6 +542,12 @@ This will not add or change inventory.`)) return;
                     {order.notes && (
                       <div style={{ fontSize:12, color:"#93c5fd", marginTop:8, marginBottom:8, background:"rgba(59,130,246,0.08)", border:"1px solid rgba(59,130,246,0.25)", borderRadius:7, padding:"7px 9px", lineHeight:1.45 }}>
                         📝 <strong>Note for Brooklyn:</strong> {order.notes}
+                      </div>
+                    )}
+                    {order.issue_note && (
+                      <div style={{fontSize:12,color:"#fed7aa",marginTop:8,background:"rgba(249,115,22,.1)",border:"1px solid rgba(249,115,22,.3)",borderRadius:7,padding:"8px 9px",lineHeight:1.45}}>
+                        ⚠️ <strong>Issue:</strong> {order.issue_note}
+                        {order.issue_reported_at && <><br /><span style={{color:"#94a3b8"}}>{order.issue_reported_by || "Staff"} · {formatTime(order.issue_reported_at)}</span></>}
                       </div>
                     )}
                     {order.last_follow_up_note && order.last_follow_up_at && (
@@ -517,6 +618,12 @@ This will not add or change inventory.`)) return;
                         >
                           {updatingOrderId === order.id ? "Saving…" : "✅ Received"}
                         </button>
+                        <button type="button" className="issue-btn" disabled={issueSaving} onClick={()=>{setIssueOrder(order);setIssueNote("");}}>⚠️ Move to Issues</button>
+                      </div>
+                    )}
+                    {order.status === "ISSUE" && (
+                      <div className="order-actions">
+                        <button type="button" className="resolve-issue-btn" disabled={issueSaving} onClick={()=>resolveIssue(order)}>{issueSaving ? "Saving…" : "✓ Resolve / Move Back"}</button>
                       </div>
                     )}
                   </div>
