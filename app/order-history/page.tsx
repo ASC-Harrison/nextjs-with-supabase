@@ -93,6 +93,9 @@ const CSS = `
   .receive-btn:hover{background:#1d4ed8;}
   .received-only-btn{background:#10b981;}
   .received-only-btn:hover{background:#059669;}
+  .ordered-btn{grid-column:1/-1;width:100%;border:0;border-radius:10px;background:#2563eb;color:#fff;padding:11px 14px;font:800 13px inherit;cursor:pointer;}
+  .ordered-btn:hover{background:#1d4ed8;}
+  .ordered-btn:disabled{opacity:.55;cursor:not-allowed;}
   .receive-btn:disabled,.received-only-btn:disabled{opacity:.55;cursor:not-allowed;}
   .followup-btn{grid-column:1/-1;width:100%;border:1px solid rgba(168,85,247,.3);border-radius:10px;background:rgba(168,85,247,.15);color:#d8b4fe;padding:10px 14px;font:800 12px inherit;cursor:pointer;}
   .followup-btn:disabled{opacity:.55;cursor:not-allowed;}
@@ -270,6 +273,45 @@ export default function OrderHistoryPage() {
     const alreadyReceived = order.qty_actual_received || 0;
     setReceivedOnlyQty(String(Math.max(orderedQty - alreadyReceived, 1)));
     setReceivedOnlyOrder(order);
+  }
+
+  async function markOrdered(order: Order) {
+    if (updatingOrderId) return;
+    if (order.notes && !confirm(`Please confirm you read this note before marking the item ordered:\n\n"${order.notes}"`)) return;
+
+    setUpdatingOrderId(order.id);
+    const confirmedAt = new Date().toISOString();
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const staff = session?.user?.user_metadata?.full_name || session?.user?.email || "Administrator";
+      const update: Record<string, string> = {
+        status: "ORDERED",
+        confirmed_by: staff,
+        confirmed_at: confirmedAt,
+      };
+      if (order.notes) {
+        update.note_acknowledged_by = staff;
+        update.note_acknowledged_at = confirmedAt;
+      }
+
+      const { error } = await supabase
+        .from("order_requests")
+        .update(update)
+        .eq("id", order.id)
+        .select("id")
+        .single();
+      if (error) throw error;
+
+      setOrders(prev => prev.map(row =>
+        row.id === order.id
+          ? { ...row, status: "ORDERED", confirmed_by: staff, confirmed_at: confirmedAt }
+          : row
+      ));
+    } catch (error) {
+      alert(`Could not mark this order as ordered: ${error instanceof Error ? error.message : "Unknown error"}`);
+    } finally {
+      setUpdatingOrderId(null);
+    }
   }
 
   async function saveReceivedOnly() {
@@ -592,6 +634,16 @@ This will not add or change inventory.`)) return;
                     )}
                     {["PENDING", "ORDERED", "BACKORDERED", "AWAITING"].includes(order.status) && (
                       <div className="order-actions">
+                        {order.status === "PENDING" && (
+                          <button
+                            type="button"
+                            className="ordered-btn"
+                            disabled={updatingOrderId === order.id}
+                            onClick={() => markOrdered(order)}
+                          >
+                            {updatingOrderId === order.id ? "Saving…" : "✅ Mark Ordered"}
+                          </button>
+                        )}
                         {followUpId !== order.id && (
                           <button
                             type="button"
