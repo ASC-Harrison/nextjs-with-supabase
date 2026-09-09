@@ -4,7 +4,7 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 const BROOKLYN_EMAIL = (process.env.BROOKLYN_ORDER_EMAIL || "brooklyncarter.0716@gmail.com").toLowerCase();
-const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "https://nextjs-with-supabase-gamma-rosyामुळे.vercel.app";
+const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "https://nextjs-with-supabase-gamma-rosy.vercel.app";
 const ALLOWED_ROLES = ["admin", "staff", "preop"];
 const MESSAGE_FIELDS = "id,created_at,sender_name,subject,message,delivery_status,read_at,read_by,response,responded_at,responded_by";
 
