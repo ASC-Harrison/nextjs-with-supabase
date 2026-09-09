@@ -43,7 +43,7 @@ const CSS = `
   .header::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,#3b82f6,#8b5cf6,#10b981);}
   .header-title{font-size:22px;font-weight:900;color:#f0f6ff;letter-spacing:-0.8px;margin-bottom:2px;}
   .header-sub{font-size:12px;color:#64748b;}
-  .stats-row{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:16px;}
+  .stats-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(125px,1fr));gap:8px;margin-bottom:16px;}
   .stat{background:#162032;border:1px solid #1e3a5f;border-radius:12px;padding:12px;text-align:center;}
   .stat-val{font-size:22px;font-weight:900;letter-spacing:-1px;}
   .stat-lbl{font-size:9px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;margin-top:2px;}
@@ -162,6 +162,7 @@ export default function OrderHistoryPage() {
   const totalOrders = orders.length;
   const totalReceived = orders.filter(o => o.status === "RECEIVED").length;
   const totalPending = orders.filter(o => o.status === "PENDING").length;
+  const totalOrdered = orders.filter(o => o.status === "ORDERED").length;
   const totalBackordered = orders.filter(o => o.status === "BACKORDERED").length;
 
   function formatDate(ts: string) {
@@ -348,6 +349,10 @@ export default function OrderHistoryPage() {
             <div className="stat">
               <div className="stat-val" style={{ color:"#fcd34d" }}>{totalPending}</div>
               <div className="stat-lbl">Pending</div>
+            </div>
+            <div className="stat">
+              <div className="stat-val" style={{ color:"#60a5fa" }}>{totalOrdered}</div>
+              <div className="stat-lbl">Ordered</div>
             </div>
             <div className="stat">
               <div className="stat-val" style={{ color:"#fca5a5" }}>{totalBackordered}</div>
