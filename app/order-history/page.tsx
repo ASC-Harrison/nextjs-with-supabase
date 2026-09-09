@@ -539,7 +539,7 @@ This will not add or change inventory.`)) return;
                         <span style={{ color:"#6ee7b7" }}> · Received: <strong>{order.qty_actual_received}</strong></span>
                       )}
                     </div>
-                    {order.notes && (
+                    {order.notes && order.status !== "RECEIVED" && (
                       <div style={{ fontSize:12, color:"#93c5fd", marginTop:8, marginBottom:8, background:"rgba(59,130,246,0.08)", border:"1px solid rgba(59,130,246,0.25)", borderRadius:7, padding:"7px 9px", lineHeight:1.45 }}>
                         📝 <strong>Note for Brooklyn:</strong> {order.notes}
                       </div>
