@@ -35,7 +35,8 @@ export default function AlertsPage() {
     const alerts = (data ?? []).filter((r: AlertItem) => {
       const oh  = r.total_on_hand ?? 0;
       const low = r.low_level ?? 0;
-      return low > 0 && oh <= low;
+      const par = r.par_level ?? 0;
+      return par > 0 && oh <= low;
     });
 
     setItems(alerts);
