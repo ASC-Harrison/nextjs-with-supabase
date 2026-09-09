@@ -15,6 +15,7 @@ export async function GET(req: Request) {
     const { data, error } = await supabase.from("building_inventory_sheet_view").select("name,reference_number,total_on_hand,par_level,low_level,unit").eq("is_active", true).order("name", { ascending: true });
     if (error) throw error;
     const items = data ?? [];
+    // A zero low level is valid when PAR is configured (for example, PAR 1 / Low 0).
     const alerts = items.filter((r: any) => { const oh = r.total_on_hand ?? 0; const low = r.low_level ?? 0; const par = r.par_level ?? 0; return par > 0 && oh <= low; });
     if (alerts.length === 0) return NextResponse.json({ ok: true, message: "All items above low level" });
     const aiPrompt = "You are monitoring inventory for Baxter ASC. Items at or below low level:\n\n" + alerts.map((r: any) => "- " + (r.name ?? "") + ": " + (r.total_on_hand ?? 0) + " " + (r.unit ?? "") + " on hand, low=" + (r.low_level ?? 0) + ", par=" + (r.par_level ?? 0)).join("\n") + "\n\nShould an alert be sent? Reply YES or NO then a new line with a brief reason.";
