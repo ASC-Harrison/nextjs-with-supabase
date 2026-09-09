@@ -364,7 +364,7 @@ export default function Home() {
               <div style={{fontSize:11,color:"#94a3b8",marginTop:4}}>Find supplies by reference number</div>
             </button>
             {isAdmin && (
-              <button className="dashboard-card" onClick={() => router.push("/orders")} style={card}>
+              <button className="dashboard-card" onClick={() => router.push("/order-history")} style={card}>
                 <div className="dashboard-icon"><DashboardIcon name="orders" /></div>
                 <div style={{fontSize:16,fontWeight:900}}>Orders & Receiving</div>
                 <div style={{fontSize:11,color:"#94a3b8",marginTop:4}}>Track orders and receive deliveries</div>
