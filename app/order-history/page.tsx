@@ -24,6 +24,7 @@ type Order = {
   confirmed_by: string | null;
   confirmed_at: string | null;
   received_at: string | null;
+  received_by?: string | null;
   expected_delivery_date: string | null;
   item_id: string | null;
   notes: string | null;
@@ -102,6 +103,9 @@ export default function OrderHistoryPage() {
   const [receivePrice, setReceivePrice] = useState("");
   const [receiveUnitsPerPackage, setReceiveUnitsPerPackage] = useState("1");
   const [receiveSaving, setReceiveSaving] = useState(false);
+  const [receivedOnlyOrder, setReceivedOnlyOrder] = useState<Order | null>(null);
+  const [receivedOnlyQty, setReceivedOnlyQty] = useState("");
+  const [receivedOnlySaving, setReceivedOnlySaving] = useState(false);
 
   useEffect(() => {
     let refreshTimer: ReturnType<typeof setTimeout> | null = null;
@@ -241,37 +245,56 @@ export default function OrderHistoryPage() {
     }
   }
 
-  async function markReceivedOnly(order: Order) {
+  function openReceivedOnly(order: Order) {
     const orderedQty = order.qty_actual_ordered || order.qty_requested;
     const alreadyReceived = order.qty_actual_received || 0;
-    const outstanding = Math.max(orderedQty - alreadyReceived, 0);
-    const warning = outstanding > 0
-      ? `\n\nThis will NOT add the remaining ${outstanding} to inventory.`
-      : "\n\nThis will not change any inventory count.";
+    setReceivedOnlyQty(String(Math.max(orderedQty - alreadyReceived, 1)));
+    setReceivedOnlyOrder(order);
+  }
 
-    if (!confirm(`Mark "${order.item_name}" as received?${warning}`)) return;
+  async function saveReceivedOnly() {
+    if (!receivedOnlyOrder || receivedOnlySaving) return;
+    const qtyThisDelivery = Number(receivedOnlyQty);
+    if (!Number.isInteger(qtyThisDelivery) || qtyThisDelivery <= 0) {
+      alert("Enter a valid whole-number amount received.");
+      return;
+    }
+    const alreadyReceived = receivedOnlyOrder.qty_actual_received || 0;
+    const totalReceived = alreadyReceived + qtyThisDelivery;
+    if (!confirm(`Mark "${receivedOnlyOrder.item_name}" received and record ${qtyThisDelivery} received this delivery?
 
-    setUpdatingOrderId(order.id);
+This will not add or change inventory.`)) return;
+
+    setReceivedOnlySaving(true);
     const receivedAt = new Date().toISOString();
     try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const staff = session?.user?.user_metadata?.full_name || session?.user?.email || "Administrator";
       const { error } = await supabase
         .from("order_requests")
-        .update({ status: "RECEIVED", received_at: receivedAt })
-        .eq("id", order.id)
+        .update({
+          status: "RECEIVED",
+          qty_actual_received: totalReceived,
+          received_at: receivedAt,
+          received_by: staff,
+        })
+        .eq("id", receivedOnlyOrder.id)
         .select("id")
         .single();
 
       if (error) throw error;
 
       setOrders(prev => prev.map(row =>
-        row.id === order.id
-          ? { ...row, status: "RECEIVED", received_at: receivedAt }
+        row.id === receivedOnlyOrder.id
+          ? { ...row, status: "RECEIVED", qty_actual_received: totalReceived, received_at: receivedAt, received_by: staff }
           : row
       ));
+      setReceivedOnlyOrder(null);
+      alert(`Received quantity saved: ${qtyThisDelivery} this delivery, ${totalReceived} total received. Inventory was not changed.`);
     } catch (error) {
       alert(`Could not mark this order received: ${error instanceof Error ? error.message : "Unknown error"}`);
     } finally {
-      setUpdatingOrderId(null);
+      setReceivedOnlySaving(false);
     }
   }
 
@@ -330,6 +353,21 @@ export default function OrderHistoryPage() {
                 <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:9}}>
                   <button type="button" className="received-only-btn" style={{background:"#334155"}} disabled={receiveSaving} onClick={()=>setReceivingOrder(null)}>Cancel</button>
                   <button type="button" className="receive-btn" disabled={receiveSaving} onClick={addReceivedInventory}>{receiveSaving ? "Adding…" : "Add & Receive"}</button>
+                </div>
+              </div>
+            </div>
+          )}
+          {receivedOnlyOrder && (
+            <div style={{position:"fixed",inset:0,zIndex:1000,background:"rgba(2,6,23,.82)",display:"grid",placeItems:"center",padding:16}} onClick={()=>{if(!receivedOnlySaving)setReceivedOnlyOrder(null);}}>
+              <div style={{width:"min(430px,100%)",background:"#111827",border:"1px solid rgba(16,185,129,.3)",borderRadius:18,padding:18,boxShadow:"0 24px 70px rgba(0,0,0,.55)"}} onClick={event=>event.stopPropagation()}>
+                <div style={{fontSize:18,fontWeight:900,marginBottom:4}}>✅ Mark Received</div>
+                <div style={{fontSize:13,color:"#cbd5e1",marginBottom:16}}>{receivedOnlyOrder.item_name}</div>
+                <label style={{display:"block",fontSize:11,fontWeight:800,color:"#94a3b8",marginBottom:5}}>AMOUNT RECEIVED THIS DELIVERY</label>
+                <input className="inp" inputMode="numeric" value={receivedOnlyQty} onChange={event=>setReceivedOnlyQty(event.target.value.replace(/\D/g,""))} style={{marginBottom:12,fontSize:18,fontWeight:900,textAlign:"center"}} />
+                <div style={{fontSize:11,color:"#fcd34d",background:"rgba(245,158,11,.08)",border:"1px solid rgba(245,158,11,.2)",borderRadius:8,padding:"8px 10px",lineHeight:1.5,marginBottom:14}}>This records the actual amount received on the order only. It will not add to or change inventory.</div>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:9}}>
+                  <button type="button" className="received-only-btn" style={{background:"#334155"}} disabled={receivedOnlySaving} onClick={()=>setReceivedOnlyOrder(null)}>Cancel</button>
+                  <button type="button" className="received-only-btn" disabled={receivedOnlySaving} onClick={saveReceivedOnly}>{receivedOnlySaving ? "Saving…" : "Save Received"}</button>
                 </div>
               </div>
             </div>
@@ -475,7 +513,7 @@ export default function OrderHistoryPage() {
                           type="button"
                           className="received-only-btn"
                           disabled={updatingOrderId === order.id}
-                          onClick={() => markReceivedOnly(order)}
+                          onClick={() => openReceivedOnly(order)}
                         >
                           {updatingOrderId === order.id ? "Saving…" : "✅ Received"}
                         </button>
