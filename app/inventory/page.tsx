@@ -219,7 +219,6 @@ const PREMIUM_CSS = `
   .badge { display:inline-flex; align-items:center; padding:3px 9px; border-radius:var(--r-full); font-size:10px; font-weight:800; letter-spacing:0.3px; }
   .notes-txt { font-size:10px; color:var(--text3); margin-top:6px; line-height:1.5; word-break:break-word; }
   .edit-hint { font-size:10px; color:var(--text3); margin-top:5px; opacity:0.7; }
-  .zero-warn { font-size:11px; font-weight:800; color:#fcd34d; margin-top:7px; display:flex; align-items:center; gap:4px; }
   .pin-hint { font-size:11px; color:var(--text4); margin-top:8px; line-height:1.5; }
   .divider { height:1px; background:var(--border); margin:14px 0; }
   .audit-card { background:var(--card); border-radius:var(--r-md); border:1px solid var(--border); padding:12px; }
@@ -331,7 +330,6 @@ export default function InventoryPage() {
   const [totalsSearch,setTotalsSearch]=useState("");
   const [sutureView,setSutureView]=useState<"ALL"|"ATTENTION">("ALL");
   const [totalsLowOnly,setTotalsLowOnly]=useState(false);
-  const [totalsZeroOnly,setTotalsZeroOnly]=useState(false);
   const [totalsShowInactive,setTotalsShowInactive]=useState(false);
   const [totalsEditOpen,setTotalsEditOpen]=useState(false);
   const [quickOrderQty,setQuickOrderQty]=useState("");
@@ -396,8 +394,8 @@ export default function InventoryPage() {
   const lastScanRef=useRef<string>("");
   const scanCooldownRef=useRef<number>(0);
 
-  const filteredTotals=useMemo(()=>{const q=totalsSearch.trim().toLowerCase();let list=totals.filter((r)=>totalsShowInactive?!r.is_active:!!r.is_active);if(q)list=list.filter((r)=>(r.name||"").toLowerCase().includes(q)||(r.vendor||"").toLowerCase().includes(q)||(r.category||"").toLowerCase().includes(q)||(r.reference_number||"").toLowerCase().includes(q)||(r.order_status||"").toLowerCase().includes(q));if(totalsLowOnly)list=list.filter((r)=>{const oh=r.total_on_hand??0;const low=r.low_level??0;return low>0&&oh<=low;});if(totalsZeroOnly)list=list.filter((r)=>(r.par_level??0)===0||(r.low_level??0)===0);return list;},[totals,totalsSearch,totalsLowOnly,totalsZeroOnly,totalsShowInactive]);
-  const filteredAreaInv=useMemo(()=>{const q=areaInvSearch.trim().toLowerCase();let list=areaInv;if(q)list=list.filter((r)=>(r.item_name||"").toLowerCase().includes(q)||(r.vendor||"").toLowerCase().includes(q)||(r.category||"").toLowerCase().includes(q)||(r.reference_number||"").toLowerCase().includes(q)||(r.order_status||"").toLowerCase().includes(q));if(areaParOnly)list=list.filter((r)=>(r.par_level??0)>0);if(areaLowOnly)list=list.filter((r)=>{const oh=r.on_hand??0;const low=r.low_level??0;return low>0&&oh<=low;});return list;},[areaInv,areaInvSearch,areaParOnly,areaLowOnly]);
+  const filteredTotals=useMemo(()=>{const q=totalsSearch.trim().toLowerCase();let list=totals.filter((r)=>totalsShowInactive?!r.is_active:!!r.is_active);if(q)list=list.filter((r)=>(r.name||"").toLowerCase().includes(q)||(r.vendor||"").toLowerCase().includes(q)||(r.category||"").toLowerCase().includes(q)||(r.reference_number||"").toLowerCase().includes(q)||(r.order_status||"").toLowerCase().includes(q));if(totalsLowOnly)list=list.filter((r)=>{const oh=r.total_on_hand??0;const low=r.low_level??0;const par=r.par_level??0;return par>0&&oh<=low;});return list;},[totals,totalsSearch,totalsLowOnly,totalsShowInactive]);
+  const filteredAreaInv=useMemo(()=>{const q=areaInvSearch.trim().toLowerCase();let list=areaInv;if(q)list=list.filter((r)=>(r.item_name||"").toLowerCase().includes(q)||(r.vendor||"").toLowerCase().includes(q)||(r.category||"").toLowerCase().includes(q)||(r.reference_number||"").toLowerCase().includes(q)||(r.order_status||"").toLowerCase().includes(q));if(areaParOnly)list=list.filter((r)=>(r.par_level??0)>0);if(areaLowOnly)list=list.filter((r)=>{const oh=r.on_hand??0;const low=r.low_level??0;const par=r.par_level??0;return par>0&&oh<=low;});return list;},[areaInv,areaInvSearch,areaParOnly,areaLowOnly]);
 
   // Check session on load
   useEffect(()=>{
@@ -628,7 +626,7 @@ export default function InventoryPage() {
                   {areaInvError && <div style={{color:"#fca5a5",fontSize:12,marginTop:8,wordBreak:"break-word"}}>{areaInvError}</div>}
                   <div className="sp mt3 dashboard-grid inventory-grid">
                     {filteredAreaInv.slice(0,200).map((r)=>{
-                      const oh=r.on_hand??0;const par=r.par_level??0;const low=r.low_level??0;const isLow=low>0&&oh<=low;
+                      const oh=r.on_hand??0;const par=r.par_level??0;const low=r.low_level??0;const isLow=par>0&&oh<=low;
                       return (
                         <button key={`${r.storage_area_id}-${r.item_id}`} onClick={()=>openAreaRowEditor(r)} className={`item-card ${isLow?"low":"ok"}`}>
                           <div className="fxb">
@@ -852,24 +850,23 @@ export default function InventoryPage() {
                 <button onClick={()=>setTotalsShowInactive(false)} className={`tog ${!totalsShowInactive?"on":"off"}`}>ACTIVE</button>
                 <button onClick={()=>setTotalsShowInactive(true)} className={`tog ${totalsShowInactive?"on-yel":"off"}`}>INACTIVE</button>
               </div>
-              <div className="tog-wrap-2 mt2">
-                <button onClick={()=>setTotalsLowOnly((v)=>!v)} className={`tog ${totalsLowOnly?"on-red":"off"}`}>{totalsLowOnly?"LOW ONLY":"LOW FILTER"}</button>
-                <button onClick={()=>setTotalsZeroOnly((v)=>!v)} className={`tog ${totalsZeroOnly?"on-yel":"off"}`}>{totalsZeroOnly?"ZERO ONLY":"ZERO SETUP"}</button>
+              <div className="mt2">
+                <button onClick={()=>setTotalsLowOnly((v)=>!v)} className={`tog ${totalsLowOnly?"on-red":"off"}`} style={{width:"100%"}}>{totalsLowOnly?"LOW ONLY":"LOW FILTER"}</button>
               </div>
               <div className="tog-wrap-2 mt2 mb3">
                 <button onClick={loadTotals} className="btn btn-gh" style={{fontSize:13}}>Refresh</button>
-                <button onClick={()=>{setTotalsLowOnly(false);setTotalsZeroOnly(false);setTotalsSearch("");}} className="btn btn-gh" style={{fontSize:13}}>Clear</button>
+                <button onClick={()=>{setTotalsLowOnly(false);setTotalsSearch("");}} className="btn btn-gh" style={{fontSize:13}}>Clear</button>
               </div>
               {!isReadOnly && <button onClick={()=>{setOrderPinInput("");setOrderPinError(false);setOrderPinOpen(true);}} className="btn btn-ac btn-full mb3" style={{fontSize:13}}>📦 Request Order</button>}
               {totalsError && <div style={{color:"#fca5a5",fontSize:12,marginBottom:10,wordBreak:"break-word"}}>{totalsError}</div>}
               <div className="sp dashboard-grid inventory-grid">
                 {filteredTotals.map((r)=>{
                   const oh=r.total_on_hand??0;const low=r.low_level??0;const par=r.par_level??0;
-                  const zeroSetup=par===0||low===0;const isLow=low>0&&oh<=low;
+                  const isLow=par>0&&oh<=low;
                   const src=supplySourceLabel(r.supply_source);
                   const expDiff=r.expiration_date?Math.ceil((new Date(r.expiration_date).getTime()-Date.now())/(1000*60*60*24)):null;
                   return (
-                    <button key={`${r.item_id}-${r.reference_number??""}`} onClick={()=>openTotalsEditor(r)} className={`item-card ${isLow?"low":zeroSetup?"warn":"ok"}`}>
+                    <button key={`${r.item_id}-${r.reference_number??""}`} onClick={()=>openTotalsEditor(r)} className={`item-card ${isLow?"low":"ok"}`}>
                       <div className="fxb">
                         <div style={{minWidth:0,flex:1}}>
                           <div className="i-name">{r.name}</div>
@@ -889,7 +886,6 @@ export default function InventoryPage() {
                       <div className="stats-row">
                         {[{label:"Par",value:par,warn:par===0},{label:"Low",value:low,warn:low===0},{label:"Unit",value:r.unit??"—",warn:false}].map(({label,value,warn})=>(<div key={label} className={`stat-pill ${warn?"wb":""}`}><div className="stat-lbl">{label}</div><div className={`stat-val ${warn?"w":""}`}>{value}</div></div>))}
                       </div>
-                      {zeroSetup && <div className="zero-warn">⚠ Zero setup field detected</div>}
                       {r.notes && <div className="notes-txt">Notes: {r.notes}</div>}
                       <div className="edit-hint">Tap to edit on-hand + item details{locked?" (password required once per app session)":""}</div>
                     </button>
