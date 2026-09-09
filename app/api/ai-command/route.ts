@@ -88,13 +88,13 @@ function detectDraft(message: string, matches: InventoryRow[]) {
   let route = "/inventory";
   if (/\breceiv/i.test(lower)) {
     type = "RECEIVE_ORDER";
-    route = "/orders";
+    route = "/order-history";
   } else if (/\bprice|\bcost|\$/.test(lower)) {
     type = "UPDATE_PRICE";
     route = "/price-editor";
   } else if (/\border\b/.test(lower)) {
     type = "CREATE_ORDER";
-    route = "/orders";
+    route = "/order-history";
   }
 
   const parts = [
