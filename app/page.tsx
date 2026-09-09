@@ -413,6 +413,7 @@ export default function Home() {
             <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))",gap:7}}>
               {[
                 ["📜","Order History","/order-history"],
+                ["✉️","Message Brooklyn","/message-brooklyn"],
                 ["🔄","Restock Requests","/restock-requests"],
                 ["🔢","Recount Needed","/recount"],
                 ["📦","Box Notes","/box-notes"],
