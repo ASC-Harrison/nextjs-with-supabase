@@ -36,6 +36,10 @@ type Order = {
   issue_reported_by?: string | null;
   issue_reported_at?: string | null;
   issue_previous_status?: string | null;
+  cancelled_at?: string | null;
+  cancelled_by?: string | null;
+  cancellation_reason?: string | null;
+  cancellation_email_status?: string | null;
 };
 
 const CSS = `
@@ -68,10 +72,12 @@ const CSS = `
   .tl-dot.BACKORDERED{background:#ef4444;border-color:#ef4444;}
   .tl-dot.RECEIVED{background:#10b981;border-color:#10b981;}
   .tl-dot.ISSUE{background:#f97316;border-color:#f97316;}
+  .tl-dot.CANCELLED{background:#64748b;border-color:#94a3b8;}
   .tl-card{background:#162032;border:1px solid #1e3a5f;border-radius:14px;padding:14px;}
   .tl-card.RECEIVED{border-color:rgba(16,185,129,0.3);}
   .tl-card.BACKORDERED{border-color:rgba(239,68,68,0.3);}
   .tl-card.ISSUE{border-color:rgba(249,115,22,0.45);}
+  .tl-card.CANCELLED{border-color:rgba(148,163,184,0.3);opacity:.82;}
   .tl-name{font-size:14px;font-weight:800;color:#f0f6ff;word-break:break-word;margin-bottom:4px;}
   .tl-meta{font-size:11px;color:#64748b;line-height:1.6;}
   .badge{display:inline-flex;align-items:center;padding:2px 8px;border-radius:9999px;font-size:10px;font-weight:800;}
@@ -80,6 +86,7 @@ const CSS = `
   .badge-backordered{background:rgba(239,68,68,0.15);color:#fca5a5;border:1px solid rgba(239,68,68,0.3);}
   .badge-received{background:rgba(16,185,129,0.15);color:#6ee7b7;border:1px solid rgba(16,185,129,0.3);}
   .badge-issue{background:rgba(249,115,22,0.15);color:#fdba74;border:1px solid rgba(249,115,22,0.35);}
+  .badge-cancelled{background:rgba(100,116,139,0.18);color:#cbd5e1;border:1px solid rgba(148,163,184,0.35);}
   .view-tabs{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px;}
   .view-tab{border:1px solid #1e3a5f;border-radius:11px;background:#111827;color:#94a3b8;padding:11px 12px;font:800 13px inherit;cursor:pointer;}
   .view-tab.active{background:#1d4ed8;border-color:#3b82f6;color:#fff;}
@@ -104,6 +111,8 @@ const CSS = `
   .followup-btn{grid-column:1/-1;width:100%;border:1px solid rgba(168,85,247,.3);border-radius:10px;background:rgba(168,85,247,.15);color:#d8b4fe;padding:10px 14px;font:800 12px inherit;cursor:pointer;}
   .followup-btn:disabled{opacity:.55;cursor:not-allowed;}
   .issue-btn{grid-column:1/-1;width:100%;border:1px solid rgba(249,115,22,.35);border-radius:10px;background:rgba(249,115,22,.13);color:#fdba74;padding:10px 14px;font:800 12px inherit;cursor:pointer;}
+  .cancel-order-btn{grid-column:1/-1;width:100%;border:1px solid rgba(239,68,68,.35);border-radius:10px;background:rgba(239,68,68,.12);color:#fca5a5;padding:10px 14px;font:800 12px inherit;cursor:pointer;}
+  .cancel-order-btn:disabled{opacity:.55;cursor:not-allowed;}
   .resolve-issue-btn{grid-column:1/-1;width:100%;border:0;border-radius:10px;background:#2563eb;color:#fff;padding:11px 14px;font:800 13px inherit;cursor:pointer;}
   .issue-btn:disabled,.resolve-issue-btn:disabled{opacity:.55;cursor:not-allowed;}
 `;
@@ -193,6 +202,7 @@ export default function OrderHistoryPage() {
   const totalPending = orders.filter(o => o.status === "PENDING").length;
   const totalOrdered = orders.filter(o => o.status === "ORDERED").length;
   const totalBackordered = orders.filter(o => o.status === "BACKORDERED").length;
+  const totalCancelled = orders.filter(o => o.status === "CANCELLED").length;
   const totalIssues = orders.filter(o => o.status === "ISSUE").length;
 
   function formatDate(ts: string) {
@@ -207,6 +217,7 @@ export default function OrderHistoryPage() {
     if (status === "ORDERED") return "badge badge-ordered";
     if (status === "BACKORDERED") return "badge badge-backordered";
     if (status === "ISSUE") return "badge badge-issue";
+    if (status === "CANCELLED") return "badge badge-cancelled";
     return "badge badge-received";
   }
 
@@ -313,6 +324,43 @@ export default function OrderHistoryPage() {
       ));
     } catch (error) {
       alert(`Could not mark this order as ordered: ${error instanceof Error ? error.message : "Unknown error"}`);
+    } finally {
+      setUpdatingOrderId(null);
+    }
+  }
+
+  async function cancelPendingOrder(order: Order) {
+    if (updatingOrderId) return;
+    if (!confirm(`Cancel "${order.item_name}"?\n\nIt will be removed from Pending, and Brooklyn will receive an email saying: Order canceled — please disregard.\n\nThis will not change inventory.`)) return;
+
+    setUpdatingOrderId(order.id);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error("Please sign in again.");
+      const response = await fetch("/api/orders/cancel", {
+        method:"POST",
+        headers:{ "Content-Type":"application/json", Authorization:`Bearer ${session.access_token}` },
+        body:JSON.stringify({ order_id:order.id }),
+      });
+      const json = await response.json();
+      if (!response.ok || !json.ok) throw new Error(json.error || "Could not cancel this order");
+
+      setOrders(prev => prev.map(row => row.id === order.id ? {
+        ...row,
+        status:"CANCELLED",
+        cancelled_at:json.order.cancelled_at,
+        cancelled_by:json.order.cancelled_by,
+        cancellation_reason:json.order.cancellation_reason,
+        cancellation_email_status:json.email_sent ? "SENT" : "FAILED",
+      } : row));
+
+      if (json.email_sent) {
+        alert("Order canceled and Brooklyn was emailed. The item was not changed in inventory.");
+      } else {
+        alert(`Order canceled, but the email could not be delivered. A copy was saved in Brooklyn Messages. ${json.warning || ""}`);
+      }
+    } catch (error) {
+      alert(`Could not cancel this order: ${error instanceof Error ? error.message : "Unknown error"}`);
     } finally {
       setUpdatingOrderId(null);
     }
@@ -531,6 +579,10 @@ This will not add or change inventory.`)) return;
               <div className="stat-val" style={{ color:"#6ee7b7" }}>{totalReceived}</div>
               <div className="stat-lbl">Received</div>
             </button>
+            <button type="button" className={`stat ${orderView === "ORDERS" && statusFilter === "CANCELLED" ? "active" : ""}`} aria-pressed={orderView === "ORDERS" && statusFilter === "CANCELLED"} onClick={()=>{setOrderView("ORDERS");setStatusFilter("CANCELLED");}}>
+              <div className="stat-val" style={{ color:"#cbd5e1" }}>{totalCancelled}</div>
+              <div className="stat-lbl">Canceled</div>
+            </button>
             <button type="button" className={`stat ${orderView === "ISSUES" ? "active" : ""}`} aria-pressed={orderView === "ISSUES"} onClick={()=>{setOrderView("ISSUES");setStatusFilter("ALL");}}>
               <div className="stat-val" style={{ color:"#fdba74" }}>{totalIssues}</div>
               <div className="stat-lbl">Issues</div>
@@ -577,9 +629,15 @@ This will not add or change inventory.`)) return;
                         <span style={{ color:"#6ee7b7" }}> · Received: <strong>{order.qty_actual_received}</strong></span>
                       )}
                     </div>
-                    {order.notes && order.status !== "RECEIVED" && (
+                    {order.notes && !["RECEIVED","CANCELLED"].includes(order.status) && (
                       <div style={{ fontSize:12, color:"#93c5fd", marginTop:8, marginBottom:8, background:"rgba(59,130,246,0.08)", border:"1px solid rgba(59,130,246,0.25)", borderRadius:7, padding:"7px 9px", lineHeight:1.45 }}>
                         📝 <strong>Note for Brooklyn:</strong> {order.notes}
+                      </div>
+                    )}
+                    {order.status === "CANCELLED" && (
+                      <div style={{fontSize:12,color:"#cbd5e1",marginTop:8,background:"rgba(100,116,139,.12)",border:"1px solid rgba(148,163,184,.3)",borderRadius:7,padding:"8px 9px",lineHeight:1.45}}>
+                        🚫 <strong>Order canceled — please disregard.</strong>
+                        {order.cancelled_at && <><br /><span style={{color:"#94a3b8"}}>{order.cancelled_by || "Staff"} · {formatTime(order.cancelled_at)}{order.cancellation_email_status === "SENT" ? " · Brooklyn emailed" : ""}</span></>}
                       </div>
                     )}
                     {order.issue_note && (
@@ -615,6 +673,12 @@ This will not add or change inventory.`)) return;
                           ✓ Received {formatTime(order.received_at)}
                         </div>
                       )}
+                      {order.status === "CANCELLED" && order.cancelled_at && (
+                        <div className="step done">
+                          🚫 Canceled {formatTime(order.cancelled_at)}
+                          {order.cancelled_by && <span style={{ color:"#64748b" }}> by {order.cancelled_by}</span>}
+                        </div>
+                      )}
                     </div>
                     {followUpId === order.id && (
                       <div style={{ marginTop:12, background:"rgba(168,85,247,0.08)", border:"1px solid rgba(168,85,247,0.25)", borderRadius:10, padding:12 }}>
@@ -638,6 +702,16 @@ This will not add or change inventory.`)) return;
                             onClick={() => markOrdered(order)}
                           >
                             {updatingOrderId === order.id ? "Saving…" : "✅ Mark Ordered"}
+                          </button>
+                        )}
+                        {order.status === "PENDING" && (
+                          <button
+                            type="button"
+                            className="cancel-order-btn"
+                            disabled={updatingOrderId === order.id}
+                            onClick={() => cancelPendingOrder(order)}
+                          >
+                            {updatingOrderId === order.id ? "Canceling…" : "🚫 Cancel Order & Notify Brooklyn"}
                           </button>
                         )}
                         {followUpId !== order.id && (
