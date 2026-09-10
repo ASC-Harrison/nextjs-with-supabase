@@ -49,7 +49,11 @@ const CSS = `
   .header-title{font-size:22px;font-weight:900;color:#f0f6ff;letter-spacing:-0.8px;margin-bottom:2px;}
   .header-sub{font-size:12px;color:#64748b;}
   .stats-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(125px,1fr));gap:8px;margin-bottom:16px;}
-  .stat{background:#162032;border:1px solid #1e3a5f;border-radius:12px;padding:12px;text-align:center;color:inherit;font-family:inherit;width:100%;cursor:pointer;appearance:none;transition:border-color .15s,background .15s,transform .15s;}\n  .stat:hover{border-color:#3b82f6;background:#18253a;}\n  .stat:active{transform:scale(.98);}\n  .stat.active{border-color:#60a5fa;background:rgba(37,99,235,.18);box-shadow:0 0 0 2px rgba(96,165,250,.18);}\n  .stat:focus-visible{outline:3px solid rgba(96,165,250,.55);outline-offset:2px;}
+  .stat{background:#162032;border:1px solid #1e3a5f;border-radius:12px;padding:12px;text-align:center;color:inherit;font-family:inherit;width:100%;cursor:pointer;appearance:none;transition:border-color .15s,background .15s,transform .15s;}
+  .stat:hover{border-color:#3b82f6;background:#18253a;}
+  .stat:active{transform:scale(.98);}
+  .stat.active{border-color:#60a5fa;background:rgba(37,99,235,.18);box-shadow:0 0 0 2px rgba(96,165,250,.18);}
+  .stat:focus-visible{outline:3px solid rgba(96,165,250,.55);outline-offset:2px;}
   .stat-val{font-size:22px;font-weight:900;letter-spacing:-1px;}
   .stat-lbl{font-size:9px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;margin-top:2px;}
   .controls{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;}
