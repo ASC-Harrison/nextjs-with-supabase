@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
+import { createPortal } from "react-dom";
 import { createClient } from "@supabase/supabase-js";
 
 const supabase = createClient(
@@ -505,7 +506,7 @@ This will not add or change inventory.`)) return;
       <style dangerouslySetInnerHTML={{ __html: CSS }} />
       <div className="root">
         <div className="wrap">
-          {receivingOrder && (
+          {receivingOrder && createPortal((
             <div style={{position:"fixed",inset:0,zIndex:1000,background:"rgba(2,6,23,.82)",display:"grid",placeItems:"center",padding:16}} onClick={()=>{if(!receiveSaving)setReceivingOrder(null);}}>
               <div style={{width:"min(430px,100%)",background:"#111827",border:"1px solid rgba(96,165,250,.28)",borderRadius:18,padding:18,boxShadow:"0 24px 70px rgba(0,0,0,.55)"}} onClick={event=>event.stopPropagation()}>
                 <div style={{fontSize:18,fontWeight:900,marginBottom:4}}>📦 Add & Receive</div>
@@ -527,8 +528,8 @@ This will not add or change inventory.`)) return;
                 </div>
               </div>
             </div>
-          )}
-          {receivedOnlyOrder && (
+          ), document.body)}
+          {receivedOnlyOrder && createPortal((
             <div style={{position:"fixed",inset:0,zIndex:1000,background:"rgba(2,6,23,.82)",display:"grid",placeItems:"center",padding:16}} onClick={()=>{if(!receivedOnlySaving)setReceivedOnlyOrder(null);}}>
               <div style={{width:"min(430px,100%)",background:"#111827",border:"1px solid rgba(16,185,129,.3)",borderRadius:18,padding:18,boxShadow:"0 24px 70px rgba(0,0,0,.55)"}} onClick={event=>event.stopPropagation()}>
                 <div style={{fontSize:18,fontWeight:900,marginBottom:4}}>✅ Mark Received</div>
@@ -542,8 +543,8 @@ This will not add or change inventory.`)) return;
                 </div>
               </div>
             </div>
-          )}
-          {issueOrder && (
+          ), document.body)}
+          {issueOrder && createPortal((
             <div style={{position:"fixed",inset:0,zIndex:1000,background:"rgba(2,6,23,.82)",display:"grid",placeItems:"center",padding:16}} onClick={()=>{if(!issueSaving)setIssueOrder(null);}}>
               <div style={{width:"min(430px,100%)",background:"#111827",border:"1px solid rgba(249,115,22,.35)",borderRadius:18,padding:18,boxShadow:"0 24px 70px rgba(0,0,0,.55)"}} onClick={event=>event.stopPropagation()}>
                 <div style={{fontSize:18,fontWeight:900,marginBottom:4}}>⚠️ Move to Issues</div>
@@ -557,7 +558,7 @@ This will not add or change inventory.`)) return;
                 </div>
               </div>
             </div>
-          )}
+          ), document.body)}
           <button onClick={() => router.push("/")} className="back-btn">← Back</button>
 
           <div className="header">
