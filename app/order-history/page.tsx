@@ -49,7 +49,11 @@ const CSS = `
   .header-title{font-size:22px;font-weight:900;color:#f0f6ff;letter-spacing:-0.8px;margin-bottom:2px;}
   .header-sub{font-size:12px;color:#64748b;}
   .stats-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(125px,1fr));gap:8px;margin-bottom:16px;}
-  .stat{background:#162032;border:1px solid #1e3a5f;border-radius:12px;padding:12px;text-align:center;}
+  .stat{background:#162032;border:1px solid #1e3a5f;border-radius:12px;padding:12px;text-align:center;color:inherit;font-family:inherit;width:100%;cursor:pointer;appearance:none;transition:border-color .15s,background .15s,transform .15s;}
+  .stat:hover{border-color:#3b82f6;background:#18253a;}
+  .stat:active{transform:scale(.98);}
+  .stat.active{border-color:#60a5fa;background:rgba(37,99,235,.18);box-shadow:0 0 0 2px rgba(96,165,250,.18);}
+  .stat:focus-visible{outline:3px solid rgba(96,165,250,.55);outline-offset:2px;}
   .stat-val{font-size:22px;font-weight:900;letter-spacing:-1px;}
   .stat-lbl{font-size:9px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;margin-top:2px;}
   .controls{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;}
@@ -110,7 +114,7 @@ export default function OrderHistoryPage() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("ALL");
-  const [orderView, setOrderView] = useState<"ORDERS" | "ISSUES">("ORDERS");
+  const [orderView, setOrderView] = useState<"ALL" | "ORDERS" | "ISSUES">("ORDERS");
   const [staffFilter, setStaffFilter] = useState("ALL");
   const [updatingOrderId, setUpdatingOrderId] = useState<string | null>(null);
   const [followUpId, setFollowUpId] = useState<string | null>(null);
@@ -168,7 +172,7 @@ export default function OrderHistoryPage() {
   }, [orders]);
 
   const filtered = useMemo(() => {
-    let list = orderView === "ISSUES" ? orders.filter(o => o.status === "ISSUE") : orders.filter(o => o.status !== "ISSUE");
+    let list = orderView === "ALL" ? orders : orderView === "ISSUES" ? orders.filter(o => o.status === "ISSUE") : orders.filter(o => o.status !== "ISSUE");
     if (statusFilter !== "ALL") list = list.filter(o => o.status === statusFilter);
     if (staffFilter !== "ALL") list = list.filter(o => o.requested_by === staffFilter);
     if (search.trim()) {
@@ -507,30 +511,30 @@ This will not add or change inventory.`)) return;
           </div>
 
           <div className="stats-row">
-            <div className="stat">
+            <button type="button" className={`stat ${orderView === "ALL" ? "active" : ""}`} aria-pressed={orderView === "ALL"} onClick={()=>{setOrderView("ALL");setStatusFilter("ALL");}}>
               <div className="stat-val">{totalOrders}</div>
               <div className="stat-lbl">Total</div>
-            </div>
-            <div className="stat">
+            </button>
+            <button type="button" className={`stat ${orderView === "ORDERS" && statusFilter === "PENDING" ? "active" : ""}`} aria-pressed={orderView === "ORDERS" && statusFilter === "PENDING"} onClick={()=>{setOrderView("ORDERS");setStatusFilter("PENDING");}}>
               <div className="stat-val" style={{ color:"#fcd34d" }}>{totalPending}</div>
               <div className="stat-lbl">Pending</div>
-            </div>
-            <div className="stat">
+            </button>
+            <button type="button" className={`stat ${orderView === "ORDERS" && statusFilter === "ORDERED" ? "active" : ""}`} aria-pressed={orderView === "ORDERS" && statusFilter === "ORDERED"} onClick={()=>{setOrderView("ORDERS");setStatusFilter("ORDERED");}}>
               <div className="stat-val" style={{ color:"#60a5fa" }}>{totalOrdered}</div>
               <div className="stat-lbl">Ordered</div>
-            </div>
-            <div className="stat">
+            </button>
+            <button type="button" className={`stat ${orderView === "ORDERS" && statusFilter === "BACKORDERED" ? "active" : ""}`} aria-pressed={orderView === "ORDERS" && statusFilter === "BACKORDERED"} onClick={()=>{setOrderView("ORDERS");setStatusFilter("BACKORDERED");}}>
               <div className="stat-val" style={{ color:"#fca5a5" }}>{totalBackordered}</div>
               <div className="stat-lbl">Backordered</div>
-            </div>
-            <div className="stat">
+            </button>
+            <button type="button" className={`stat ${orderView === "ORDERS" && statusFilter === "RECEIVED" ? "active" : ""}`} aria-pressed={orderView === "ORDERS" && statusFilter === "RECEIVED"} onClick={()=>{setOrderView("ORDERS");setStatusFilter("RECEIVED");}}>
               <div className="stat-val" style={{ color:"#6ee7b7" }}>{totalReceived}</div>
               <div className="stat-lbl">Received</div>
-            </div>
-            <div className="stat">
+            </button>
+            <button type="button" className={`stat ${orderView === "ISSUES" ? "active" : ""}`} aria-pressed={orderView === "ISSUES"} onClick={()=>{setOrderView("ISSUES");setStatusFilter("ALL");}}>
               <div className="stat-val" style={{ color:"#fdba74" }}>{totalIssues}</div>
               <div className="stat-lbl">Issues</div>
-            </div>
+            </button>
           </div>
 
           <div className="view-tabs">
@@ -540,14 +544,6 @@ This will not add or change inventory.`)) return;
 
           <div className="controls">
             <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search item, vendor, staff…" className="inp" />
-            <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className="inp inp-sel">
-              <option value="ALL">All Statuses</option>
-              <option value="PENDING">Pending</option>
-              <option value="ORDERED">Ordered</option>
-              <option value="BACKORDERED">Backordered</option>
-              <option value="RECEIVED">Received</option>
-              {orderView === "ISSUES" && <option value="ISSUE">Issue</option>}
-            </select>
             <select value={staffFilter} onChange={e => setStaffFilter(e.target.value)} className="inp inp-sel">
               <option value="ALL">All Staff</option>
               {staffList.map(s => <option key={s} value={s}>{s}</option>)}
