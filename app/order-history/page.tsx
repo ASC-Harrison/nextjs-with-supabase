@@ -181,8 +181,14 @@ export default function OrderHistoryPage() {
   }, [orders]);
 
   const filtered = useMemo(() => {
-    let list = orderView === "ALL" ? orders : orderView === "ISSUES" ? orders.filter(o => o.status === "ISSUE") : orders.filter(o => o.status !== "ISSUE");
-    if (statusFilter !== "ALL") list = list.filter(o => o.status === statusFilter);
+    const activeStatuses = ["PENDING", "ORDERED", "BACKORDERED", "AWAITING"];
+    let list = statusFilter !== "ALL"
+      ? orders.filter(o => o.status === statusFilter)
+      : orderView === "ALL"
+        ? orders
+        : orderView === "ISSUES"
+          ? orders.filter(o => o.status === "ISSUE")
+          : orders.filter(o => activeStatuses.includes(o.status));
     if (staffFilter !== "ALL") list = list.filter(o => o.requested_by === staffFilter);
     if (search.trim()) {
       const q = search.toLowerCase();
@@ -204,6 +210,7 @@ export default function OrderHistoryPage() {
   const totalBackordered = orders.filter(o => o.status === "BACKORDERED").length;
   const totalCancelled = orders.filter(o => o.status === "CANCELLED").length;
   const totalIssues = orders.filter(o => o.status === "ISSUE").length;
+  const totalActiveOrders = orders.filter(o => ["PENDING", "ORDERED", "BACKORDERED", "AWAITING"].includes(o.status)).length;
 
   function formatDate(ts: string) {
     return new Date(ts).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
@@ -590,7 +597,7 @@ This will not add or change inventory.`)) return;
           </div>
 
           <div className="view-tabs">
-            <button type="button" className={`view-tab ${orderView === "ORDERS" ? "active" : ""}`} onClick={()=>{setOrderView("ORDERS");setStatusFilter("ALL");}}>📋 Orders ({totalOrders - totalIssues})</button>
+            <button type="button" className={`view-tab ${orderView === "ORDERS" && statusFilter === "ALL" ? "active" : ""}`} onClick={()=>{setOrderView("ORDERS");setStatusFilter("ALL");}}>📋 Active Orders ({totalActiveOrders})</button>
             <button type="button" className={`view-tab ${orderView === "ISSUES" ? "issue-active" : ""}`} onClick={()=>{setOrderView("ISSUES");setStatusFilter("ALL");}}>⚠️ Issues ({totalIssues})</button>
           </div>
 
