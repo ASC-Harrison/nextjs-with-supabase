@@ -366,6 +366,8 @@ export default function InventoryPage() {
   const [pendingAreaRowSave,setPendingAreaRowSave]=useState<null|{storage_area_id:string;item_id:string;on_hand:number|null;par_level:number|null;low_level:number|null;}>(null);
   const [lastTx,setLastTx]=useState<LastTx|null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [totalsSavingItemId,setTotalsSavingItemId]=useState<string|null>(null);
+  const totalsSaveLockRef=useRef(false);
   const [undoBusy,setUndoBusy]=useState(false);
   const [orderStatusOpen,setOrderStatusOpen]=useState(false);
   const [orderStatusLoading,setOrderStatusLoading]=useState(false);
@@ -538,8 +540,64 @@ export default function InventoryPage() {
   function parseIntSafe(raw:string):number|null{const cleaned=raw.trim();if(!cleaned||!/^-?\d+$/.test(cleaned))return null;const n=Number(cleaned);return Number.isFinite(n)?n:null;}
 
   async function fetchWithRetry(url:string,options:RequestInit,retries=2,timeoutMs=12000):Promise<Response>{for(let attempt=0;attempt<=retries;attempt++){try{const controller=new AbortController();const timer=setTimeout(()=>controller.abort(),timeoutMs);const res=await fetch(url,{...options,signal:controller.signal});clearTimeout(timer);return res;}catch(e){if(attempt===retries)throw e;await new Promise(r=>setTimeout(r,800));}}throw new Error("Request failed after retries");}
-  async function doTotalsSet(row:BuildingTotalRow,value:number,pinAlreadyPassed=false){if(locked&&!pinAlreadyPassed){setPendingTotalsAction({kind:"SET",value});openPin("totalsEdit");return;}try{const res=await fetchWithRetry("/api/building-inventory/update",{method:"POST",headers:{"Content-Type":"application/json"},cache:"no-store",body:JSON.stringify({item_id:row.item_id,action:"SET",value,changed_by:staffName})});const json=await res.json();if(!json.ok){alert(`Update failed: ${json.error}`);return;}pushAudit({action:"TOTALS_SET",details:`Item=${row.name} Set=${value}`});setDeltaInput("");setSetOnHandInput("");setTotalsEditOpen(false);await loadTotals();setTotals((prev)=>prev.map((r)=>r.item_id===row.item_id?{...r,total_on_hand:Number(json.total??value)}:r));alert(`✅ ${row.name} is now set to ${json.total ?? value}`);}catch(e:any){alert(e?.name==="AbortError"?"Request timed out — check your connection and try again.":(e?.message??"Update failed"));}}
-  async function doTotalsAdjust(row:BuildingTotalRow,delta:number,pinAlreadyPassed=false){if(delta===0){alert("Delta cannot be 0.");return;}if(locked&&!pinAlreadyPassed){setPendingTotalsAction({kind:"ADJUST",delta});openPin("totalsEdit");return;}try{const res=await fetchWithRetry("/api/building-inventory/update",{method:"POST",headers:{"Content-Type":"application/json"},cache:"no-store",body:JSON.stringify({item_id:row.item_id,action:"ADJUST",delta,changed_by:staffName})});const json=await res.json();if(!json.ok){alert(`Update failed: ${json.error}`);return;}pushAudit({action:"TOTALS_ADJUST",details:`Item=${row.name} Delta=${delta>0?"+":""}${delta}`});setTotalsEditOpen(false);await loadTotals();setTotals((prev)=>prev.map((r)=>r.item_id===row.item_id?{...r,total_on_hand:Number(json.total??((r.total_on_hand??0)+delta))}:r));}catch(e:any){alert(e?.name==="AbortError"?"Request timed out — check your connection and try again.":(e?.message??"Update failed"));}}
+  async function doTotalsSet(row:BuildingTotalRow,value:number,pinAlreadyPassed=false){
+    if(totalsSaveLockRef.current)return;
+    if(locked&&!pinAlreadyPassed){setPendingTotalsAction({kind:"SET",value});openPin("totalsEdit");return;}
+    totalsSaveLockRef.current=true;
+    setTotalsSavingItemId(row.item_id);
+    try{
+      const res=await fetchWithRetry("/api/building-inventory/update",{
+        method:"POST",headers:{"Content-Type":"application/json"},cache:"no-store",
+        body:JSON.stringify({item_id:row.item_id,action:"SET",value,changed_by:staffName})
+      },0,15000);
+      const json=await res.json();
+      if(!json.ok)throw new Error(json.error||"Update failed");
+      const verifiedTotal=Number(json.total);
+      if(!Number.isFinite(verifiedTotal))throw new Error("The database did not return a verified total.");
+      pushAudit({action:"TOTALS_SET",details:`Item=${row.name} Set=${value} Verified=${verifiedTotal}`});
+      setDeltaInput("");
+      setSetOnHandInput("");
+      setTotalsEditOpen(false);
+      await loadTotals();
+      setTotals((prev)=>prev.map((r)=>r.item_id===row.item_id?{...r,total_on_hand:verifiedTotal}:r));
+      alert(`✅ Saved and verified: ${row.name} is ${verifiedTotal} on hand.`);
+    }catch(e:any){
+      await loadTotals();
+      alert(e?.name==="AbortError"?"The save response timed out. Inventory was reloaded—please check the displayed number before trying again.":(e?.message??"Update failed"));
+    }finally{
+      totalsSaveLockRef.current=false;
+      setTotalsSavingItemId(null);
+    }
+  }
+  async function doTotalsAdjust(row:BuildingTotalRow,delta:number,pinAlreadyPassed=false){
+    if(delta===0){alert("Delta cannot be 0.");return;}
+    if(totalsSaveLockRef.current)return;
+    if(locked&&!pinAlreadyPassed){setPendingTotalsAction({kind:"ADJUST",delta});openPin("totalsEdit");return;}
+    totalsSaveLockRef.current=true;
+    setTotalsSavingItemId(row.item_id);
+    try{
+      const res=await fetchWithRetry("/api/building-inventory/update",{
+        method:"POST",headers:{"Content-Type":"application/json"},cache:"no-store",
+        body:JSON.stringify({item_id:row.item_id,action:"ADJUST",delta,changed_by:staffName})
+      },0,15000);
+      const json=await res.json();
+      if(!json.ok)throw new Error(json.error||"Update failed");
+      const verifiedTotal=Number(json.total);
+      if(!Number.isFinite(verifiedTotal))throw new Error("The database did not return a verified total.");
+      pushAudit({action:"TOTALS_ADJUST",details:`Item=${row.name} Delta=${delta>0?"+":""}${delta} Verified=${verifiedTotal}`});
+      setDeltaInput("");
+      setTotalsEditOpen(false);
+      await loadTotals();
+      setTotals((prev)=>prev.map((r)=>r.item_id===row.item_id?{...r,total_on_hand:verifiedTotal}:r));
+      alert(`✅ Saved once and verified: ${row.name} is now ${verifiedTotal} on hand.`);
+    }catch(e:any){
+      await loadTotals();
+      alert(e?.name==="AbortError"?"The save response timed out. Inventory was reloaded—please check the displayed number before trying again.":(e?.message??"Update failed"));
+    }finally{
+      totalsSaveLockRef.current=false;
+      setTotalsSavingItemId(null);
+    }
+  }
   async function doTotalsSetActive(row:BuildingTotalRow,is_active:boolean,pinAlreadyPassed=false){if(locked&&!pinAlreadyPassed){setPendingTotalsAction({kind:"SET_ACTIVE",is_active});openPin("totalsEdit");return;}if(!confirm(is_active?`Restore "${row.name}" to active items?`:`Move "${row.name}" to inactive items?`))return;try{const res=await fetchWithRetry("/api/building-inventory/update",{method:"POST",headers:{"Content-Type":"application/json"},cache:"no-store",body:JSON.stringify({item_id:row.item_id,action:"SET_ACTIVE",is_active})});const json=await res.json();if(!json.ok){alert(`Update failed: ${json.error}`);return;}pushAudit({action:is_active?"ITEM_RESTORED":"ITEM_INACTIVE",details:`Item=${row.name}`});setTotalsEditOpen(false);await loadTotals();}catch(e:any){alert(e?.name==="AbortError"?"Request timed out — check your connection and try again.":(e?.message??"Update failed"));}}
 
   async function doSaveItemStatus(itemId:string,order_status:string,backordered:boolean,itemName?:string){setItemStatusSaving(true);try{const cleanStatus=(order_status||"IN STOCK").trim().toUpperCase();const{error}=await supabase.from("items").update({order_status:cleanStatus,backordered:!!backordered}).eq("id",itemId);if(error)throw error;if(item&&item.id===itemId)setItem({...item,order_status:cleanStatus,backordered:!!backordered});setMatches((prev)=>prev.map((m)=>m.id===itemId?{...m,order_status:cleanStatus,backordered:!!backordered}:m));setTotals((prev)=>prev.map((r)=>r.item_id===itemId?{...r,order_status:cleanStatus,backordered:!!backordered}:r));setAreaInv((prev)=>prev.map((r)=>r.item_id===itemId?{...r,order_status:cleanStatus,backordered:!!backordered}:r));if(totalsEditRow?.item_id===itemId){setTotalsEditRow({...totalsEditRow,order_status:cleanStatus,backordered:!!backordered});setTotalsOrderStatusInput(cleanStatus);setTotalsBackorderedInput(!!backordered);}if(areaEditRow?.item_id===itemId)setAreaEditRow({...areaEditRow,order_status:cleanStatus,backordered:!!backordered});setStatus(`Saved item status for ${itemName||item?.name||"item"}`);pushAudit({action:"ITEM_STATUS_SAVE",details:`Item=${itemName||item?.name||itemId} Status=${cleanStatus} Backordered=${backordered?"YES":"NO"}`});}catch(e:any){alert(`Status save failed: ${e?.message??"unknown error"}`);}finally{setItemStatusSaving(false);}}
@@ -1064,14 +1122,14 @@ export default function InventoryPage() {
             <div className="s-title">Set exact on-hand (type the real number)</div>
             <div className="fx mt2">
               <input value={setOnHandInput} onChange={(e)=>setSetOnHandInput(e.target.value.replace(/[^\d]/g,""))} inputMode="numeric" className="inp" placeholder={`Currently ${totalsEditRow.total_on_hand??0} — type new number`} style={{flex:1,fontSize:18,fontWeight:800,textAlign:"center"}} />
-              <button onClick={async()=>{const n=parseIntSafe(setOnHandInput);if(n===null||n<0)return alert("Enter a valid number (0 or more).");await doTotalsSet(totalsEditRow,n);setSetOnHandInput("");}} className="btn btn-ac s0">Set</button>
+              <button disabled={totalsSavingItemId===totalsEditRow.item_id} onClick={async()=>{const n=parseIntSafe(setOnHandInput);if(n===null||n<0)return alert("Enter a valid number (0 or more).");await doTotalsSet(totalsEditRow,n);setSetOnHandInput("");}} className="btn btn-ac s0">{totalsSavingItemId===totalsEditRow.item_id?"Saving…":"Set"}</button>
             </div>
           </div>
           <div className="c-panel">
             <div className="s-title">Small correction (add or subtract from current)</div>
             <div className="fx mt2">
               <input value={deltaInput} onChange={(e)=>setDeltaInput(e.target.value.replace(/[^\d-]/g,"").slice(0,7))} inputMode="numeric" className="inp" placeholder="e.g. -3 or 5" style={{flex:1,fontSize:18,fontWeight:800,textAlign:"center"}} />
-              <button onClick={async()=>{const d=parseIntSafe(deltaInput);if(d===null||d===0)return alert("Enter a non-zero number, like -3 to subtract 3, or 5 to add 5.");await doTotalsAdjust(totalsEditRow,d);setDeltaInput("");}} className="btn btn-ac s0">Apply</button>
+              <button disabled={totalsSavingItemId===totalsEditRow.item_id} onClick={async()=>{const d=parseIntSafe(deltaInput);if(d===null||d===0)return alert("Enter a non-zero number, like -3 to subtract 3, or 5 to add 5.");await doTotalsAdjust(totalsEditRow,d);setDeltaInput("");}} className="btn btn-ac s0">{totalsSavingItemId===totalsEditRow.item_id?"Saving…":"Apply"}</button>
             </div>
             <div style={{fontSize:11,color:"var(--text3)",marginTop:6}}>Type a negative number to subtract, positive to add.</div>
           </div>
