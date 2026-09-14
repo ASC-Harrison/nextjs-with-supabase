@@ -461,8 +461,26 @@ export default function InventoryPage() {
 
   useEffect(()=>{loadLocations();},[]);// eslint-disable-line
 
-  async function loadTotals(){setTotalsLoading(true);setTotalsError("");const controller=new AbortController();const timer=window.setTimeout(()=>controller.abort(),15000);try{const res=await fetch("/api/inventory-sheet-cache",{cache:"no-store",signal:controller.signal});if(!res.ok)throw new Error("Inventory service is temporarily unavailable");const data=await res.json();if(!Array.isArray(data))throw new Error("Inventory response was invalid");setTotals(data as BuildingTotalRow[]);}catch(e:any){setTotalsError(e?.name==="AbortError"?"Inventory took too long to load. Tap Retry.":(e?.message??"Failed to load totals — check your connection and try again"));}finally{window.clearTimeout(timer);setTotalsLoading(false);}}
-  useEffect(()=>{if(tab!=="Totals")return;if(totals.length===0)loadTotals();},[tab]);// eslint-disable-line
+  async function loadTotals(fresh=true){
+    setTotalsLoading(true);
+    setTotalsError("");
+    const controller=new AbortController();
+    const timer=window.setTimeout(()=>controller.abort(),10000);
+    try{
+      const url=fresh?`/api/inventory-sheet-cache?fresh=${Date.now()}`:"/api/inventory-sheet-cache";
+      const res=await fetch(url,{cache:fresh?"no-store":"default",signal:controller.signal});
+      if(!res.ok)throw new Error("Inventory service is temporarily unavailable");
+      const data=await res.json();
+      if(!Array.isArray(data))throw new Error("Inventory response was invalid");
+      setTotals(data as BuildingTotalRow[]);
+    }catch(e:any){
+      setTotalsError(e?.name==="AbortError"?"Inventory took too long to load. Tap Retry.":(e?.message??"Failed to load totals — check your connection and try again"));
+    }finally{
+      window.clearTimeout(timer);
+      setTotalsLoading(false);
+    }
+  }
+  useEffect(()=>{if(tab!=="Totals")return;if(totals.length===0)loadTotals(false);},[tab]);// eslint-disable-line
 
   useEffect(()=>{
     const refreshTimers=new Map<string,ReturnType<typeof setTimeout>>();
@@ -641,7 +659,7 @@ export default function InventoryPage() {
             <div id="inventory-tabs" className={`tab-bar ${tabMenuOpen?"open":""}`}>
               <TabBtn active={tab==="Transaction"} onClick={()=>{setTab("Transaction");setTabMenuOpen(false);}}>Tx</TabBtn>
               <TabBtn active={tab==="Totals"} onClick={()=>{setTab("Totals");setTabMenuOpen(false);}}>Totals</TabBtn>
-              <TabBtn active={tab==="Sutures"} onClick={()=>{setTab("Sutures");setTabMenuOpen(false);void loadTotals();}}>Sutures</TabBtn>
+              <TabBtn active={tab==="Sutures"} onClick={()=>{setTab("Sutures");setTabMenuOpen(false);void loadTotals(false);}}>Sutures</TabBtn>
               <TabBtn active={false} onClick={()=>{setTabMenuOpen(false);router.push("/chat");}}>Chat</TabBtn>
               <TabBtn active={tab==="Audit"} onClick={()=>{setTab("Audit");setTabMenuOpen(false);}}>Audit</TabBtn>
               <TabBtn active={tab==="Settings"} onClick={()=>{setTab("Settings");setTabMenuOpen(false);}}>Settings</TabBtn>
