@@ -4,28 +4,75 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-export async function GET() {
-  const [itemsResult, totalsResult, ordersResult] = await Promise.all([
-    supabaseAdmin
-      .from("items")
-      .select("id,name,reference_number,vendor,category,par_level,low_level,unit,notes,is_active,order_status,backordered,supply_source,price,expiration_date,alert_note"),
-    supabaseAdmin
-      .from("building_totals")
-      .select("item_id,building_on_hand"),
-    supabaseAdmin
-      .from("order_requests")
-      .select("id,item_id,created_at,status,qty_requested,qty_actual_ordered,qty_actual_received,requested_by")
-      .in("status", ["PENDING","ORDERED","BACKORDERED","AWAITING"])
-      .order("created_at", { ascending:false }),
-  ]);
+async function loadInventoryParts() {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 8000);
 
-  if (itemsResult.error || totalsResult.error || ordersResult.error) {
-    const message = itemsResult.error?.message ?? totalsResult.error?.message ?? ordersResult.error?.message ?? "Inventory load failed";
+  try {
+    return await Promise.all([
+      supabaseAdmin
+        .from("items")
+        .select("id,name,reference_number,vendor,category,par_level,low_level,unit,notes,is_active,order_status,backordered,supply_source,price,expiration_date,alert_note")
+        .abortSignal(controller.signal),
+      supabaseAdmin
+        .from("building_totals")
+        .select("item_id,building_on_hand")
+        .abortSignal(controller.signal),
+      supabaseAdmin
+        .from("order_requests")
+        .select("id,item_id,created_at,status,qty_requested,qty_actual_ordered,qty_actual_received,requested_by")
+        .in("status", ["PENDING","ORDERED","BACKORDERED","AWAITING"])
+        .order("created_at", { ascending:false })
+        .abortSignal(controller.signal),
+    ]);
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+export async function GET() {
+  let results: Awaited<ReturnType<typeof loadInventoryParts>> | null = null;
+  let lastError = "Inventory load failed";
+  let attempts = 0;
+
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    attempts = attempt;
+    try {
+      const candidate = await loadInventoryParts();
+      const error = candidate[0].error ?? candidate[1].error ?? candidate[2].error;
+      if (!error) {
+        results = candidate;
+        break;
+      }
+      lastError = error.message;
+      console.warn("[inventory-sheet-cache] read failed", { attempt, message: lastError });
+    } catch (error) {
+      lastError = error instanceof Error
+        ? (error.name === "AbortError" ? "Inventory read timed out" : error.message)
+        : "Inventory read failed";
+      console.warn("[inventory-sheet-cache] read failed", { attempt, message: lastError });
+    }
+
+    if (attempt === 1) {
+      await new Promise((resolve) => setTimeout(resolve, 300));
+    }
+  }
+
+  if (!results) {
+    console.error("[inventory-sheet-cache] unavailable after retry", { attempts, message: lastError });
     return NextResponse.json(
-      { error: message },
-      { status: 500, headers: { "Cache-Control": "no-store" } },
+      { error: "Inventory service is temporarily unavailable. Please retry." },
+      {
+        status: 503,
+        headers: {
+          "Cache-Control": "no-store",
+          "Retry-After": "2",
+        },
+      },
     );
   }
+
+  const [itemsResult, totalsResult, ordersResult] = results;
 
   const totalsByItem = new Map(
     (totalsResult.data ?? []).map((row) => [row.item_id, Number(row.building_on_hand ?? 0)]),
