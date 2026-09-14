@@ -6,7 +6,7 @@ export const revalidate = 0;
 
 async function loadInventoryParts() {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 8000);
+  const timeout = setTimeout(() => controller.abort(), 4000);
 
   try {
     return await Promise.all([
@@ -30,7 +30,8 @@ async function loadInventoryParts() {
   }
 }
 
-export async function GET() {
+export async function GET(request: Request) {
+  const forceFresh = new URL(request.url).searchParams.has("fresh");
   let results: Awaited<ReturnType<typeof loadInventoryParts>> | null = null;
   let lastError = "Inventory load failed";
   let attempts = 0;
@@ -123,6 +124,11 @@ export async function GET() {
     .sort((a, b) => (a.name ?? "").localeCompare(b.name ?? ""));
 
   return NextResponse.json(data, {
-    headers: { "Cache-Control": "no-store, no-cache, must-revalidate" },
+    headers: forceFresh
+      ? { "Cache-Control": "no-store, no-cache, must-revalidate" }
+      : {
+          "Cache-Control": "private, max-age=0, must-revalidate",
+          "Vercel-CDN-Cache-Control": "s-maxage=3, stale-while-revalidate=60, stale-if-error=300",
+        },
   });
 }
