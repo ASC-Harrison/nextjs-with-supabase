@@ -109,7 +109,6 @@ export default function PreOpPage() {
   const [staffName, setStaffName] = useState("");
   const [namePrompt, setNamePrompt] = useState(false);
   const [nameInput, setNameInput] = useState("");
-  const [submitting, setSubmitting] = useState<string | null>(null);
   const [msg, setMsg] = useState<{id:string;type:"ok"|"err";text:string} | null>(null);
   const [myRequests, setMyRequests] = useState<any[]>([]);
 
@@ -161,10 +160,6 @@ export default function PreOpPage() {
   const [orderItems, setOrderItems] = useState<Record<string, number>>({});
   const [ordering, setOrdering] = useState(false);
   const [orderMsg, setOrderMsg] = useState<{type:"ok"|"err";text:string}|null>(null);
-
-  // Per-item tx state
-  const [txMode, setTxMode] = useState<Record<string, "USE"|"RESTOCK">>({});
-  const [txQty, setTxQty] = useState<Record<string, number>>({});
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
@@ -251,59 +246,9 @@ export default function PreOpPage() {
           }
         }
         setItems(rows);
-        const modes: Record<string,any> = {};
-        const qtys: Record<string,number> = {};
-        rows.forEach(r => { modes[r.item_id] = "USE"; qtys[r.item_id] = 1; });
-        setTxMode(modes); setTxQty(qtys);
       }
     } catch {}
     setLoading(false);
-  }
-
-  async function submitTx(item: Item) {
-    if (!staffName.trim()) { setNamePrompt(true); return; }
-    const mode = txMode[item.item_id] || "USE";
-    const qty = Math.max(1, Math.floor(txQty[item.item_id] || 1));
-    const unitLabel = inventoryUnitLabel(item, qty);
-    if (qty > item.on_hand && mode === "USE") {
-      setMsg({ id: item.item_id, type:"err", text:`Only ${item.on_hand} ${inventoryUnitLabel(item, item.on_hand)} available` });
-      setTimeout(() => setMsg(null), 4000);
-      return;
-    }
-    setSubmitting(item.item_id);
-    try {
-      if (mode === "USE") {
-        const { error } = await supabase.rpc("use_stock", {
-          p_item_id: item.item_id,
-          p_area_id: MAIN_SUPPLY_ID,
-          p_qty: qty,
-        });
-        if (error) throw new Error(error.message);
-        setItems(prev => prev.map(i => i.item_id === item.item_id ? { ...i, on_hand: Math.max(0, i.on_hand - qty) } : i));
-      } else {
-        const { error } = await supabase.rpc("add_stock", {
-          p_item_id: item.item_id,
-          p_area_id: MAIN_SUPPLY_ID,
-          p_qty: qty,
-        });
-        if (error) throw new Error(error.message);
-        setItems(prev => prev.map(i => i.item_id === item.item_id ? { ...i, on_hand: i.on_hand + qty } : i));
-      }
-      // Log audit
-      await supabase.from("audit_log").insert({
-        staff_name: staffName,
-        action: "SUBMIT_TX",
-        area_name: "Pre-Op/PACU",
-        details: `Mode=${mode} Qty=${qty} Unit=${unitLabel} Item=${item.name} Area=Pre-Op/PACU`,
-      });
-      setMsg({ id: item.item_id, type:"ok", text: `${mode === "USE" ? "Used" : "Restocked"} ${qty} ${unitLabel}: ${item.name}` });
-      setTxQty(prev => ({ ...prev, [item.item_id]: 1 }));
-      setTimeout(() => setMsg(null), 3000);
-    } catch(e: any) {
-      setMsg({ id: item.item_id, type:"err", text: e?.message ?? "Transaction failed — check connection" });
-      setTimeout(() => setMsg(null), 5000);
-    }
-    setSubmitting(null);
   }
 
   async function sendOrderRequest() {
@@ -439,7 +384,6 @@ export default function PreOpPage() {
             </div>
           ) : filtered.map(item => {
             const isLow = item.low_level > 0 && item.on_hand <= item.low_level;
-            const mode = txMode[item.item_id] || "USE";
             return (
               <div key={item.item_id} className="item-card ok">
                 <div className="item-name">{item.name}</div>
@@ -459,50 +403,7 @@ export default function PreOpPage() {
                     <div className={`oh-num ${isLow ? "low" : "ok"}`}>{item.on_hand}</div>
                     <div className="oh-unit">{inventoryUnitLabel(item, item.on_hand)} on hand</div>
                   </div>
-                  <div className="tx-row" style={{ justifyContent:"flex-end" }}>
-                    <div className="qty-row" aria-label={`Quantity of ${item.name} to use`}>
-                      <button
-                        type="button"
-                        className="qty-btn"
-                        onClick={() => setTxQty(prev => ({ ...prev, [item.item_id]: Math.max(1, (prev[item.item_id] || 1) - 1) }))}
-                        aria-label="Decrease quantity"
-                      >−</button>
-                      <input
-                        className="qty-inp"
-                        type="number"
-                        inputMode="numeric"
-                        min={1}
-                        max={Math.max(1, item.on_hand)}
-                        value={txQty[item.item_id] || 1}
-                        onChange={e => setTxQty(prev => ({ ...prev, [item.item_id]: Math.max(1, Math.floor(Number(e.target.value) || 1)) }))}
-                        aria-label="Quantity to use"
-                      />
-                      <button
-                        type="button"
-                        className="qty-btn"
-                        onClick={() => setTxQty(prev => ({ ...prev, [item.item_id]: Math.min(Math.max(1, item.on_hand), (prev[item.item_id] || 1) + 1) }))}
-                        aria-label="Increase quantity"
-                      >+</button>
-                    </div>
-                    <button
-                      type="button"
-                      className="submit-btn submit-use"
-                      disabled={submitting === item.item_id || item.on_hand <= 0}
-                      onClick={() => submitTx(item)}
-                    >
-                      {submitting === item.item_id
-                        ? "Saving…"
-                        : item.on_hand <= 0
-                          ? "Out of stock"
-                          : `Use ${txQty[item.item_id] || 1} ${inventoryUnitLabel(item, txQty[item.item_id] || 1)}`}
-                    </button>
-                  </div>
                 </div>
-                {item.is_box_item && item.units_per_box && (
-                  <div style={{ fontSize:10, color:"#64748b", marginTop:6 }}>
-                    1 Box = {item.units_per_box} Each
-                  </div>
-                )}
 
                 <button
                   type="button"
