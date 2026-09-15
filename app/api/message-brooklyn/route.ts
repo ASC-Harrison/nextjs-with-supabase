@@ -52,6 +52,9 @@ export async function POST(request: Request) {
   try {
     const access = await authorizedUser(request);
     if (!access) return NextResponse.json({ ok:false, error:"Staff access required" }, { status:403 });
+    if (access.role === "brooklyn_messages") {
+      return NextResponse.json({ ok:false, error:"This account can read and reply only" }, { status:403 });
+    }
     const user = access.user;
 
     const body = await request.json().catch(() => null);
