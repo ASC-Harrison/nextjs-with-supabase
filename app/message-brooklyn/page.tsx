@@ -13,6 +13,7 @@ export default function MessageBrooklynPage() {
   const [message,setMessage] = useState("");
   const [history,setHistory] = useState<SentMessage[]>([]);
   const [isBrooklyn,setIsBrooklyn] = useState(false);
+  const [messageOnly,setMessageOnly] = useState(false);
   const [loading,setLoading] = useState(true);
   const [sending,setSending] = useState(false);
   const [replyingId,setReplyingId] = useState<string|null>(null);
@@ -32,6 +33,7 @@ export default function MessageBrooklynPage() {
       if (!response.ok) throw new Error(data.error || "Could not load messages");
       setHistory(data.messages || []);
       setIsBrooklyn(Boolean(data.is_brooklyn));
+      setMessageOnly(Boolean(data.message_only));
     } catch (error) {
       if (!quiet) setStatus(error instanceof Error ? error.message : "Could not load messages");
     } finally {
@@ -78,6 +80,16 @@ export default function MessageBrooklynPage() {
     } finally { setReplyingId(null); }
   }
 
+  async function signOut() {
+    await supabase.auth.signOut();
+    try {
+      localStorage.removeItem("asc_user_email");
+      localStorage.removeItem("asc_user_name");
+      localStorage.removeItem("asc_session_token");
+    } catch {}
+    router.replace("/login");
+  }
+
   function badge(item:SentMessage) {
     if (item.responded_at) return {text:"REPLIED",color:"#c4b5fd",bg:"rgba(139,92,246,.12)",border:"rgba(139,92,246,.3)"};
     if (item.read_at) return {text:"READ",color:"#6ee7b7",bg:"rgba(16,185,129,.1)",border:"rgba(16,185,129,.25)"};
@@ -86,7 +98,7 @@ export default function MessageBrooklynPage() {
 
   return <main style={{minHeight:"100vh",background:"radial-gradient(circle at 15% 0%,rgba(37,99,235,.2),transparent 35%),#080d19",color:"#f8fafc",padding:"16px 16px 70px",fontFamily:"-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif"}}>
     <div style={{maxWidth:760,margin:"0 auto"}}>
-      <button onClick={()=>router.push("/")} style={{background:"#1e293b",border:"1px solid #334155",borderRadius:10,color:"#94a3b8",padding:"9px 15px",fontWeight:800,cursor:"pointer",marginBottom:12}}>← Back</button>
+      <button onClick={()=>messageOnly ? void signOut() : router.push("/")} style={{background:"#1e293b",border:"1px solid #334155",borderRadius:10,color:"#94a3b8",padding:"9px 15px",fontWeight:800,cursor:"pointer",marginBottom:12}}>{messageOnly ? "Sign Out" : "← Back"}</button>
       <section style={{background:"linear-gradient(145deg,#17233a,#101827)",border:"1px solid rgba(96,165,250,.25)",borderRadius:20,padding:20,marginBottom:14,boxShadow:"0 20px 50px rgba(0,0,0,.25)"}}>
         <div style={{fontSize:23,fontWeight:950}}>✉️ Brooklyn Messages</div>
         <div style={{fontSize:12,color:"#94a3b8",marginTop:5}}>{isBrooklyn ? "Read and respond to direct ASC notes" : "Send Brooklyn a note and see when she reads or replies"}</div>
