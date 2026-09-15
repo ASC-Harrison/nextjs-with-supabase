@@ -37,7 +37,7 @@ export default function LoginPage() {
         } catch {}
         let destination = "/";
         try {
-          const accessResponse = await fetch("/api/message-brooklyn", {
+          const accessResponse = await fetch("/api/access-role", {
             headers: { Authorization: `Bearer ${data.session.access_token}` },
           });
           if (accessResponse.ok) {
