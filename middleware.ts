@@ -203,7 +203,8 @@ export async function middleware(request: NextRequest) {
 
   if (!role) return jsonError("Registered app access required", 403);
 
-  if (role === "brooklyn_messages" && pathname !== "/api/message-brooklyn") {
+  const messageOnlyApiPaths = ["/api/message-brooklyn", "/api/access-role"];
+  if (role === "brooklyn_messages" && !messageOnlyApiPaths.includes(pathname)) {
     return jsonError("This account is limited to Brooklyn Messages", 403);
   }
 
