@@ -35,7 +35,17 @@ export default function LoginPage() {
           localStorage.setItem("asc_session_token", data.session.access_token);
           localStorage.setItem("asc_user_name", data.user.user_metadata?.full_name || data.user.email || "");
         } catch {}
-        window.location.href = "/";
+        let destination = "/";
+        try {
+          const accessResponse = await fetch("/api/message-brooklyn", {
+            headers: { Authorization: `Bearer ${data.session.access_token}` },
+          });
+          if (accessResponse.ok) {
+            const access = await accessResponse.json();
+            if (access.message_only) destination = "/message-brooklyn";
+          }
+        } catch {}
+        window.location.href = destination;
       }
     } catch (e: any) {
       setError(e?.message ?? "Login failed — check your connection and try again");
