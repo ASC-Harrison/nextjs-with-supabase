@@ -23,7 +23,7 @@ async function authorizedUser(request: Request) {
   const { data, error } = await supabaseAdmin.auth.getUser(token);
   if (error || !data.user) return null;
   const { data: role } = await supabaseAdmin.from("app_user_roles").select("role").eq("user_id", data.user.id).in("role", ALLOWED_ROLES).limit(1).maybeSingle();
-  return role ? data.user : null;
+  return role ? { user:data.user, role:role.role } : null;
 }
 
 function isBrooklyn(email?: string | null) {
@@ -31,8 +31,9 @@ function isBrooklyn(email?: string | null) {
 }
 
 export async function GET(request: Request) {
-  const user = await authorizedUser(request);
-  if (!user) return NextResponse.json({ ok:false, error:"Staff access required" }, { status:403 });
+  const access = await authorizedUser(request);
+  if (!access) return NextResponse.json({ ok:false, error:"Staff access required" }, { status:403 });
+  const user = access.user;
 
   const brooklyn = isBrooklyn(user.email);
   if (brooklyn) {
@@ -44,13 +45,14 @@ export async function GET(request: Request) {
 
   const { data, error } = await supabaseAdmin.from("brooklyn_messages").select(MESSAGE_FIELDS).order("created_at", { ascending:false }).limit(50);
   if (error) return NextResponse.json({ ok:false, error:error.message }, { status:500 });
-  return NextResponse.json({ ok:true, messages:data ?? [], is_brooklyn:brooklyn });
+  return NextResponse.json({ ok:true, messages:data ?? [], is_brooklyn:brooklyn, message_only:access.role === "brooklyn_messages" });
 }
 
 export async function POST(request: Request) {
   try {
-    const user = await authorizedUser(request);
-    if (!user) return NextResponse.json({ ok:false, error:"Staff access required" }, { status:403 });
+    const access = await authorizedUser(request);
+    if (!access) return NextResponse.json({ ok:false, error:"Staff access required" }, { status:403 });
+    const user = access.user;
 
     const body = await request.json().catch(() => null);
     const subject = typeof body?.subject === "string" ? body.subject.trim() : "";
@@ -85,8 +87,9 @@ export async function POST(request: Request) {
 
 export async function PATCH(request: Request) {
   try {
-    const user = await authorizedUser(request);
-    if (!user) return NextResponse.json({ ok:false, error:"Staff access required" }, { status:403 });
+    const access = await authorizedUser(request);
+    if (!access) return NextResponse.json({ ok:false, error:"Staff access required" }, { status:403 });
+    const user = access.user;
     if (!isBrooklyn(user.email)) return NextResponse.json({ ok:false, error:"Only Brooklyn can reply to these notes" }, { status:403 });
 
     const body = await request.json().catch(() => null);
