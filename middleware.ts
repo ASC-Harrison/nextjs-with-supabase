@@ -194,15 +194,21 @@ export async function middleware(request: NextRequest) {
 
   if (!user) return jsonError("Invalid or expired session", 401);
 
-  if (isAdminPath(pathname)) {
-    let role: string | null = null;
-    try {
-      role = await getRole(user.id);
-    } catch {
-      return jsonError("Authorization service unavailable", 503);
-    }
+  let role: string | null = null;
+  try {
+    role = await getRole(user.id);
+  } catch {
+    return jsonError("Authorization service unavailable", 503);
+  }
 
-    if (role !== "admin") return jsonError("Administrator access required", 403);
+  if (!role) return jsonError("Registered app access required", 403);
+
+  if (role === "brooklyn_messages" && pathname !== "/api/message-brooklyn") {
+    return jsonError("This account is limited to Brooklyn Messages", 403);
+  }
+
+  if (isAdminPath(pathname) && role !== "admin") {
+    return jsonError("Administrator access required", 403);
   }
 
   const requestHeaders = new Headers(request.headers);
