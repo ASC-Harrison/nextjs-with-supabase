@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import AppBottomNav from "./components/AppBottomNav";
 import AuthenticatedFetch from "./components/AuthenticatedFetch";
+import MessageOnlyAccessGuard from "./components/MessageOnlyAccessGuard";
 
 export const metadata: Metadata = {
   title: "ASC Inventory",
@@ -48,6 +49,7 @@ export default function RootLayout({
       </head>
       <body style={{ margin:0, padding:0, width:"100%", minHeight:"100vh", background:"#0a0f1e" }}>
         <AuthenticatedFetch />
+        <MessageOnlyAccessGuard />
         {children}
         <AppBottomNav />
       </body>
