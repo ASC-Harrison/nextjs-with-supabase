@@ -12,7 +12,7 @@ const ITEMS: Array<{ label: string; icon: IconName; href: string }> = [
   { label: "Chat", icon: "chat", href: "/chat" },
 ];
 
-const HIDDEN_ROUTES = ["/login", "/signup", "/forgot-password", "/reset-password"];
+const HIDDEN_ROUTES = ["/login", "/signup", "/forgot-password", "/reset-password", "/message-brooklyn"];
 
 function NavIcon({ name }: { name: IconName }) {
   if (name === "home") {
