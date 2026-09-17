@@ -194,20 +194,28 @@ export async function middleware(request: NextRequest) {
 
   if (!user) return jsonError("Invalid or expired session", 401);
 
-  if (isAdminPath(pathname)) {
-    let role: string | null = null;
-    try {
-      role = await getRole(user.id);
-    } catch {
-      return jsonError("Authorization service unavailable", 503);
-    }
+  let role: string | null = null;
+  try {
+    role = await getRole(user.id);
+  } catch {
+    return jsonError("Authorization service unavailable", 503);
+  }
 
-    if (role !== "admin") return jsonError("Administrator access required", 403);
+  if (role === "kaya") {
+    const allowed =
+      pathname === "/api/restock-request" &&
+      (request.method === "GET" || request.method === "POST");
+    if (!allowed) return jsonError("This account only has access to Kaya restock requests", 403);
+  }
+
+  if (isAdminPath(pathname) && role !== "admin") {
+    return jsonError("Administrator access required", 403);
   }
 
   const requestHeaders = new Headers(request.headers);
   requestHeaders.set("x-asc-user-id", user.id);
   if (user.email) requestHeaders.set("x-asc-user-email", user.email);
+  if (role) requestHeaders.set("x-asc-role", role);
 
   return withSecurityHeaders(
     NextResponse.next({ request: { headers: requestHeaders } })
