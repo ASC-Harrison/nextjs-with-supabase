@@ -137,3 +137,32 @@ button:disabled {
     padding-top: env(safe-area-inset-top);
   }
 }
+
+
+/* Subtle Arkansas Razorback watermark — visual only, never intercepts app controls. */
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  pointer-events: none;
+  user-select: none;
+  background-image: url("https://www.pngitem.com/pimgs/m/287-2878486_picture-arkansas-razorbacks-logo-hd-png-download.png");
+  background-repeat: no-repeat;
+  background-position: center 44%;
+  background-size: min(68vw, 560px) auto;
+  opacity: 0.045;
+  filter: saturate(.72) contrast(.92);
+}
+
+@media (max-width: 700px) {
+  body::after {
+    background-position: center 38%;
+    background-size: min(82vw, 430px) auto;
+    opacity: 0.038;
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  body::after { opacity: 0.025; }
+}
