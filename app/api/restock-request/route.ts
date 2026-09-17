@@ -115,7 +115,7 @@ export async function POST(req: Request) {
   }
 }
 
-const VALID_STATUSES = ["PENDING", "SEEN", "IN_ROUTE", "RESTOCKED", "OUT_OF_STOCK"];
+const VALID_STATUSES = ["PENDING", "SEEN", "IN_ROUTE", "DELAYED", "RESTOCKED", "OUT_OF_STOCK"];
 
 export async function PATCH(req: Request) {
   try {
