@@ -307,7 +307,7 @@ export default function InventoryPage() {
   const [areaId,setAreaId]=useState("");
   const [areasLoading,setAreasLoading]=useState(true);
   const selectedAreaName=useMemo(()=>areas.find((a)=>a.id===areaId)?.name??"—",[areas,areaId]);
-  const [locked,setLocked]=useState(true);
+  const [locked,setLocked]=useState(false);
   const [pinOpen,setPinOpen]=useState(false);
   const [pinPurpose,setPinPurpose]=useState<"unlock"|"lock"|"changeLocation"|"addItem"|"totalsEdit"|"areaRowEdit"|"itemStatusEdit">("unlock");
   const [pinInput,setPinInput]=useState("");
@@ -402,7 +402,8 @@ export default function InventoryPage() {
   // Check session on load
   useEffect(()=>{
     try{
-      setLocked(!getSessionUnlocked());
+      setSessionUnlocked(true);
+      setLocked(false);
       const savedArea=localStorage.getItem(LS.AREA);
       if(savedArea)setAreaId(savedArea);
       setAudit(safeJsonParse<AuditEvent[]>(localStorage.getItem(LS.AUDIT),[]));
@@ -651,9 +652,9 @@ export default function InventoryPage() {
                   <div className="loc-lbl">Location</div>
                   <div className="loc-name">{selectedAreaName}</div>
                 </div>
-                <button onClick={()=>openPin(locked?"unlock":"lock")} className={`lock-btn ${locked?"locked":"unlocked"}`}>
-                  <span>{locked?"🔒":"🔓"}</span><span>{locked?"Locked":"Unlocked"}</span>
-                </button>
+                <div className="lock-btn unlocked" aria-label="Inventory ready">
+                  <span>🔓</span><span>Ready</span>
+                </div>
               </div>
             </div>
             <div id="inventory-tabs" className={`tab-bar ${tabMenuOpen?"open":""}`}>
