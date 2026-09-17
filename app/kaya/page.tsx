@@ -99,7 +99,7 @@ const CSS = `
   .k-request.requested{border-color:rgba(52,211,153,.22);background:rgba(16,185,129,.09);color:#6ee7b7;cursor:default}
   .k-loading,.k-empty,.k-error{text-align:center;border:1px solid rgba(148,163,184,.12);border-radius:15px;padding:28px;color:#64748b;background:rgba(15,23,42,.55)}
   .k-error{color:#fca5a5}
-  .k-modal-wrap{position:fixed;inset:0;z-index:120;background:rgba(2,6,23,.78);display:flex;align-items:flex-end;justify-content:center;padding:10px}
+  .k-modal-wrap{position:fixed;inset:0;z-index:120;background:rgba(2,6,23,.78);display:flex;align-items:center;justify-content:center;padding:18px 10px}
   .k-modal{width:100%;max-width:520px;border:1px solid rgba(248,113,113,.26);border-radius:20px;padding:18px;background:linear-gradient(145deg,#1e293b,#0f172a);box-shadow:0 28px 80px rgba(0,0,0,.55)}
   .k-modal-title{font-size:17px;font-weight:950}
   .k-modal-copy{font-size:12px;color:#94a3b8;line-height:1.5;margin:7px 0 15px}
