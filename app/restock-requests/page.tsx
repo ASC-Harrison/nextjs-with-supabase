@@ -43,9 +43,11 @@ const CSS = `
   .btn-green{background:rgba(16,185,129,0.2);color:#6ee7b7;border:1px solid rgba(16,185,129,0.3);}
   .btn-blue{background:rgba(59,130,246,0.2);color:#93c5fd;border:1px solid rgba(59,130,246,0.3);}
   .btn-red{background:rgba(239,68,68,0.15);color:#fca5a5;border:1px solid rgba(239,68,68,0.3);}
+  .btn-orange{background:rgba(245,158,11,0.16);color:#fcd34d;border:1px solid rgba(245,158,11,0.35);}
   .btn-row{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;}
   .badge{display:inline-block;font-size:10px;font-weight:800;padding:2px 8px;border-radius:20px;margin-bottom:4px;}
   .badge-route{background:rgba(59,130,246,0.15);color:#93c5fd;border:1px solid rgba(59,130,246,0.3);}
+  .badge-delay{background:rgba(245,158,11,0.15);color:#fcd34d;border:1px solid rgba(245,158,11,0.35);}
   .empty{text-align:center;padding:48px;color:#334155;font-size:13px;}
   @keyframes pulse{0%,100%{opacity:1}50%{opacity:0.4}}
   .skel{animation:pulse 1.5s infinite;background:#162032;border-radius:10px;}
@@ -101,7 +103,7 @@ export default function RestockRequestsPage() {
     return new Date(ts).toLocaleString("en-US", { month:"short", day:"numeric", hour:"2-digit", minute:"2-digit" });
   }
 
-  const active = requests.filter(r => ["PENDING","SEEN","IN_ROUTE"].includes(r.status));
+  const active = requests.filter(r => ["PENDING","SEEN","IN_ROUTE","DELAYED"].includes(r.status));
   const done = requests.filter(r => r.status === "RESTOCKED");
   const oos = requests.filter(r => r.status === "OUT_OF_STOCK");
 
@@ -144,6 +146,7 @@ export default function RestockRequestsPage() {
                   {active.map(r => (
                     <div key={r.id} className="req-card">
                       {r.status === "IN_ROUTE" && <span className="badge badge-route">🚚 IN ROUTE</span>}
+                      {r.status === "DELAYED" && <span className="badge badge-delay">⏳ DELAYED</span>}
                       <div className="req-name">{r.item_name}</div>
                       <div className="req-meta">
                         Requested by {r.requested_by} from {r.requested_from}<br/>
@@ -152,6 +155,9 @@ export default function RestockRequestsPage() {
                       <div className="btn-row">
                         {r.status !== "IN_ROUTE" && (
                           <button onClick={() => setStatus(r.id, "IN_ROUTE")} disabled={updating===r.id} className="btn btn-blue">🚚 In Route</button>
+                        )}
+                        {r.status !== "DELAYED" && (
+                          <button onClick={() => setStatus(r.id, "DELAYED")} disabled={updating===r.id} className="btn btn-orange">⏳ Delayed</button>
                         )}
                         <button onClick={() => setStatus(r.id, "RESTOCKED")} disabled={updating===r.id} className="btn btn-green">✅ Restocked</button>
                         <button onClick={() => setStatus(r.id, "OUT_OF_STOCK")} disabled={updating===r.id} className="btn btn-red">❌ Out of Stock</button>
