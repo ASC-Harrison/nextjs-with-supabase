@@ -1,6 +1,14 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
+import { createClient } from "@supabase/supabase-js";
+
+const KAYA_EMAIL = "kayalivhuebner@gmail.com";
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+);
 
 type IconName = "home" | "inventory" | "ai" | "scan" | "chat";
 
@@ -33,8 +41,28 @@ function NavIcon({ name }: { name: IconName }) {
 export default function AppBottomNav() {
   const pathname = usePathname();
   const router = useRouter();
+  const [authChecked, setAuthChecked] = useState(false);
+  const [isKayaOnly, setIsKayaOnly] = useState(false);
 
-  if (HIDDEN_ROUTES.some(route => pathname.startsWith(route))) return null;
+  useEffect(() => {
+    let active = true;
+    supabase.auth.getSession().then(({ data }) => {
+      if (!active) return;
+      setIsKayaOnly(data.session?.user.email?.toLowerCase() === KAYA_EMAIL);
+      setAuthChecked(true);
+    });
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!active) return;
+      setIsKayaOnly(session?.user.email?.toLowerCase() === KAYA_EMAIL);
+      setAuthChecked(true);
+    });
+    return () => {
+      active = false;
+      listener.subscription.unsubscribe();
+    };
+  }, []);
+
+  if (!authChecked || isKayaOnly || HIDDEN_ROUTES.some(route => pathname.startsWith(route))) return null;
 
   return (
     <>

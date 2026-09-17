@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import webpush from "web-push";
 
+const KAYA_AREA = "Kaya / Case Picking";
+
 function getServiceClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY ||
@@ -62,14 +64,20 @@ async function sendRestockPush(supabase: ReturnType<typeof getServiceClient>, pa
   return { sent, failed, configured: true };
 }
 
-export async function GET() {
+export async function GET(req: Request) {
   try {
     const supabase = getServiceClient();
-    const { data, error } = await supabase
+    let query = supabase
       .from("restock_requests")
       .select("*")
       .order("created_at", { ascending: false })
       .limit(200);
+
+    if (req.headers.get("x-asc-role") === "kaya") {
+      query = query.eq("requested_from", KAYA_AREA);
+    }
+
+    const { data, error } = await query;
     if (error) return NextResponse.json({ ok: false, error: error.message });
     return NextResponse.json({ ok: true, data });
   } catch (e: any) {
@@ -80,16 +88,19 @@ export async function GET() {
 export async function POST(req: Request) {
   try {
     const { item_id, item_name, requested_by, requested_from } = await req.json();
-    if (!item_name || !requested_by) {
+    const role = req.headers.get("x-asc-role");
+    const userEmail = req.headers.get("x-asc-user-email");
+    if (!item_name || (!requested_by && role !== "kaya")) {
       return NextResponse.json({ ok: false, error: "Missing item_name or requested_by" });
     }
 
     const supabase = getServiceClient();
-    const from = requested_from || "Pre-Op/PACU";
+    const from = role === "kaya" ? KAYA_AREA : (requested_from || "Pre-Op/PACU");
+    const requester = role === "kaya" ? (userEmail || "Kaya") : requested_by;
     const { error } = await supabase.from("restock_requests").insert({
       item_id: item_id || null,
       item_name,
-      requested_by,
+      requested_by: requester,
       requested_from: from,
       status: "PENDING",
     });
@@ -97,7 +108,7 @@ export async function POST(req: Request) {
     if (error) return NextResponse.json({ ok: false, error: error.message });
 
     // A notification failure must never prevent the restock request itself from being saved.
-    const push = await sendRestockPush(supabase, { item_name, requested_by, requested_from: from });
+    const push = await sendRestockPush(supabase, { item_name, requested_by: requester, requested_from: from });
     return NextResponse.json({ ok: true, push });
   } catch (e: any) {
     return NextResponse.json({ ok: false, error: e?.message ?? "Unknown error" });
