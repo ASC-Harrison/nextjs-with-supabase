@@ -255,8 +255,12 @@ export default function Home() {
             🏥 Pre-Op / PACU Inventory
           </button>
 
-          <button onClick={() => router.push("/preop-testing")} style={{ display:"block", width:"100%", borderRadius:14, padding:16, fontSize:15, fontWeight:700, border:"1px solid rgba(14,165,233,0.3)", cursor:"pointer", textAlign:"center", fontFamily:"inherit", background:"rgba(14,165,233,0.2)", color:"#7dd3fc", marginBottom:16 }}>
+          <button onClick={() => router.push("/preop-testing")} style={{ display:"block", width:"100%", borderRadius:14, padding:16, fontSize:15, fontWeight:700, border:"1px solid rgba(14,165,233,0.3)", cursor:"pointer", textAlign:"center", fontFamily:"inherit", background:"rgba(14,165,233,0.2)", color:"#7dd3fc", marginBottom:8 }}>
             🧪 Pre-Op Testing
+          </button>
+
+          <button onClick={() => router.push("/kaya")} style={{ display:"block", width:"100%", borderRadius:14, padding:16, fontSize:15, fontWeight:700, border:"1px solid rgba(139,92,246,0.3)", cursor:"pointer", textAlign:"center", fontFamily:"inherit", background:"rgba(124,58,237,0.18)", color:"#c4b5fd", marginBottom:16 }}>
+            📦 Kaya Restock Requests
           </button>
 
           <button onClick={() => router.push("/chat")} style={{ display:"block", width:"100%", borderRadius:14, padding:16, fontSize:15, fontWeight:700, border:"1px solid rgba(59,130,246,0.3)", cursor:"pointer", textAlign:"center", fontFamily:"inherit", background:"rgba(59,130,246,0.18)", color:"#93c5fd", marginBottom:16 }}>
@@ -380,6 +384,7 @@ export default function Home() {
               {label:"SPD Inventory",icon:"🔬",href:"/spd",color:"#a5b4fc"},
               {label:"Pre-Op / PACU",icon:"🏥",href:"/preop",color:"#5eead4"},
               {label:"Pre-Op Testing",icon:"🧪",href:"/preop-testing",color:"#7dd3fc"},
+              {label:"Kaya Restock",icon:"📦",href:"/kaya",color:"#c4b5fd"},
             ].map(link => (
               <button className="dashboard-mini-card" key={link.href} onClick={() => router.push(link.href)} style={{
                 ...btnBase,marginBottom:0,padding:14,background:"rgba(30,41,59,.72)",
