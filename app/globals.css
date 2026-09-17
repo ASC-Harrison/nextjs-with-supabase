@@ -149,16 +149,16 @@ body::after {
   user-select: none;
   background-image: url("https://www.pngitem.com/pimgs/m/287-2878486_picture-arkansas-razorbacks-logo-hd-png-download.png");
   background-repeat: no-repeat;
-  background-position: center 44%;
-  background-size: min(86vw, 820px) auto;
+  background-position: center;
+  background-size: cover;
   opacity: 0.045;
   filter: saturate(.72) contrast(.92);
 }
 
 @media (max-width: 700px) {
   body::after {
-    background-position: center 38%;
-    background-size: min(112vw, 620px) auto;
+    background-position: center;
+    background-size: cover;
     opacity: 0.038;
   }
 }
