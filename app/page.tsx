@@ -30,10 +30,10 @@ const SKEL_CSS = `
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:0.4}}
 .skel{animation:pulse 1.5s ease-in-out infinite}
 .dashboard-card,.dashboard-mini-card,.area-card{transition:transform .2s ease,border-color .2s ease,box-shadow .2s ease,background .2s ease}
-.dashboard-icon{width:43px;height:43px;border-radius:13px;display:grid;place-items:center;margin-bottom:13px;color:#bfdbfe;background:linear-gradient(145deg,rgba(59,130,246,.2),rgba(6,182,212,.08));border:1px solid rgba(96,165,250,.18);box-shadow:inset 0 1px rgba(255,255,255,.04)}
+.dashboard-icon{width:43px;height:43px;border-radius:13px;display:grid;place-items:center;margin-bottom:13px;color:#fee2e2;background:linear-gradient(145deg,rgba(200,16,46,.2),rgba(190,18,60,.08));border:1px solid rgba(248,113,113,.18);box-shadow:inset 0 1px rgba(255,255,255,.04)}
 .dashboard-card-primary .dashboard-icon{color:#fff;background:rgba(255,255,255,.14);border-color:rgba(255,255,255,.18)}
 .live-dot{width:7px;height:7px;border-radius:50%;background:#34d399;box-shadow:0 0 0 4px rgba(52,211,153,.09),0 0 14px rgba(52,211,153,.55)}
-@media(hover:hover){.dashboard-card:hover,.area-card:hover{transform:translateY(-3px);border-color:rgba(96,165,250,.3)!important;box-shadow:0 22px 48px rgba(0,0,0,.25)!important}.dashboard-mini-card:hover{transform:translateY(-2px);border-color:rgba(96,165,250,.24)!important}}
+@media(hover:hover){.dashboard-card:hover,.area-card:hover{transform:translateY(-3px);border-color:rgba(248,113,113,.3)!important;box-shadow:0 22px 48px rgba(0,0,0,.25)!important}.dashboard-mini-card:hover{transform:translateY(-2px);border-color:rgba(248,113,113,.24)!important}}
 `;
 
 export default function Home() {
@@ -240,11 +240,11 @@ export default function Home() {
       <main style={{ minHeight:"100vh", width:"100%", background:"#0a0f1e", color:"#fff", display:"flex", justifyContent:"center", padding:16, paddingBottom:40 }}>
         <div style={{ width:"100%", maxWidth:480, marginTop:16 }}>
           <div style={{ borderRadius:20, background:"rgba(255,255,255,0.05)", border:"1px solid rgba(255,255,255,0.1)", padding:20, marginBottom:16, position:"relative", overflow:"hidden" }}>
-            <div style={{ position:"absolute", top:0, left:0, right:0, height:2, background:"linear-gradient(90deg,#3b82f6,#8b5cf6,#10b981)" }} />
+            <div style={{ position:"absolute", top:0, left:0, right:0, height:2, background:"linear-gradient(90deg,#c8102e,#be123c,#10b981)" }} />
             <div style={{ fontSize:24, fontWeight:900, marginBottom:4 }}>ASC Inventory</div>
             <div style={{ color:"rgba(255,255,255,0.4)", fontSize:12, marginBottom:12 }}>Pre-Op / PACU Staff Portal</div>
             {userEmail && (
-              <div style={{ background:"rgba(59,130,246,0.1)", border:"1px solid rgba(59,130,246,0.2)", borderRadius:8, padding:"8px 12px", fontSize:12, color:"#93c5fd", display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+              <div style={{ background:"rgba(200,16,46,0.1)", border:"1px solid rgba(200,16,46,0.2)", borderRadius:8, padding:"8px 12px", fontSize:12, color:"#fecaca", display:"flex", alignItems:"center", justifyContent:"space-between" }}>
                 <span>Signed in as <strong>{userEmail}</strong></span>
                 <button onClick={handleLogout} style={{ background:"rgba(239,68,68,0.15)", border:"1px solid rgba(239,68,68,0.3)", borderRadius:6, color:"#fca5a5", padding:"2px 8px", cursor:"pointer", fontSize:11, fontFamily:"inherit", fontWeight:700 }}>Sign Out</button>
               </div>
@@ -255,22 +255,22 @@ export default function Home() {
             🏥 Pre-Op / PACU Inventory
           </button>
 
-          <button onClick={() => router.push("/preop-testing")} style={{ display:"block", width:"100%", borderRadius:14, padding:16, fontSize:15, fontWeight:700, border:"1px solid rgba(14,165,233,0.3)", cursor:"pointer", textAlign:"center", fontFamily:"inherit", background:"rgba(14,165,233,0.2)", color:"#7dd3fc", marginBottom:8 }}>
+          <button onClick={() => router.push("/preop-testing")} style={{ display:"block", width:"100%", borderRadius:14, padding:16, fontSize:15, fontWeight:700, border:"1px solid rgba(225,29,72,0.3)", cursor:"pointer", textAlign:"center", fontFamily:"inherit", background:"rgba(225,29,72,0.2)", color:"#fda4af", marginBottom:8 }}>
             🧪 Pre-Op Testing
           </button>
 
-          <button onClick={() => router.push("/kaya")} style={{ display:"block", width:"100%", borderRadius:14, padding:16, fontSize:15, fontWeight:700, border:"1px solid rgba(139,92,246,0.3)", cursor:"pointer", textAlign:"center", fontFamily:"inherit", background:"rgba(124,58,237,0.18)", color:"#c4b5fd", marginBottom:16 }}>
+          <button onClick={() => router.push("/kaya")} style={{ display:"block", width:"100%", borderRadius:14, padding:16, fontSize:15, fontWeight:700, border:"1px solid rgba(190,18,60,0.3)", cursor:"pointer", textAlign:"center", fontFamily:"inherit", background:"rgba(157,34,53,0.18)", color:"#fecaca", marginBottom:16 }}>
             📦 Kaya Restock Requests
           </button>
 
-          <button onClick={() => router.push("/chat")} style={{ display:"block", width:"100%", borderRadius:14, padding:16, fontSize:15, fontWeight:700, border:"1px solid rgba(59,130,246,0.3)", cursor:"pointer", textAlign:"center", fontFamily:"inherit", background:"rgba(59,130,246,0.18)", color:"#93c5fd", marginBottom:16 }}>
+          <button onClick={() => router.push("/chat")} style={{ display:"block", width:"100%", borderRadius:14, padding:16, fontSize:15, fontWeight:700, border:"1px solid rgba(200,16,46,0.3)", cursor:"pointer", textAlign:"center", fontFamily:"inherit", background:"rgba(200,16,46,0.18)", color:"#fecaca", marginBottom:16 }}>
             💬 Staff Chat
           </button>
 
-          <div style={{ background:"rgba(59,130,246,0.06)", border:"1px solid rgba(59,130,246,0.15)", borderRadius:12, padding:"12px 16px", textAlign:"center" }}>
+          <div style={{ background:"rgba(200,16,46,0.06)", border:"1px solid rgba(200,16,46,0.15)", borderRadius:12, padding:"12px 16px", textAlign:"center" }}>
             <div style={{ fontSize:12, color:"#64748b", marginBottom:4 }}>Questions or issues?</div>
-            <div style={{ fontSize:12, color:"#93c5fd", fontWeight:600 }}>Contact Brooklyn — M–F 7am to 4pm CST</div>
-            <a href="mailto:brooklyncarter.0716@gmail.com" style={{ fontSize:12, color:"#3b82f6", textDecoration:"none", fontWeight:700 }}>brooklyncarter.0716@gmail.com</a>
+            <div style={{ fontSize:12, color:"#fecaca", fontWeight:600 }}>Contact Brooklyn — M–F 7am to 4pm CST</div>
+            <a href="mailto:brooklyncarter.0716@gmail.com" style={{ fontSize:12, color:"#c8102e", textDecoration:"none", fontWeight:700 }}>brooklyncarter.0716@gmail.com</a>
           </div>
         </div>
       </main>
@@ -297,21 +297,21 @@ export default function Home() {
     <main style={{
       minHeight:"100vh",width:"100%",color:"#fff",display:"flex",justifyContent:"center",
       padding:"16px 16px 40px",
-      background:"radial-gradient(circle at 15% 0%,rgba(37,99,235,.18),transparent 34%),radial-gradient(circle at 100% 22%,rgba(14,165,233,.08),transparent 28%),#080d19"
+      background:"radial-gradient(circle at 15% 0%,rgba(157,34,53,.18),transparent 34%),radial-gradient(circle at 100% 22%,rgba(225,29,72,.08),transparent 28%),#080d19"
     }}>
       <style dangerouslySetInnerHTML={{ __html: SKEL_CSS }} />
       <div style={{ width:"100%", maxWidth:980 }}>
         <header style={{
           borderRadius:24,background:"linear-gradient(145deg,rgba(30,41,59,.96),rgba(15,23,42,.96))",
-          border:"1px solid rgba(96,165,250,.2)",padding:20,marginTop:6,marginBottom:14,
+          border:"1px solid rgba(248,113,113,.2)",padding:20,marginTop:6,marginBottom:14,
           boxShadow:"0 24px 60px rgba(0,0,0,.25)",position:"relative",overflow:"hidden"
         }}>
-          <div style={{position:"absolute",inset:"0 0 auto",height:3,background:"linear-gradient(90deg,#2563eb,#0ea5e9,#14b8a6)"}} />
+          <div style={{position:"absolute",inset:"0 0 auto",height:3,background:"linear-gradient(90deg,#9d2235,#e11d48,#14b8a6)"}} />
           <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:14,flexWrap:"wrap"}}>
             <div style={{display:"flex",alignItems:"center",gap:13}}>
               <div style={{
                 width:52,height:52,borderRadius:16,display:"grid",placeItems:"center",
-                background:"linear-gradient(145deg,#2563eb,#0ea5e9)",boxShadow:"0 12px 24px rgba(37,99,235,.28)",
+                background:"linear-gradient(145deg,#9d2235,#e11d48)",boxShadow:"0 12px 24px rgba(157,34,53,.28)",
                 fontSize:18,fontWeight:950,letterSpacing:"-.5px"
               }}>ASC</div>
               <div>
@@ -332,8 +332,8 @@ export default function Home() {
 
           <div style={{display:"grid",gridTemplateColumns:"repeat(3,minmax(0,1fr))",gap:8,marginTop:18}}>
             {[
-              {label:"Storage Areas",value:areas.length,color:"#93c5fd"},
-              {label:"Tracked Placements",value:totalTracked,color:"#c4b5fd"},
+              {label:"Storage Areas",value:areas.length,color:"#fecaca"},
+              {label:"Tracked Placements",value:totalTracked,color:"#fecaca"},
               {label:"Need Attention",value:totalLow,color:totalLow > 0 ? "#fca5a5" : "#6ee7b7"},
             ].map(stat => (
               <div key={stat.label} style={{background:"rgba(2,6,23,.42)",border:"1px solid rgba(148,163,184,.12)",borderRadius:13,padding:"11px 12px"}}>
@@ -347,15 +347,15 @@ export default function Home() {
         <section style={{marginBottom:16}}>
           <div style={{fontSize:11,fontWeight:900,color:"#64748b",textTransform:"uppercase",letterSpacing:"1px",margin:"0 3px 9px"}}>Daily Work</div>
           <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(190px,1fr))",gap:9}}>
-            <button className="dashboard-card dashboard-card-primary" onClick={() => router.push("/ai")} style={{...card,background:"linear-gradient(145deg,#312e81,#0369a1)",border:"1px solid rgba(103,232,249,.3)"}}>
+            <button className="dashboard-card dashboard-card-primary" onClick={() => router.push("/ai")} style={{...card,background:"linear-gradient(145deg,#4c0519,#0369a1)",border:"1px solid rgba(254,205,211,.3)"}}>
               <div className="dashboard-icon"><DashboardIcon name="ai" /></div>
               <div style={{fontSize:16,fontWeight:900}}>AI Command Center</div>
-              <div style={{fontSize:11,color:"#bae6fd",marginTop:4}}>Ask questions and prepare safe actions</div>
+              <div style={{fontSize:11,color:"#ffe4e6",marginTop:4}}>Ask questions and prepare safe actions</div>
             </button>
-            <button className="dashboard-card dashboard-card-primary" onClick={() => router.push("/inventory")} style={{...card,background:"linear-gradient(145deg,#1d4ed8,#2563eb)",border:"1px solid rgba(147,197,253,.35)"}}>
+            <button className="dashboard-card dashboard-card-primary" onClick={() => router.push("/inventory")} style={{...card,background:"linear-gradient(145deg,#7f1d1d,#9d2235)",border:"1px solid rgba(254,202,202,.35)"}}>
               <div className="dashboard-icon"><DashboardIcon name="inventory" /></div>
               <div style={{fontSize:16,fontWeight:900}}>Open Inventory</div>
-              <div style={{fontSize:11,color:"#bfdbfe",marginTop:4}}>View and adjust building totals</div>
+              <div style={{fontSize:11,color:"#fee2e2",marginTop:4}}>View and adjust building totals</div>
             </button>
             <button className="dashboard-card" onClick={() => router.push("/chat")} style={card}>
               <div className="dashboard-icon"><DashboardIcon name="chat" /></div>
@@ -383,8 +383,8 @@ export default function Home() {
             {[
               {label:"SPD Inventory",icon:"🔬",href:"/spd",color:"#a5b4fc"},
               {label:"Pre-Op / PACU",icon:"🏥",href:"/preop",color:"#5eead4"},
-              {label:"Pre-Op Testing",icon:"🧪",href:"/preop-testing",color:"#7dd3fc"},
-              {label:"Kaya Restock",icon:"📦",href:"/kaya",color:"#c4b5fd"},
+              {label:"Pre-Op Testing",icon:"🧪",href:"/preop-testing",color:"#fda4af"},
+              {label:"Kaya Restock",icon:"📦",href:"/kaya",color:"#fecaca"},
             ].map(link => (
               <button className="dashboard-mini-card" key={link.href} onClick={() => router.push(link.href)} style={{
                 ...btnBase,marginBottom:0,padding:14,background:"rgba(30,41,59,.72)",
@@ -474,9 +474,9 @@ export default function Home() {
           )}
         </section>
 
-        <div style={{background:"rgba(59,130,246,.05)",border:"1px solid rgba(59,130,246,.12)",borderRadius:13,padding:"12px 16px",marginTop:16,textAlign:"center"}}>
+        <div style={{background:"rgba(200,16,46,.05)",border:"1px solid rgba(200,16,46,.12)",borderRadius:13,padding:"12px 16px",marginTop:16,textAlign:"center"}}>
           <div style={{fontSize:11,color:"#64748b"}}>Need help? Contact Brooklyn · M–F 7am–4pm CST</div>
-          <a href="mailto:brooklyncarter.0716@gmail.com" style={{fontSize:11,color:"#60a5fa",textDecoration:"none",fontWeight:800}}>brooklyncarter.0716@gmail.com</a>
+          <a href="mailto:brooklyncarter.0716@gmail.com" style={{fontSize:11,color:"#ef4444",textDecoration:"none",fontWeight:800}}>brooklyncarter.0716@gmail.com</a>
         </div>
       </div>
     </main>
