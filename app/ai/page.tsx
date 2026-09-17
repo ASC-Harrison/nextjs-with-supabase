@@ -58,6 +58,35 @@ type ConversationEntry = {
   error?: string;
 };
 
+type OperationsPriority = {
+  id: string;
+  name: string;
+  reference: string | null;
+  vendor: string | null;
+  on_hand: number;
+  par: number;
+  low: number;
+  unit: string | null;
+  status: "OUT" | "LOW";
+  backordered: boolean;
+};
+
+type OperationsSummary = {
+  generated_at: string;
+  metrics: {
+    active_items: number;
+    needs_attention: number;
+    out_of_stock: number;
+    open_orders: number;
+    overdue_orders: number;
+    backordered_orders: number;
+    missing_prices: number;
+    estimated_restock_cost: number;
+  };
+  priorities: OperationsPriority[];
+  safety: string;
+};
+
 const SUGGESTIONS = [
   "What needs attention right now?",
   "How many Arthroscopy with Pouch do we have?",
@@ -80,6 +109,27 @@ const CSS = `
   .ai-dot{width:7px;height:7px;border-radius:50%;background:#34d399;box-shadow:0 0 13px rgba(52,211,153,.7)}
   .ai-safety{display:flex;gap:9px;align-items:flex-start;margin-top:15px;padding:10px 12px;border-radius:12px;background:rgba(14,165,233,.07);border:1px solid rgba(56,189,248,.14);color:#bae6fd;font-size:11px;line-height:1.45}
   .ai-back{border:1px solid rgba(148,163,184,.16);background:rgba(15,23,42,.66);color:#94a3b8;border-radius:10px;padding:8px 12px;font:800 11px inherit;cursor:pointer;margin-bottom:10px}
+  .ai-brief{margin-top:12px;border:1px solid rgba(96,165,250,.17);border-radius:20px;padding:14px;background:linear-gradient(145deg,rgba(15,23,42,.91),rgba(12,21,38,.95));box-shadow:0 16px 42px rgba(0,0,0,.2)}
+  .ai-brief-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:11px}
+  .ai-brief-title{font-size:14px;font-weight:950;color:#f8fafc}
+  .ai-brief-sub{font-size:9px;color:#64748b;margin-top:3px}
+  .ai-refresh{border:1px solid rgba(96,165,250,.2);background:rgba(37,99,235,.09);color:#93c5fd;border-radius:9px;padding:7px 10px;font:850 10px inherit;cursor:pointer}
+  .ai-refresh:disabled{opacity:.45;cursor:not-allowed}
+  .ai-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
+  .ai-metric{min-width:0;border:1px solid rgba(148,163,184,.11);background:rgba(2,6,23,.35);border-radius:13px;padding:10px}
+  .ai-metric-value{font-size:22px;line-height:1;font-weight:950;color:#f8fafc}
+  .ai-metric-value.warn{color:#fbbf24}.ai-metric-value.danger{color:#fb7185}.ai-metric-value.good{color:#5eead4}
+  .ai-metric-label{margin-top:6px;color:#64748b;font-size:8px;font-weight:900;letter-spacing:.55px;text-transform:uppercase}
+  .ai-priority{display:flex;align-items-center;gap:9px;margin-top:8px;padding:9px;border:1px solid rgba(148,163,184,.09);background:rgba(2,6,23,.27);border-radius:11px}
+  .ai-priority:first-child{margin-top:11px}
+  .ai-priority-main{min-width:0;flex:1}
+  .ai-priority-name{font-size:11px;font-weight:850;color:#e2e8f0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .ai-priority-meta{font-size:9px;color:#64748b;margin-top:3px}
+  .ai-priority-count{font-size:11px;color:#fda4af;font-weight:900;white-space:nowrap}
+  .ai-badge{display:inline-block;margin-left:5px;border-radius:999px;padding:2px 5px;background:rgba(245,158,11,.12);color:#fbbf24;font-size:7px;font-weight:900}
+  .ai-brief-empty{padding:13px;text-align:center;color:#6ee7b7;font-size:11px}
+  .ai-brief-error{padding:11px;border-radius:11px;background:rgba(239,68,68,.07);color:#fca5a5;font-size:11px}
+  .ai-brief-foot{display:flex;justify-content:space-between;gap:8px;margin-top:10px;color:#526178;font-size:8px}
   .ai-suggestions{display:flex;gap:7px;overflow-x:auto;padding:13px 1px 10px;scrollbar-width:none}
   .ai-suggestions::-webkit-scrollbar{display:none}
   .ai-chip{flex:0 0 auto;border:1px solid rgba(96,165,250,.18);background:rgba(30,41,59,.66);color:#bfdbfe;border-radius:999px;padding:8px 11px;font:750 11px inherit;cursor:pointer}
@@ -112,7 +162,7 @@ const CSS = `
   .ai-send{height:48px;min-width:92px;border:0;border-radius:12px;background:linear-gradient(145deg,#2563eb,#0891b2);color:white;font:900 12px inherit;cursor:pointer;box-shadow:0 10px 24px rgba(37,99,235,.25)}
   .ai-send:disabled{opacity:.42;cursor:not-allowed}
   .ai-foot{display:flex;justify-content:space-between;gap:10px;margin-top:7px;font-size:9px;color:#526178}
-  @media(max-width:600px){.ai-root{padding:9px 9px 102px}.ai-hero{padding:15px}.ai-title{font-size:21px}.ai-live{padding:6px 8px}.ai-conversation{padding:10px}.ai-question{max-width:88%}.ai-answer{max-width:96%}.ai-send{min-width:70px}.ai-results{grid-template-columns:1fr}}
+  @media(max-width:600px){.ai-root{padding:9px 9px 102px}.ai-hero{padding:15px}.ai-title{font-size:21px}.ai-live{padding:6px 8px}.ai-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.ai-conversation{padding:10px}.ai-question{max-width:88%}.ai-answer{max-width:96%}.ai-send{min-width:70px}.ai-results{grid-template-columns:1fr}}
 `;
 
 export default function AICommandCenterPage() {
@@ -123,6 +173,9 @@ export default function AICommandCenterPage() {
   const [entries, setEntries] = useState<ConversationEntry[]>([]);
   const [loading, setLoading] = useState(false);
   const [authReady, setAuthReady] = useState(false);
+  const [summary, setSummary] = useState<OperationsSummary | null>(null);
+  const [summaryLoading, setSummaryLoading] = useState(false);
+  const [summaryError, setSummaryError] = useState("");
   const endRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -140,8 +193,41 @@ export default function AICommandCenterPage() {
   }, [router]);
 
   useEffect(() => {
+    if (authReady) void loadOperationsSummary();
+  }, [authReady]);
+
+  useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [entries, loading]);
+
+  async function loadOperationsSummary() {
+    if (summaryLoading) return;
+    setSummaryLoading(true);
+    setSummaryError("");
+    try {
+      const { data } = await supabase.auth.getSession();
+      if (!data.session) throw new Error("Please sign in again.");
+
+      const response = await fetch("/api/ai-operations-summary", {
+        headers: { Authorization: "Bearer " + data.session.access_token },
+        cache: "no-store",
+      });
+      const result = await response.json().catch(() => null);
+      if (!response.ok || !result?.ok) {
+        throw new Error(result?.error || "The operations briefing could not be loaded.");
+      }
+      setSummary({
+        generated_at: result.generated_at,
+        metrics: result.metrics,
+        priorities: result.priorities || [],
+        safety: result.safety,
+      });
+    } catch (error: any) {
+      setSummaryError(error?.message || "The operations briefing could not be loaded.");
+    } finally {
+      setSummaryLoading(false);
+    }
+  }
 
   async function ask(questionOverride?: string) {
     const question = (questionOverride ?? draft).trim();
@@ -215,6 +301,67 @@ export default function AICommandCenterPage() {
               <span>🛡️</span>
               <span><strong>Safe mode:</strong> AI can read and prepare actions, but it cannot silently change inventory. Any draft opens the existing protected workflow for confirmation.</span>
             </div>
+          </section>
+
+          <section className="ai-brief" aria-live="polite">
+            <div className="ai-brief-head">
+              <div>
+                <div className="ai-brief-title">Today’s Operations Briefing</div>
+                <div className="ai-brief-sub">Live read-only analysis of inventory, ordering, and pricing</div>
+              </div>
+              <button className="ai-refresh" disabled={summaryLoading || !authReady} onClick={() => void loadOperationsSummary()}>
+                {summaryLoading ? "Checking…" : "↻ Refresh"}
+              </button>
+            </div>
+
+            {summaryError ? (
+              <div className="ai-brief-error">{summaryError}</div>
+            ) : !summary ? (
+              <div className="ai-brief-empty">{summaryLoading ? "Reading live operations safely…" : "Preparing briefing…"}</div>
+            ) : (
+              <>
+                <div className="ai-metrics">
+                  <div className="ai-metric">
+                    <div className={"ai-metric-value " + (summary.metrics.needs_attention ? "warn" : "good")}>{summary.metrics.needs_attention}</div>
+                    <div className="ai-metric-label">Needs Attention</div>
+                  </div>
+                  <div className="ai-metric">
+                    <div className={"ai-metric-value " + (summary.metrics.out_of_stock ? "danger" : "good")}>{summary.metrics.out_of_stock}</div>
+                    <div className="ai-metric-label">Out of Stock</div>
+                  </div>
+                  <div className="ai-metric">
+                    <div className="ai-metric-value">{summary.metrics.open_orders}</div>
+                    <div className="ai-metric-label">Open Orders</div>
+                  </div>
+                  <div className="ai-metric">
+                    <div className={"ai-metric-value " + (summary.metrics.overdue_orders ? "danger" : "good")}>{summary.metrics.overdue_orders}</div>
+                    <div className="ai-metric-label">Overdue</div>
+                  </div>
+                </div>
+
+                {summary.priorities.slice(0, 5).map(item => (
+                  <div className="ai-priority" key={item.id}>
+                    <div className="ai-priority-main">
+                      <div className="ai-priority-name">
+                        {item.name}
+                        {item.backordered && <span className="ai-badge">BACKORDERED</span>}
+                      </div>
+                      <div className="ai-priority-meta">{item.reference || "No reference"} · Low {item.low} · PAR {item.par}</div>
+                    </div>
+                    <div className="ai-priority-count">{item.on_hand} {item.unit || ""}</div>
+                  </div>
+                ))}
+
+                {summary.priorities.length === 0 && (
+                  <div className="ai-brief-empty">✓ No items with a configured low level currently need attention.</div>
+                )}
+
+                <div className="ai-brief-foot">
+                  <span>{summary.metrics.missing_prices} items still need pricing</span>
+                  <span>Updated {new Date(summary.generated_at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</span>
+                </div>
+              </>
+            )}
           </section>
 
           <div className="ai-suggestions" aria-label="Suggested questions">
