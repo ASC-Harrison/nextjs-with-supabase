@@ -11,7 +11,7 @@ const supabase = createClient(
 );
 
 const KAYA_AREA = "Kaya / Case Picking";
-const OPEN_STATUSES = new Set(["PENDING", "SEEN", "IN_ROUTE"]);
+const OPEN_STATUSES = new Set(["PENDING", "SEEN", "IN_ROUTE", "DELAYED"]);
 
 type Item = {
   item_id: string;
@@ -46,7 +46,8 @@ function statusDetails(status: string) {
   const values: Record<string, { label: string; color: string }> = {
     PENDING: { label: "Request Sent", color: "#fbbf24" },
     SEEN: { label: "Seen by Receiving", color: "#f87171" },
-    IN_ROUTE: { label: "On the Way", color: "#ef4444" },
+    IN_ROUTE: { label: "On the Way", color: "#60a5fa" },
+    DELAYED: { label: "Delayed", color: "#fbbf24" },
     RESTOCKED: { label: "Restocked", color: "#34d399" },
     OUT_OF_STOCK: { label: "Out of Stock", color: "#fb7185" },
   };
