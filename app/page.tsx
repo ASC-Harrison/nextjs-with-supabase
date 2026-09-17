@@ -368,11 +368,18 @@ export default function Home() {
               <div style={{fontSize:11,color:"#94a3b8",marginTop:4}}>Find supplies by reference number</div>
             </button>
             {isAdmin && (
-              <button className="dashboard-card" onClick={() => router.push("/order-history")} style={card}>
-                <div className="dashboard-icon"><DashboardIcon name="orders" /></div>
-                <div style={{fontSize:16,fontWeight:900}}>Orders & Receiving</div>
-                <div style={{fontSize:11,color:"#94a3b8",marginTop:4}}>Track orders and receive deliveries</div>
-              </button>
+              <>
+                <button className="dashboard-card" onClick={() => router.push("/order-history")} style={card}>
+                  <div className="dashboard-icon"><DashboardIcon name="orders" /></div>
+                  <div style={{fontSize:16,fontWeight:900}}>Orders & Receiving</div>
+                  <div style={{fontSize:11,color:"#94a3b8",marginTop:4}}>Track orders and receive deliveries</div>
+                </button>
+                <button className="dashboard-card" onClick={() => router.push("/admin-users")} style={{...card,background:"linear-gradient(145deg,rgba(157,34,53,.5),rgba(15,23,42,.92))",border:"1px solid rgba(248,113,113,.28)"}}>
+                  <div className="dashboard-icon" style={{color:"#fecaca"}}>👥</div>
+                  <div style={{fontSize:16,fontWeight:900}}>Add / Manage Users</div>
+                  <div style={{fontSize:11,color:"#fecaca",marginTop:4}}>Create staff accounts and reset passwords</div>
+                </button>
+              </>
             )}
           </div>
         </section>
