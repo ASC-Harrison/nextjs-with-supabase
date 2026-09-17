@@ -560,7 +560,7 @@ export default function InventoryPage() {
   async function fetchWithRetry(url:string,options:RequestInit,retries=2,timeoutMs=12000):Promise<Response>{for(let attempt=0;attempt<=retries;attempt++){try{const controller=new AbortController();const timer=setTimeout(()=>controller.abort(),timeoutMs);const res=await fetch(url,{...options,signal:controller.signal});clearTimeout(timer);return res;}catch(e){if(attempt===retries)throw e;await new Promise(r=>setTimeout(r,800));}}throw new Error("Request failed after retries");}
   async function doTotalsSet(row:BuildingTotalRow,value:number,pinAlreadyPassed=false){
     if(totalsSaveLockRef.current)return;
-    if(locked&&!pinAlreadyPassed){setPendingTotalsAction({kind:"SET",value});openPin("totalsEdit");return;}
+    if(locked&&tab!=="Totals"&&!pinAlreadyPassed){setPendingTotalsAction({kind:"SET",value});openPin("totalsEdit");return;}
     totalsSaveLockRef.current=true;
     setTotalsSavingItemId(row.item_id);
     try{
@@ -590,7 +590,7 @@ export default function InventoryPage() {
   async function doTotalsAdjust(row:BuildingTotalRow,delta:number,pinAlreadyPassed=false){
     if(delta===0){alert("Delta cannot be 0.");return;}
     if(totalsSaveLockRef.current)return;
-    if(locked&&!pinAlreadyPassed){setPendingTotalsAction({kind:"ADJUST",delta});openPin("totalsEdit");return;}
+    if(locked&&tab!=="Totals"&&!pinAlreadyPassed){setPendingTotalsAction({kind:"ADJUST",delta});openPin("totalsEdit");return;}
     totalsSaveLockRef.current=true;
     setTotalsSavingItemId(row.item_id);
     try{
@@ -616,10 +616,10 @@ export default function InventoryPage() {
       setTotalsSavingItemId(null);
     }
   }
-  async function doTotalsSetActive(row:BuildingTotalRow,is_active:boolean,pinAlreadyPassed=false){if(locked&&!pinAlreadyPassed){setPendingTotalsAction({kind:"SET_ACTIVE",is_active});openPin("totalsEdit");return;}if(!confirm(is_active?`Restore "${row.name}" to active items?`:`Move "${row.name}" to inactive items?`))return;try{const res=await fetchWithRetry("/api/building-inventory/update",{method:"POST",headers:{"Content-Type":"application/json"},cache:"no-store",body:JSON.stringify({item_id:row.item_id,action:"SET_ACTIVE",is_active})});const json=await res.json();if(!json.ok){alert(`Update failed: ${json.error}`);return;}pushAudit({action:is_active?"ITEM_RESTORED":"ITEM_INACTIVE",details:`Item=${row.name}`});setTotalsEditOpen(false);await loadTotals();}catch(e:any){alert(e?.name==="AbortError"?"Request timed out — check your connection and try again.":(e?.message??"Update failed"));}}
+  async function doTotalsSetActive(row:BuildingTotalRow,is_active:boolean,pinAlreadyPassed=false){if(locked&&tab!=="Totals"&&!pinAlreadyPassed){setPendingTotalsAction({kind:"SET_ACTIVE",is_active});openPin("totalsEdit");return;}if(!confirm(is_active?`Restore "${row.name}" to active items?`:`Move "${row.name}" to inactive items?`))return;try{const res=await fetchWithRetry("/api/building-inventory/update",{method:"POST",headers:{"Content-Type":"application/json"},cache:"no-store",body:JSON.stringify({item_id:row.item_id,action:"SET_ACTIVE",is_active})});const json=await res.json();if(!json.ok){alert(`Update failed: ${json.error}`);return;}pushAudit({action:is_active?"ITEM_RESTORED":"ITEM_INACTIVE",details:`Item=${row.name}`});setTotalsEditOpen(false);await loadTotals();}catch(e:any){alert(e?.name==="AbortError"?"Request timed out — check your connection and try again.":(e?.message??"Update failed"));}}
 
   async function doSaveItemStatus(itemId:string,order_status:string,backordered:boolean,itemName?:string){setItemStatusSaving(true);try{const cleanStatus=(order_status||"IN STOCK").trim().toUpperCase();const{error}=await supabase.from("items").update({order_status:cleanStatus,backordered:!!backordered}).eq("id",itemId);if(error)throw error;if(item&&item.id===itemId)setItem({...item,order_status:cleanStatus,backordered:!!backordered});setMatches((prev)=>prev.map((m)=>m.id===itemId?{...m,order_status:cleanStatus,backordered:!!backordered}:m));setTotals((prev)=>prev.map((r)=>r.item_id===itemId?{...r,order_status:cleanStatus,backordered:!!backordered}:r));setAreaInv((prev)=>prev.map((r)=>r.item_id===itemId?{...r,order_status:cleanStatus,backordered:!!backordered}:r));if(totalsEditRow?.item_id===itemId){setTotalsEditRow({...totalsEditRow,order_status:cleanStatus,backordered:!!backordered});setTotalsOrderStatusInput(cleanStatus);setTotalsBackorderedInput(!!backordered);}if(areaEditRow?.item_id===itemId)setAreaEditRow({...areaEditRow,order_status:cleanStatus,backordered:!!backordered});setStatus(`Saved item status for ${itemName||item?.name||"item"}`);pushAudit({action:"ITEM_STATUS_SAVE",details:`Item=${itemName||item?.name||itemId} Status=${cleanStatus} Backordered=${backordered?"YES":"NO"}`});}catch(e:any){alert(`Status save failed: ${e?.message??"unknown error"}`);}finally{setItemStatusSaving(false);}}
-  async function saveItemStatus(itemId:string,order_status:string,backordered:boolean,itemName?:string){if(locked){setPendingItemStatusSave({item_id:itemId,order_status,backordered,item_name:itemName});openPin("itemStatusEdit");return;}await doSaveItemStatus(itemId,order_status,backordered,itemName);}
+  async function saveItemStatus(itemId:string,order_status:string,backordered:boolean,itemName?:string){if(locked&&tab!=="Totals"){setPendingItemStatusSave({item_id:itemId,order_status,backordered,item_name:itemName});openPin("itemStatusEdit");return;}await doSaveItemStatus(itemId,order_status,backordered,itemName);}
 
   function openAreaRowEditor(row:AreaInvRow){setAreaEditRow(row);setAreaEditOnHand(String(row.on_hand??0));setAreaEditPar(String(row.par_level??0));setAreaEditLow(String(row.low_level??0));setAreaEditOpen(true);pushAudit({action:"AREA_ROW_EDIT_OPEN",details:`Area=${row.storage_area_name} Item=${row.item_name}`});}
   function buildAreaSavePayload(row:AreaInvRow){const onHand=parseIntSafe(areaEditOnHand);const par=parseIntSafe(areaEditPar);const low=parseIntSafe(areaEditLow);if(onHand===null||onHand<0)throw new Error("On-hand must be 0 or more.");if(par===null||par<0)throw new Error("Par must be 0 or more.");if(low===null||low<0)throw new Error("Low must be 0 or more.");return{storage_area_id:row.storage_area_id,item_id:row.item_id,on_hand:onHand,par_level:par,low_level:low};}
@@ -963,7 +963,7 @@ export default function InventoryPage() {
                         {[{label:"Par",value:par,warn:par===0},{label:"Low",value:low,warn:low===0},{label:"Unit",value:r.unit??"—",warn:false}].map(({label,value,warn})=>(<div key={label} className={`stat-pill ${warn?"wb":""}`}><div className="stat-lbl">{label}</div><div className={`stat-val ${warn?"w":""}`}>{value}</div></div>))}
                       </div>
                       {r.notes && <div className="notes-txt">Notes: {r.notes}</div>}
-                      <div className="edit-hint">Tap to edit on-hand + item details{locked?" (password required once per app session)":""}</div>
+                      <div className="edit-hint">Tap to edit on-hand + item details</div>
                     </button>
                   );
                 })}
