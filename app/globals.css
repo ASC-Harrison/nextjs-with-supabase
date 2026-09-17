@@ -6,8 +6,8 @@
   color-scheme: dark;
   --asc-navy: #080d19;
   --asc-panel: #101a2d;
-  --asc-blue: #3b82f6;
-  --asc-cyan: #22d3ee;
+  --asc-blue: #c8102e;
+  --asc-cyan: #f43f5e;
   --asc-teal: #2dd4bf;
   --asc-text: #f1f5f9;
   --asc-muted: #94a3b8;
@@ -60,7 +60,7 @@ a:focus-visible,
 input:focus-visible,
 select:focus-visible,
 textarea:focus-visible {
-  outline: 2px solid #60a5fa;
+  outline: 2px solid #ef4444;
   outline-offset: 2px;
 }
 

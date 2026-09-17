@@ -50,15 +50,15 @@ const CSS = `
   .wrap{max-width:700px;margin:0 auto;}
   .back-btn{display:inline-flex;align-items:center;gap:6px;background:#1e2d42;border:1px solid #1e3a5f;border-radius:10px;padding:8px 16px;font-size:13px;font-weight:600;color:#94a3b8;cursor:pointer;margin-top:16px;margin-bottom:8px;font-family:inherit;}
   .header{background:linear-gradient(135deg,#162032,#111827);border:1px solid #1e3a5f;border-radius:20px;padding:20px;margin-bottom:16px;position:relative;overflow:hidden;}
-  .header::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,#3b82f6,#8b5cf6,#10b981);}
+  .header::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,#c8102e,#be123c,#10b981);}
   .header-title{font-size:22px;font-weight:900;color:#f0f6ff;letter-spacing:-0.8px;margin-bottom:2px;}
   .header-sub{font-size:12px;color:#64748b;}
   .stats-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(125px,1fr));gap:8px;margin-bottom:16px;}
   .stat{background:#162032;border:1px solid #1e3a5f;border-radius:12px;padding:12px;text-align:center;color:inherit;font-family:inherit;width:100%;cursor:pointer;appearance:none;transition:border-color .15s,background .15s,transform .15s;}
-  .stat:hover{border-color:#3b82f6;background:#18253a;}
+  .stat:hover{border-color:#c8102e;background:#18253a;}
   .stat:active{transform:scale(.98);}
-  .stat.active{border-color:#60a5fa;background:rgba(37,99,235,.18);box-shadow:0 0 0 2px rgba(96,165,250,.18);}
-  .stat:focus-visible{outline:3px solid rgba(96,165,250,.55);outline-offset:2px;}
+  .stat.active{border-color:#ef4444;background:rgba(157,34,53,.18);box-shadow:0 0 0 2px rgba(248,113,113,.18);}
+  .stat:focus-visible{outline:3px solid rgba(248,113,113,.55);outline-offset:2px;}
   .stat-val{font-size:22px;font-weight:900;letter-spacing:-1px;}
   .stat-lbl{font-size:9px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;margin-top:2px;}
   .controls{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;}
@@ -69,7 +69,7 @@ const CSS = `
   .tl-item{position:relative;margin-bottom:16px;}
   .tl-dot{position:absolute;left:-20px;top:14px;width:10px;height:10px;border-radius:50%;border:2px solid;}
   .tl-dot.PENDING{background:#162032;border-color:#f59e0b;}
-  .tl-dot.ORDERED{background:#3b82f6;border-color:#3b82f6;}
+  .tl-dot.ORDERED{background:#c8102e;border-color:#c8102e;}
   .tl-dot.BACKORDERED{background:#ef4444;border-color:#ef4444;}
   .tl-dot.RECEIVED{background:#10b981;border-color:#10b981;}
   .tl-dot.ISSUE{background:#f97316;border-color:#f97316;}
@@ -83,14 +83,14 @@ const CSS = `
   .tl-meta{font-size:11px;color:#64748b;line-height:1.6;}
   .badge{display:inline-flex;align-items:center;padding:2px 8px;border-radius:9999px;font-size:10px;font-weight:800;}
   .badge-pending{background:rgba(245,158,11,0.15);color:#fcd34d;border:1px solid rgba(245,158,11,0.3);}
-  .badge-ordered{background:rgba(59,130,246,0.15);color:#93c5fd;border:1px solid rgba(59,130,246,0.3);}
+  .badge-ordered{background:rgba(200,16,46,0.15);color:#fecaca;border:1px solid rgba(200,16,46,0.3);}
   .badge-backordered{background:rgba(239,68,68,0.15);color:#fca5a5;border:1px solid rgba(239,68,68,0.3);}
   .badge-received{background:rgba(16,185,129,0.15);color:#6ee7b7;border:1px solid rgba(16,185,129,0.3);}
   .badge-issue{background:rgba(249,115,22,0.15);color:#fdba74;border:1px solid rgba(249,115,22,0.35);}
   .badge-cancelled{background:rgba(100,116,139,0.18);color:#cbd5e1;border:1px solid rgba(148,163,184,0.35);}
   .view-tabs{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px;}
   .view-tab{border:1px solid #1e3a5f;border-radius:11px;background:#111827;color:#94a3b8;padding:11px 12px;font:800 13px inherit;cursor:pointer;}
-  .view-tab.active{background:#1d4ed8;border-color:#3b82f6;color:#fff;}
+  .view-tab.active{background:#7f1d1d;border-color:#c8102e;color:#fff;}
   .view-tab.issue-active{background:#c2410c;border-color:#f97316;color:#fff;}
   .timeline-steps{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap;}
   .step{font-size:10px;color:#64748b;display:flex;align-items:center;gap:4px;}
@@ -101,12 +101,12 @@ const CSS = `
   .count{font-size:11px;color:#334155;margin-bottom:8px;}
   .order-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px;}
   .receive-btn,.received-only-btn{width:100%;border:0;border-radius:10px;color:#fff;padding:11px 14px;font:800 13px inherit;cursor:pointer;}
-  .receive-btn{background:#2563eb;}
-  .receive-btn:hover{background:#1d4ed8;}
+  .receive-btn{background:#9d2235;}
+  .receive-btn:hover{background:#7f1d1d;}
   .received-only-btn{background:#10b981;}
   .received-only-btn:hover{background:#059669;}
-  .ordered-btn{grid-column:1/-1;width:100%;border:0;border-radius:10px;background:#2563eb;color:#fff;padding:11px 14px;font:800 13px inherit;cursor:pointer;}
-  .ordered-btn:hover{background:#1d4ed8;}
+  .ordered-btn{grid-column:1/-1;width:100%;border:0;border-radius:10px;background:#9d2235;color:#fff;padding:11px 14px;font:800 13px inherit;cursor:pointer;}
+  .ordered-btn:hover{background:#7f1d1d;}
   .ordered-btn:disabled{opacity:.55;cursor:not-allowed;}
   .receive-btn:disabled,.received-only-btn:disabled{opacity:.55;cursor:not-allowed;}
   .followup-btn{grid-column:1/-1;width:100%;border:1px solid rgba(168,85,247,.3);border-radius:10px;background:rgba(168,85,247,.15);color:#d8b4fe;padding:10px 14px;font:800 12px inherit;cursor:pointer;}
@@ -114,7 +114,7 @@ const CSS = `
   .issue-btn{grid-column:1/-1;width:100%;border:1px solid rgba(249,115,22,.35);border-radius:10px;background:rgba(249,115,22,.13);color:#fdba74;padding:10px 14px;font:800 12px inherit;cursor:pointer;}
   .cancel-order-btn{grid-column:1/-1;width:100%;border:1px solid rgba(239,68,68,.35);border-radius:10px;background:rgba(239,68,68,.12);color:#fca5a5;padding:10px 14px;font:800 12px inherit;cursor:pointer;}
   .cancel-order-btn:disabled{opacity:.55;cursor:not-allowed;}
-  .resolve-issue-btn{grid-column:1/-1;width:100%;border:0;border-radius:10px;background:#2563eb;color:#fff;padding:11px 14px;font:800 13px inherit;cursor:pointer;}
+  .resolve-issue-btn{grid-column:1/-1;width:100%;border:0;border-radius:10px;background:#9d2235;color:#fff;padding:11px 14px;font:800 13px inherit;cursor:pointer;}
   .issue-btn:disabled,.resolve-issue-btn:disabled{opacity:.55;cursor:not-allowed;}
 `;
 
@@ -511,7 +511,7 @@ This does NOT add ${qtyThisDelivery} to the inventory count. Use “Add to Inven
         <div className="wrap">
           {receivingOrder && createPortal((
             <div style={{position:"fixed",inset:0,zIndex:1000,background:"rgba(2,6,23,.82)",display:"grid",placeItems:"center",padding:16}} onClick={()=>{if(!receiveSaving)setReceivingOrder(null);}}>
-              <div style={{width:"min(430px,100%)",background:"#111827",border:"1px solid rgba(96,165,250,.28)",borderRadius:18,padding:18,boxShadow:"0 24px 70px rgba(0,0,0,.55)"}} onClick={event=>event.stopPropagation()}>
+              <div style={{width:"min(430px,100%)",background:"#111827",border:"1px solid rgba(248,113,113,.28)",borderRadius:18,padding:18,boxShadow:"0 24px 70px rgba(0,0,0,.55)"}} onClick={event=>event.stopPropagation()}>
                 <div style={{fontSize:18,fontWeight:900,marginBottom:4}}>📦 Add & Receive</div>
                 <div style={{fontSize:13,color:"#cbd5e1",marginBottom:16}}>{receivingOrder.item_name}</div>
                 <label style={{display:"block",fontSize:11,fontWeight:800,color:"#94a3b8",marginBottom:5}}>AMOUNT RECEIVED</label>
@@ -579,7 +579,7 @@ This does NOT add ${qtyThisDelivery} to the inventory count. Use “Add to Inven
               <div className="stat-lbl">Pending</div>
             </button>
             <button type="button" className={`stat ${orderView === "ORDERS" && statusFilter === "ORDERED" ? "active" : ""}`} aria-pressed={orderView === "ORDERS" && statusFilter === "ORDERED"} onClick={()=>{setOrderView("ORDERS");setStatusFilter("ORDERED");}}>
-              <div className="stat-val" style={{ color:"#60a5fa" }}>{totalOrdered}</div>
+              <div className="stat-val" style={{ color:"#ef4444" }}>{totalOrdered}</div>
               <div className="stat-lbl">Ordered</div>
             </button>
             <button type="button" className={`stat ${orderView === "ORDERS" && statusFilter === "BACKORDERED" ? "active" : ""}`} aria-pressed={orderView === "ORDERS" && statusFilter === "BACKORDERED"} onClick={()=>{setOrderView("ORDERS");setStatusFilter("BACKORDERED");}}>
@@ -641,7 +641,7 @@ This does NOT add ${qtyThisDelivery} to the inventory count. Use “Add to Inven
                       )}
                     </div>
                     {order.notes && !["RECEIVED","CANCELLED"].includes(order.status) && (
-                      <div style={{ fontSize:12, color:"#93c5fd", marginTop:8, marginBottom:8, background:"rgba(59,130,246,0.08)", border:"1px solid rgba(59,130,246,0.25)", borderRadius:7, padding:"7px 9px", lineHeight:1.45 }}>
+                      <div style={{ fontSize:12, color:"#fecaca", marginTop:8, marginBottom:8, background:"rgba(200,16,46,0.08)", border:"1px solid rgba(200,16,46,0.25)", borderRadius:7, padding:"7px 9px", lineHeight:1.45 }}>
                         📝 <strong>Note for Brooklyn:</strong> {order.notes}
                       </div>
                     )}
@@ -696,7 +696,7 @@ This does NOT add ${qtyThisDelivery} to the inventory count. Use “Add to Inven
                         <div style={{ fontSize:12, color:"#d8b4fe", fontWeight:800, marginBottom:6 }}>Send Brooklyn a follow-up about this item</div>
                         <textarea value={followUpNote} onChange={e=>setFollowUpNote(e.target.value.slice(0,500))} rows={3} placeholder="Can we please follow up on this item? We have not received it yet." style={{ width:"100%", borderRadius:8, border:"1px solid rgba(168,85,247,0.3)", background:"#111827", color:"#f0f6ff", padding:"9px 10px", fontSize:12, fontFamily:"inherit", outline:"none", resize:"vertical", marginBottom:8 }} />
                         <div style={{ display:"flex", gap:8 }}>
-                          <button type="button" onClick={()=>sendFollowUp(order)} disabled={followUpSending || !followUpNote.trim()} style={{ flex:1, border:0, borderRadius:8, background:"#7c3aed", color:"#fff", padding:"10px", fontWeight:800 }}>
+                          <button type="button" onClick={()=>sendFollowUp(order)} disabled={followUpSending || !followUpNote.trim()} style={{ flex:1, border:0, borderRadius:8, background:"#9d2235", color:"#fff", padding:"10px", fontWeight:800 }}>
                             {followUpSending ? "Sending…" : "✉️ Send to Brooklyn"}
                           </button>
                           <button type="button" onClick={()=>{setFollowUpId(null);setFollowUpNote("");}} disabled={followUpSending} style={{ border:"1px solid #1e3a5f", borderRadius:8, background:"#1e2d42", color:"#94a3b8", padding:"10px 14px", fontWeight:800 }}>Cancel</button>
