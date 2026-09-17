@@ -11,6 +11,7 @@ const supabase = createClient(
 
 const ADMIN_EMAILS = ["hogstud800@gmail.com", "brooklyncarter.0716@gmail.com"];
 const PREOP_ONLY_EMAILS = ["andrea.burris88@icloud.com"];
+const KAYA_ONLY_EMAILS = ["kayalivhuebner@gmail.com"];
 
 type Area = { id: string; name: string; total: number; low: number; };
 
@@ -106,8 +107,14 @@ export default function Home() {
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
       if (data.session) {
+        const email = data.session.user.email?.toLowerCase() ?? "";
         setUserEmail(data.session.user.email ?? null);
         localStorage.removeItem("asc_readonly");
+        if (KAYA_ONLY_EMAILS.includes(email)) {
+          setLoading(false);
+          router.replace("/kaya");
+          return;
+        }
         setLoading(false);
         loadAreas();
         return;
@@ -117,7 +124,13 @@ export default function Home() {
       if (token && email) {
         supabase.auth.setSession({ access_token: token, refresh_token: "" }).then(({ data: d }) => {
           if (d.session) {
+            const sessionEmail = d.session.user.email?.toLowerCase() ?? "";
             setUserEmail(d.session.user.email ?? null);
+            if (KAYA_ONLY_EMAILS.includes(sessionEmail)) {
+              setLoading(false);
+              router.replace("/kaya");
+              return;
+            }
             setLoading(false);
             loadAreas();
           } else {
