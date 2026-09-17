@@ -45,8 +45,8 @@ function withTimeout<T>(promise: PromiseLike<T>, ms = 12000): Promise<T> {
 function statusDetails(status: string) {
   const values: Record<string, { label: string; color: string }> = {
     PENDING: { label: "Request Sent", color: "#fbbf24" },
-    SEEN: { label: "Seen by Receiving", color: "#a78bfa" },
-    IN_ROUTE: { label: "On the Way", color: "#60a5fa" },
+    SEEN: { label: "Seen by Receiving", color: "#f87171" },
+    IN_ROUTE: { label: "On the Way", color: "#ef4444" },
     RESTOCKED: { label: "Restocked", color: "#34d399" },
     OUT_OF_STOCK: { label: "Out of Stock", color: "#fb7185" },
   };
@@ -56,15 +56,15 @@ function statusDetails(status: string) {
 const CSS = `
   *,*::before,*::after{box-sizing:border-box}
   body{margin:0;background:#080d19;font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','Segoe UI',sans-serif}
-  .k-root{min-height:100vh;color:#f8fafc;padding:12px 12px 110px;background:radial-gradient(circle at 12% 0%,rgba(124,58,237,.18),transparent 32%),radial-gradient(circle at 100% 24%,rgba(14,165,233,.08),transparent 28%),#080d19}
+  .k-root{min-height:100vh;color:#f8fafc;padding:12px 12px 110px;background:radial-gradient(circle at 12% 0%,rgba(157,34,53,.18),transparent 32%),radial-gradient(circle at 100% 24%,rgba(225,29,72,.08),transparent 28%),#080d19}
   .k-wrap{width:100%;max-width:980px;margin:0 auto}
   .k-header{position:sticky;top:0;z-index:30;margin:-12px -12px 12px;padding:14px 12px 12px;background:rgba(8,13,25,.93);border-bottom:1px solid rgba(148,163,184,.12);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px)}
   .k-header-in{max-width:980px;margin:0 auto;display:flex;align-items:center;justify-content:space-between;gap:10px}
   .k-title{font-size:22px;font-weight:950;letter-spacing:-.6px}
   .k-sub{font-size:10px;color:#94a3b8;margin-top:3px}
   .k-back,.k-refresh{border:1px solid rgba(148,163,184,.16);background:rgba(30,41,59,.72);color:#cbd5e1;border-radius:10px;padding:8px 10px;font:800 11px inherit;cursor:pointer}
-  .k-hero{border:1px solid rgba(167,139,250,.22);border-radius:20px;padding:15px;background:linear-gradient(145deg,rgba(46,16,101,.45),rgba(15,23,42,.92));box-shadow:0 20px 50px rgba(0,0,0,.22)}
-  .k-hero-title{font-size:15px;font-weight:900;color:#ede9fe}
+  .k-hero{border:1px solid rgba(248,113,113,.22);border-radius:20px;padding:15px;background:linear-gradient(145deg,rgba(46,16,101,.45),rgba(15,23,42,.92));box-shadow:0 20px 50px rgba(0,0,0,.22)}
+  .k-hero-title{font-size:15px;font-weight:900;color:#fff1f2}
   .k-hero-copy{font-size:11px;color:#a5b4fc;line-height:1.45;margin-top:5px}
   .k-stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px;margin-top:12px}
   .k-stat{background:rgba(2,6,23,.35);border:1px solid rgba(148,163,184,.11);border-radius:12px;padding:10px}
@@ -76,7 +76,7 @@ const CSS = `
   .k-request-row:last-child{border-bottom:0}
   .k-request-name{font-size:11px;font-weight:800;color:#e2e8f0;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .k-status{font-size:8px;font-weight:900;white-space:nowrap;border-radius:999px;padding:4px 7px;background:rgba(148,163,184,.08)}
-  .k-tools{position:sticky;top:73px;z-index:25;margin:12px 0;padding:10px;background:rgba(15,23,42,.93);border:1px solid rgba(96,165,250,.15);border-radius:15px;backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px)}
+  .k-tools{position:sticky;top:73px;z-index:25;margin:12px 0;padding:10px;background:rgba(15,23,42,.93);border:1px solid rgba(248,113,113,.15);border-radius:15px;backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px)}
   .k-search{width:100%;border:1px solid #334155;background:#0b1323;color:#f8fafc;border-radius:11px;padding:12px;font:14px inherit;outline:none}
   .k-filter-row{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:8px}
   .k-filter{border:1px solid rgba(148,163,184,.16);background:#172033;color:#94a3b8;border-radius:9px;padding:7px 10px;font:800 10px inherit;cursor:pointer}
@@ -95,17 +95,17 @@ const CSS = `
   .k-onhand-label{font-size:7px;color:#64748b;font-weight:900;text-transform:uppercase;margin-top:3px}
   .k-levels{display:flex;gap:6px;margin:9px 0}
   .k-pill{font-size:8px;font-weight:850;color:#94a3b8;background:rgba(2,6,23,.35);border:1px solid rgba(148,163,184,.1);border-radius:6px;padding:4px 6px}
-  .k-request{width:100%;border:1px solid rgba(167,139,250,.28);background:linear-gradient(145deg,rgba(124,58,237,.24),rgba(37,99,235,.18));color:#ddd6fe;border-radius:10px;padding:9px;font:900 11px inherit;cursor:pointer}
+  .k-request{width:100%;border:1px solid rgba(248,113,113,.28);background:linear-gradient(145deg,rgba(157,34,53,.24),rgba(157,34,53,.18));color:#fee2e2;border-radius:10px;padding:9px;font:900 11px inherit;cursor:pointer}
   .k-request.requested{border-color:rgba(52,211,153,.22);background:rgba(16,185,129,.09);color:#6ee7b7;cursor:default}
   .k-loading,.k-empty,.k-error{text-align:center;border:1px solid rgba(148,163,184,.12);border-radius:15px;padding:28px;color:#64748b;background:rgba(15,23,42,.55)}
   .k-error{color:#fca5a5}
   .k-modal-wrap{position:fixed;inset:0;z-index:120;background:rgba(2,6,23,.78);display:flex;align-items:flex-end;justify-content:center;padding:10px}
-  .k-modal{width:100%;max-width:520px;border:1px solid rgba(167,139,250,.26);border-radius:20px;padding:18px;background:linear-gradient(145deg,#1e293b,#0f172a);box-shadow:0 28px 80px rgba(0,0,0,.55)}
+  .k-modal{width:100%;max-width:520px;border:1px solid rgba(248,113,113,.26);border-radius:20px;padding:18px;background:linear-gradient(145deg,#1e293b,#0f172a);box-shadow:0 28px 80px rgba(0,0,0,.55)}
   .k-modal-title{font-size:17px;font-weight:950}
   .k-modal-copy{font-size:12px;color:#94a3b8;line-height:1.5;margin:7px 0 15px}
   .k-modal-actions{display:grid;grid-template-columns:1fr 1.5fr;gap:8px}
   .k-cancel,.k-confirm{border-radius:11px;padding:11px;border:1px solid rgba(148,163,184,.17);font:900 12px inherit;cursor:pointer}
-  .k-cancel{background:#1e293b;color:#94a3b8}.k-confirm{background:linear-gradient(145deg,#7c3aed,#2563eb);color:#fff}
+  .k-cancel{background:#1e293b;color:#94a3b8}.k-confirm{background:linear-gradient(145deg,#9d2235,#9d2235);color:#fff}
   .k-toast{position:fixed;z-index:150;left:50%;bottom:96px;transform:translateX(-50%);width:min(440px,calc(100vw - 24px));border-radius:12px;padding:11px 13px;text-align:center;font-size:11px;font-weight:850;box-shadow:0 18px 50px rgba(0,0,0,.42)}
   .k-toast.ok{background:#064e3b;color:#a7f3d0;border:1px solid #059669}.k-toast.err{background:#7f1d1d;color:#fecaca;border:1px solid #dc2626}
   @media(max-width:620px){.k-root{padding:9px 9px 105px}.k-header{margin:-9px -9px 10px;padding:12px 9px 10px}.k-title{font-size:19px}.k-grid{grid-template-columns:1fr}.k-tools{top:65px}}
@@ -305,7 +305,7 @@ export default function KayaRestockPage() {
             <div className="k-stats">
               <div className="k-stat"><div className="k-stat-num">{items.length}</div><div className="k-stat-label">All Items</div></div>
               <div className="k-stat"><div className="k-stat-num" style={{ color: lowCount ? "#fda4af" : "#6ee7b7" }}>{lowCount}</div><div className="k-stat-label">Need Attention</div></div>
-              <div className="k-stat"><div className="k-stat-num" style={{ color: "#c4b5fd" }}>{openCount}</div><div className="k-stat-label">Open Requests</div></div>
+              <div className="k-stat"><div className="k-stat-num" style={{ color: "#fecaca" }}>{openCount}</div><div className="k-stat-label">Open Requests</div></div>
             </div>
           </section>
 
