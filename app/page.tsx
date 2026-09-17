@@ -415,7 +415,7 @@ export default function Home() {
                 ["📜","Order History","/order-history"],
                 ["✉️","Message Brooklyn","/message-brooklyn"],
                 ["🔄","Restock Requests","/restock-requests"],
-                ["🔢","Recount Needed","/recount"],
+                ["🎯","Inventory Accuracy","/recount"],
                 ["📦","Box Notes","/box-notes"],
                 ["➕","Add Items","/items"],
                 ["📊","Reports","/reports"],
