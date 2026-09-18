@@ -88,10 +88,11 @@ const CSS = `
   .badge-received{background:rgba(16,185,129,0.15);color:#6ee7b7;border:1px solid rgba(16,185,129,0.3);}
   .badge-issue{background:rgba(249,115,22,0.15);color:#fdba74;border:1px solid rgba(249,115,22,0.35);}
   .badge-cancelled{background:rgba(100,116,139,0.18);color:#cbd5e1;border:1px solid rgba(148,163,184,0.35);}
-  .view-tabs{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px;}
+  .view-tabs{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:12px;}
   .view-tab{border:1px solid #1e3a5f;border-radius:11px;background:#111827;color:#94a3b8;padding:11px 12px;font:800 13px inherit;cursor:pointer;}
   .view-tab.active{background:#7f1d1d;border-color:#c8102e;color:#fff;}
   .view-tab.issue-active{background:#c2410c;border-color:#f97316;color:#fff;}
+  .view-tab.note-active{background:#9a3412;border-color:#f97316;color:#fff;}
   .timeline-steps{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap;}
   .step{font-size:10px;color:#64748b;display:flex;align-items:center;gap:4px;}
   .step.done{color:#6ee7b7;}
@@ -124,7 +125,7 @@ export default function OrderHistoryPage() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("ALL");
-  const [orderView, setOrderView] = useState<"ALL" | "ORDERS" | "ISSUES">("ORDERS");
+  const [orderView, setOrderView] = useState<"ALL" | "ORDERS" | "ISSUES" | "NOTES">("ORDERS");
   const [staffFilter, setStaffFilter] = useState("ALL");
   const [updatingOrderId, setUpdatingOrderId] = useState<string | null>(null);
   const [followUpId, setFollowUpId] = useState<string | null>(null);
@@ -189,7 +190,9 @@ export default function OrderHistoryPage() {
         ? orders
         : orderView === "ISSUES"
           ? orders.filter(o => o.status === "ISSUE")
-          : orders.filter(o => activeStatuses.includes(o.status));
+          : orderView === "NOTES"
+            ? orders.filter(o => Boolean(o.notes?.trim()) && !["RECEIVED","CANCELLED"].includes(o.status))
+            : orders.filter(o => activeStatuses.includes(o.status));
     if (staffFilter !== "ALL") list = list.filter(o => o.requested_by === staffFilter);
     if (search.trim()) {
       const q = search.toLowerCase();
@@ -212,6 +215,7 @@ export default function OrderHistoryPage() {
   const totalCancelled = orders.filter(o => o.status === "CANCELLED").length;
   const totalIssues = orders.filter(o => o.status === "ISSUE").length;
   const totalActiveOrders = orders.filter(o => ["PENDING", "ORDERED", "BACKORDERED", "AWAITING"].includes(o.status)).length;
+  const totalActiveNotes = orders.filter(o => Boolean(o.notes?.trim()) && !["RECEIVED","CANCELLED"].includes(o.status)).length;
 
   function formatDate(ts: string) {
     return new Date(ts).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
@@ -601,7 +605,8 @@ This does NOT add ${qtyThisDelivery} to the inventory count. Use “Add to Inven
           </div>
 
           <div className="view-tabs">
-            <button type="button" className={`view-tab ${orderView === "ORDERS" && statusFilter === "ALL" ? "active" : ""}`} onClick={()=>{setOrderView("ORDERS");setStatusFilter("ALL");}}>📋 Active Orders ({totalActiveOrders})</button>
+            <button type="button" className={`view-tab ${orderView === "ORDERS" && statusFilter === "ALL" ? "active" : ""}`} onClick={()=>{setOrderView("ORDERS");setStatusFilter("ALL");}}>📋 Active ({totalActiveOrders})</button>
+            <button type="button" className={`view-tab ${orderView === "NOTES" ? "note-active" : ""}`} onClick={()=>{setOrderView("NOTES");setStatusFilter("ALL");}}>📝 Notes ({totalActiveNotes})</button>
             <button type="button" className={`view-tab ${orderView === "ISSUES" ? "issue-active" : ""}`} onClick={()=>{setOrderView("ISSUES");setStatusFilter("ALL");}}>⚠️ Issues ({totalIssues})</button>
           </div>
 
@@ -641,8 +646,9 @@ This does NOT add ${qtyThisDelivery} to the inventory count. Use “Add to Inven
                       )}
                     </div>
                     {order.notes && !["RECEIVED","CANCELLED"].includes(order.status) && (
-                      <div style={{ fontSize:12, color:"#fecaca", marginTop:8, marginBottom:8, background:"rgba(200,16,46,0.08)", border:"1px solid rgba(200,16,46,0.25)", borderRadius:7, padding:"7px 9px", lineHeight:1.45 }}>
-                        📝 <strong>Note for Brooklyn:</strong> {order.notes}
+                      <div style={{ fontSize:13, color:"#ffedd5", marginTop:10, marginBottom:10, background:"rgba(154,52,18,.22)", border:"2px solid rgba(249,115,22,.65)", borderRadius:9, padding:"10px 11px", lineHeight:1.5 }}>
+                        <div style={{fontSize:10,fontWeight:900,color:"#fdba74",letterSpacing:".7px",textTransform:"uppercase",marginBottom:4}}>📝 Note for Brooklyn — Please Read</div>
+                        <strong>{order.notes}</strong>
                       </div>
                     )}
                     {order.status === "CANCELLED" && (
