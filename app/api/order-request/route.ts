@@ -102,6 +102,17 @@ export async function POST(req: Request) {
       `;
     }).join("");
 
+    const notedItems = items
+      .map(item => ({ name: item.name, note: cleanOrderNote(item.request_note) }))
+      .filter((item): item is { name: string; note: string } => Boolean(item.note));
+    const hasOrderNotes = notedItems.length > 0;
+    const notesSummary = hasOrderNotes
+      ? `<div style="margin-bottom:20px;padding:16px;background:#fff7ed;border:2px solid #f97316;border-radius:10px;">
+          <div style="font-size:13px;font-weight:900;color:#9a3412;text-transform:uppercase;letter-spacing:.6px;margin-bottom:10px;">📝 Notes for Brooklyn — Please Read</div>
+          ${notedItems.map(item => `<div style="padding:10px 0;border-top:1px solid #fed7aa;font-size:14px;line-height:1.5;color:#431407;"><strong>${escapeHtml(item.name)}</strong><br/>${escapeHtml(item.note)}</div>`).join("")}
+        </div>`
+      : "";
+
     const html = `
       <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:680px;margin:0 auto;background:#fff;">
         <div style="background:linear-gradient(135deg,#1e40af,#3b82f6);padding:28px 32px;border-radius:12px 12px 0 0;">
@@ -109,6 +120,7 @@ export async function POST(req: Request) {
           <div style="font-size:14px;color:rgba(255,255,255,0.8);margin-top:4px;">Supply Order Request</div>
         </div>
         <div style="padding:28px 32px;background:#f8fafc;border:1px solid #e2e8f0;border-top:none;">
+          ${notesSummary}
           <table style="width:100%;border-collapse:collapse;background:#fff;border-radius:8px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,0.1);">
             <thead>
               <tr style="background:#f1f5f9;">
@@ -140,7 +152,12 @@ export async function POST(req: Request) {
     const { error } = await resend.emails.send({
       from: "Baxter ASC <orders@ascinventory.com>",
       to: ["hogstud800@gmail.com", "brooklyncarter.0716@gmail.com", "andrea.burris88@icloud.com", "Ashcpaine@gmail.com"],
-      subject: `Supply Order Request — ${items.length} item${items.length > 1 ? "s" : ""} — Baxter ASC`,
+      subject: `${hasOrderNotes ? "📝 NOTE FOR BROOKLYN — " : ""}Supply Order Request — ${items.length} item${items.length > 1 ? "s" : ""} — Baxter ASC`,
+      text: [
+        `Supply Order Request — ${items.length} item${items.length > 1 ? "s" : ""}`,
+        `Requested by: ${requested_by || "Staff"}`,
+        ...items.map(item => `- ${item.name} | Qty ${item.qty}${cleanOrderNote(item.request_note) ? ` | NOTE FOR BROOKLYN: ${cleanOrderNote(item.request_note)}` : ""}`),
+      ].join("\n"),
       html,
     });
 
