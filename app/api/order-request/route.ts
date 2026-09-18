@@ -62,6 +62,7 @@ export async function POST(req: Request) {
       qty_requested: item.qty,
       status: "PENDING",
       notes: cleanOrderNote(item.request_note),
+      item_note: cleanOrderNote(item.alert_note),
     }));
 
     const { data: savedOrders, error: saveError } = await supabase
@@ -103,13 +104,17 @@ export async function POST(req: Request) {
     }).join("");
 
     const notedItems = items
-      .map(item => ({ name: item.name, note: cleanOrderNote(item.request_note) }))
-      .filter((item): item is { name: string; note: string } => Boolean(item.note));
+      .map(item => ({
+        name: item.name,
+        orderNote: cleanOrderNote(item.request_note),
+        itemNote: cleanOrderNote(item.alert_note),
+      }))
+      .filter(item => Boolean(item.orderNote || item.itemNote));
     const hasOrderNotes = notedItems.length > 0;
     const notesSummary = hasOrderNotes
       ? `<div style="margin-bottom:20px;padding:16px;background:#fff7ed;border:2px solid #f97316;border-radius:10px;">
-          <div style="font-size:13px;font-weight:900;color:#9a3412;text-transform:uppercase;letter-spacing:.6px;margin-bottom:10px;">📝 Notes for Brooklyn — Please Read</div>
-          ${notedItems.map(item => `<div style="padding:10px 0;border-top:1px solid #fed7aa;font-size:14px;line-height:1.5;color:#431407;"><strong>${escapeHtml(item.name)}</strong><br/>${escapeHtml(item.note)}</div>`).join("")}
+          <div style="font-size:13px;font-weight:900;color:#9a3412;text-transform:uppercase;letter-spacing:.6px;margin-bottom:10px;">📝 Ordering Information for Brooklyn — Please Read</div>
+          ${notedItems.map(item => `<div style="padding:10px 0;border-top:1px solid #fed7aa;font-size:14px;line-height:1.5;color:#431407;"><strong>${escapeHtml(item.name)}</strong>${item.itemNote ? `<br/><span style="color:#1e40af;font-weight:800;">📦 Item / Box Information:</span> ${escapeHtml(item.itemNote)}` : ""}${item.orderNote ? `<br/><span style="color:#9a3412;font-weight:800;">📝 Order Note:</span> ${escapeHtml(item.orderNote)}` : ""}</div>`).join("")}
         </div>`
       : "";
 
@@ -156,7 +161,7 @@ export async function POST(req: Request) {
       text: [
         `Supply Order Request — ${items.length} item${items.length > 1 ? "s" : ""}`,
         `Requested by: ${requested_by || "Staff"}`,
-        ...items.map(item => `- ${item.name} | Qty ${item.qty}${cleanOrderNote(item.request_note) ? ` | NOTE FOR BROOKLYN: ${cleanOrderNote(item.request_note)}` : ""}`),
+        ...items.map(item => `- ${item.name} | Qty ${item.qty}${cleanOrderNote(item.alert_note) ? ` | ITEM/BOX INFO: ${cleanOrderNote(item.alert_note)}` : ""}${cleanOrderNote(item.request_note) ? ` | ORDER NOTE: ${cleanOrderNote(item.request_note)}` : ""}`),
       ].join("\n"),
       html,
     });
