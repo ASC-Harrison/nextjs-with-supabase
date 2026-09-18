@@ -29,6 +29,7 @@ type Order = {
   expected_delivery_date: string | null;
   item_id: string | null;
   notes: string | null;
+  item_note?: string | null;
   last_follow_up_note?: string | null;
   last_follow_up_by?: string | null;
   last_follow_up_at?: string | null;
@@ -191,7 +192,7 @@ export default function OrderHistoryPage() {
         : orderView === "ISSUES"
           ? orders.filter(o => o.status === "ISSUE")
           : orderView === "NOTES"
-            ? orders.filter(o => Boolean(o.notes?.trim()) && !["RECEIVED","CANCELLED"].includes(o.status))
+            ? orders.filter(o => Boolean(o.notes?.trim() || o.item_note?.trim()) && !["RECEIVED","CANCELLED"].includes(o.status))
             : orders.filter(o => activeStatuses.includes(o.status));
     if (staffFilter !== "ALL") list = list.filter(o => o.requested_by === staffFilter);
     if (search.trim()) {
@@ -201,7 +202,8 @@ export default function OrderHistoryPage() {
         (o.vendor || "").toLowerCase().includes(q) ||
         (o.reference_number || "").toLowerCase().includes(q) ||
         (o.requested_by || "").toLowerCase().includes(q) ||
-        (o.notes || "").toLowerCase().includes(q)
+        (o.notes || "").toLowerCase().includes(q) ||
+        (o.item_note || "").toLowerCase().includes(q)
       );
     }
     return list;
@@ -215,7 +217,7 @@ export default function OrderHistoryPage() {
   const totalCancelled = orders.filter(o => o.status === "CANCELLED").length;
   const totalIssues = orders.filter(o => o.status === "ISSUE").length;
   const totalActiveOrders = orders.filter(o => ["PENDING", "ORDERED", "BACKORDERED", "AWAITING"].includes(o.status)).length;
-  const totalActiveNotes = orders.filter(o => Boolean(o.notes?.trim()) && !["RECEIVED","CANCELLED"].includes(o.status)).length;
+  const totalActiveNotes = orders.filter(o => Boolean(o.notes?.trim() || o.item_note?.trim()) && !["RECEIVED","CANCELLED"].includes(o.status)).length;
 
   function formatDate(ts: string) {
     return new Date(ts).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
@@ -304,7 +306,11 @@ export default function OrderHistoryPage() {
 
   async function markOrdered(order: Order) {
     if (updatingOrderId) return;
-    if (order.notes && !confirm(`Please confirm you read this note before marking the item ordered:\n\n"${order.notes}"`)) return;
+    const orderingInfo = [
+      order.item_note ? `Item / Box Information: ${order.item_note}` : "",
+      order.notes ? `Order Note: ${order.notes}` : "",
+    ].filter(Boolean).join("\n\n");
+    if (orderingInfo && !confirm(`Please confirm you read all ordering information before marking the item ordered:\n\n${orderingInfo}`)) return;
 
     setUpdatingOrderId(order.id);
     const confirmedAt = new Date().toISOString();
@@ -316,7 +322,7 @@ export default function OrderHistoryPage() {
         confirmed_by: staff,
         confirmed_at: confirmedAt,
       };
-      if (order.notes) {
+      if (order.notes || order.item_note) {
         update.note_acknowledged_by = staff;
         update.note_acknowledged_at = confirmedAt;
       }
@@ -645,9 +651,15 @@ This does NOT add ${qtyThisDelivery} to the inventory count. Use “Add to Inven
                         <span style={{ color:"#6ee7b7" }}> · Received: <strong>{order.qty_actual_received}</strong></span>
                       )}
                     </div>
+                    {order.item_note && !["RECEIVED","CANCELLED"].includes(order.status) && (
+                      <div style={{ fontSize:13, color:"#dbeafe", marginTop:10, marginBottom:10, background:"rgba(30,64,175,.2)", border:"2px solid rgba(96,165,250,.65)", borderRadius:9, padding:"10px 11px", lineHeight:1.5 }}>
+                        <div style={{fontSize:10,fontWeight:900,color:"#93c5fd",letterSpacing:".7px",textTransform:"uppercase",marginBottom:4}}>📦 Item / Box Information — Please Read</div>
+                        <strong>{order.item_note}</strong>
+                      </div>
+                    )}
                     {order.notes && !["RECEIVED","CANCELLED"].includes(order.status) && (
                       <div style={{ fontSize:13, color:"#ffedd5", marginTop:10, marginBottom:10, background:"rgba(154,52,18,.22)", border:"2px solid rgba(249,115,22,.65)", borderRadius:9, padding:"10px 11px", lineHeight:1.5 }}>
-                        <div style={{fontSize:10,fontWeight:900,color:"#fdba74",letterSpacing:".7px",textTransform:"uppercase",marginBottom:4}}>📝 Note for Brooklyn — Please Read</div>
+                        <div style={{fontSize:10,fontWeight:900,color:"#fdba74",letterSpacing:".7px",textTransform:"uppercase",marginBottom:4}}>📝 Order Note for Brooklyn — Please Read</div>
                         <strong>{order.notes}</strong>
                       </div>
                     )}
