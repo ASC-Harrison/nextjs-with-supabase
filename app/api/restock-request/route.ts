@@ -3,6 +3,17 @@ import { createClient } from "@supabase/supabase-js";
 import webpush from "web-push";
 
 const KAYA_AREA = "Kaya / Case Picking";
+const MAIN_SUPPLY_ID = "a09eb27b-e4a1-449a-8d2e-c45b24d6514f";
+
+type PushSubscriptionRow = {
+  endpoint: string;
+  p256dh: string;
+  auth: string;
+};
+
+function errorMessage(error: unknown, fallback = "Unknown error") {
+  return error instanceof Error ? error.message : fallback;
+}
 
 function getServiceClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -43,20 +54,22 @@ async function sendRestockPush(supabase: ReturnType<typeof getServiceClient>, pa
     tag: `restock-${Date.now()}`,
   });
 
-  await Promise.all((subscriptions ?? []).map(async (sub: any) => {
+  await Promise.all(((subscriptions ?? []) as PushSubscriptionRow[]).map(async (sub) => {
     try {
       await webpush.sendNotification({
         endpoint: sub.endpoint,
         keys: { p256dh: sub.p256dh, auth: sub.auth },
       }, body);
       sent++;
-    } catch (e: any) {
+    } catch (error: unknown) {
       failed++;
-      const statusCode = e?.statusCode;
+      const statusCode = typeof error === "object" && error !== null && "statusCode" in error
+        ? Number(error.statusCode)
+        : undefined;
       if (statusCode === 404 || statusCode === 410) {
         await supabase.from("push_subscriptions").delete().eq("endpoint", sub.endpoint);
       } else {
-        console.error("Push send failed:", e?.message ?? e);
+        console.error("Push send failed:", errorMessage(error));
       }
     }
   }));
@@ -79,9 +92,34 @@ export async function GET(req: Request) {
 
     const { data, error } = await query;
     if (error) return NextResponse.json({ ok: false, error: error.message });
-    return NextResponse.json({ ok: true, data });
-  } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message ?? "Unknown error" });
+
+    const itemIds = Array.from(new Set((data ?? []).map((request) => request.item_id).filter(Boolean)));
+    const mainOnHandByItem = new Map<string, number>();
+
+    if (itemIds.length > 0) {
+      const { data: inventoryRows, error: inventoryError } = await supabase
+        .from("storage_inventory")
+        .select("item_id,on_hand")
+        .eq("storage_area_id", MAIN_SUPPLY_ID)
+        .in("item_id", itemIds);
+
+      if (inventoryError) {
+        return NextResponse.json({ ok: false, error: inventoryError.message });
+      }
+
+      for (const row of inventoryRows ?? []) {
+        mainOnHandByItem.set(row.item_id, Number(row.on_hand) || 0);
+      }
+    }
+
+    const enriched = (data ?? []).map((request) => ({
+      ...request,
+      main_on_hand: request.item_id ? (mainOnHandByItem.get(request.item_id) ?? 0) : null,
+    }));
+
+    return NextResponse.json({ ok: true, data: enriched });
+  } catch (error: unknown) {
+    return NextResponse.json({ ok: false, error: errorMessage(error) });
   }
 }
 
@@ -110,8 +148,8 @@ export async function POST(req: Request) {
     // A notification failure must never prevent the restock request itself from being saved.
     const push = await sendRestockPush(supabase, { item_name, requested_by: requester, requested_from: from });
     return NextResponse.json({ ok: true, push });
-  } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message ?? "Unknown error" });
+  } catch (error: unknown) {
+    return NextResponse.json({ ok: false, error: errorMessage(error) });
   }
 }
 
@@ -131,11 +169,95 @@ export async function PATCH(req: Request) {
       return NextResponse.json({ ok: true });
     }
 
+    if (body.take_out_inventory) {
+      const id = String(body.id ?? "").trim();
+      const qty = Number(body.qty);
+      const changedBy = String(body.changed_by ?? "Admin").trim() || "Admin";
+
+      if (!id) {
+        return NextResponse.json({ ok: false, error: "Missing request id" }, { status: 400 });
+      }
+      if (!Number.isInteger(qty) || qty <= 0) {
+        return NextResponse.json({ ok: false, error: "Quantity must be a whole number greater than 0" }, { status: 400 });
+      }
+
+      const { data: restockRequest, error: requestError } = await supabase
+        .from("restock_requests")
+        .select("id,item_id,item_name,requested_from")
+        .eq("id", id)
+        .maybeSingle();
+
+      if (requestError) {
+        return NextResponse.json({ ok: false, error: requestError.message }, { status: 400 });
+      }
+      if (!restockRequest?.item_id) {
+        return NextResponse.json({ ok: false, error: "This request is not linked to an inventory item" }, { status: 400 });
+      }
+
+      const { data: mainInventory, error: inventoryError } = await supabase
+        .from("storage_inventory")
+        .select("on_hand")
+        .eq("storage_area_id", MAIN_SUPPLY_ID)
+        .eq("item_id", restockRequest.item_id)
+        .maybeSingle();
+
+      if (inventoryError) {
+        return NextResponse.json({ ok: false, error: inventoryError.message }, { status: 400 });
+      }
+
+      const available = Number(mainInventory?.on_hand ?? 0);
+      if (qty > available) {
+        return NextResponse.json(
+          { ok: false, error: `Only ${available} available in Main Supply` },
+          { status: 409 }
+        );
+      }
+
+      const { data: transactionData, error: transactionError } = await supabase.rpc("apply_inventory_tx", {
+        p_mode: "USE",
+        p_target_area: MAIN_SUPPLY_ID,
+        p_item: restockRequest.item_id,
+        p_qty: qty,
+        p_main_area: MAIN_SUPPLY_ID,
+      });
+
+      if (transactionError) {
+        return NextResponse.json({ ok: false, error: transactionError.message }, { status: 400 });
+      }
+
+      const transaction = Array.isArray(transactionData) ? transactionData[0] : transactionData;
+      const mainOnHand = Number(transaction?.target_on_hand ?? transaction?.main_on_hand ?? (available - qty));
+
+      const { data: buildingTotal } = await supabase
+        .from("building_totals")
+        .select("building_on_hand")
+        .eq("item_id", restockRequest.item_id)
+        .maybeSingle();
+
+      const historyResult = await supabase.from("inventory_history").insert({
+        item_id: restockRequest.item_id,
+        item_name: restockRequest.item_name,
+        on_hand: Number(buildingTotal?.building_on_hand ?? mainOnHand),
+        changed_by: changedBy,
+        change_type: "USE",
+      });
+
+      const auditResult = await supabase.from("audit_log").insert({
+        staff: changedBy,
+        action: "RESTOCK_REQUEST_TAKE_OUT",
+        details: `Qty=${qty} Item=${restockRequest.item_name} From=MAIN SUPPLY Request=${id}`,
+        area_name: "MAIN SUPPLY",
+      });
+
+      const warnings = [historyResult.error?.message, auditResult.error?.message].filter(Boolean);
+      return NextResponse.json({ ok: true, main_on_hand: mainOnHand, warnings });
+    }
+
     const { id, status, resolved_by } = body;
     if (!id) return NextResponse.json({ ok: false, error: "Missing id" });
     const newStatus = VALID_STATUSES.includes(status) ? status : "RESTOCKED";
 
-    const update: Record<string, any> = { status: newStatus };
+    const update: Record<string, string> = { status: newStatus };
     if (newStatus === "RESTOCKED" || newStatus === "OUT_OF_STOCK") {
       update.resolved_at = new Date().toISOString();
       update.resolved_by = resolved_by || "Admin";
@@ -144,7 +266,7 @@ export async function PATCH(req: Request) {
     const { error } = await supabase.from("restock_requests").update(update).eq("id", id);
     if (error) return NextResponse.json({ ok: false, error: error.message });
     return NextResponse.json({ ok: true });
-  } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message ?? "Unknown error" });
+  } catch (error: unknown) {
+    return NextResponse.json({ ok: false, error: errorMessage(error) });
   }
 }

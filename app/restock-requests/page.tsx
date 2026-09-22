@@ -19,6 +19,7 @@ type Request = {
   created_at: string;
   resolved_at: string | null;
   resolved_by: string | null;
+  main_on_hand: number | null;
 };
 
 const CSS = `
@@ -44,7 +45,20 @@ const CSS = `
   .btn-blue{background:rgba(59,130,246,0.2);color:#93c5fd;border:1px solid rgba(59,130,246,0.3);}
   .btn-red{background:rgba(239,68,68,0.15);color:#fca5a5;border:1px solid rgba(239,68,68,0.3);}
   .btn-orange{background:rgba(245,158,11,0.16);color:#fcd34d;border:1px solid rgba(245,158,11,0.35);}
+  .btn-purple{background:linear-gradient(135deg,#7c3aed,#9333ea);color:#fff;border:1px solid rgba(216,180,254,0.35);box-shadow:0 6px 18px rgba(124,58,237,0.2);}
+  .btn:disabled{opacity:0.45;cursor:not-allowed;box-shadow:none;}
   .btn-row{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;}
+  .takeout{margin-top:12px;padding:12px;background:#101827;border:1px solid rgba(168,85,247,0.28);border-radius:12px;}
+  .takeout-top{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px;}
+  .takeout-label{font-size:11px;font-weight:800;color:#a78bfa;text-transform:uppercase;letter-spacing:0.45px;}
+  .takeout-count{font-size:12px;color:#cbd5e1;}
+  .takeout-count strong{font-size:16px;color:#f0f6ff;}
+  .takeout-controls{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+  .qty-control{display:flex;align-items:center;border:1px solid #334155;border-radius:10px;overflow:hidden;background:#0a0f1e;}
+  .qty-btn{width:36px;height:36px;border:0;background:#1e293b;color:#f0f6ff;font-size:20px;font-weight:800;cursor:pointer;}
+  .qty-btn:disabled{opacity:0.35;cursor:not-allowed;}
+  .qty-input{width:48px;height:36px;border:0;border-left:1px solid #334155;border-right:1px solid #334155;background:#0a0f1e;color:#fff;text-align:center;font-size:15px;font-weight:900;font-family:inherit;}
+  .takeout-msg{margin-top:8px;font-size:11px;font-weight:700;color:#6ee7b7;}
   .badge{display:inline-block;font-size:10px;font-weight:800;padding:2px 8px;border-radius:20px;margin-bottom:4px;}
   .badge-route{background:rgba(59,130,246,0.15);color:#93c5fd;border:1px solid rgba(59,130,246,0.3);}
   .badge-delay{background:rgba(245,158,11,0.15);color:#fcd34d;border:1px solid rgba(245,158,11,0.35);}
@@ -59,6 +73,9 @@ export default function RestockRequestsPage() {
   const [loading, setLoading] = useState(true);
   const [staffName, setStaffName] = useState("Admin");
   const [updating, setUpdating] = useState<string | null>(null);
+  const [takingOut, setTakingOut] = useState<string | null>(null);
+  const [quantities, setQuantities] = useState<Record<string, number>>({});
+  const [takeOutMessages, setTakeOutMessages] = useState<Record<string, string>>({});
 
   useEffect(() => {
     supabase.auth.getSession().then(({data}) => {
@@ -97,6 +114,67 @@ export default function RestockRequestsPage() {
     });
     await loadRequests();
     setUpdating(null);
+  }
+
+  function setQuantity(request: Request, next: number) {
+    const max = Math.max(1, Number(request.main_on_hand ?? 0));
+    const safe = Math.min(max, Math.max(1, Math.trunc(Number(next) || 1)));
+    setQuantities(current => ({ ...current, [request.id]: safe }));
+  }
+
+  async function takeOutInventory(request: Request) {
+    const available = Number(request.main_on_hand ?? 0);
+    const qty = quantities[request.id] ?? 1;
+
+    if (!request.item_id) {
+      alert("This request is not linked to an inventory item.");
+      return;
+    }
+    if (available <= 0) {
+      alert(`${request.item_name} is out of stock in Main Supply.`);
+      return;
+    }
+    if (qty > available) {
+      alert(`Only ${available} available in Main Supply.`);
+      return;
+    }
+    if (!confirm(`Take ${qty} × ${request.item_name} out of Main Supply?\n\nInventory will go from ${available} to ${available - qty}.`)) {
+      return;
+    }
+
+    setTakingOut(request.id);
+    setTakeOutMessages(current => ({ ...current, [request.id]: "" }));
+
+    try {
+      const response = await fetch("/api/restock-request", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: request.id,
+          take_out_inventory: true,
+          qty,
+          changed_by: staffName,
+        }),
+      });
+      const json = await response.json();
+      if (!response.ok || !json.ok) throw new Error(json.error || "Inventory could not be updated");
+
+      setRequests(current => current.map(item => (
+        item.item_id === request.item_id
+          ? { ...item, main_on_hand: Number(json.main_on_hand) }
+          : item
+      )));
+      setQuantities(current => ({ ...current, [request.id]: 1 }));
+      setTakeOutMessages(current => ({
+        ...current,
+        [request.id]: `✅ Took out ${qty}. Main Supply now has ${json.main_on_hand}.`,
+      }));
+    } catch (error: unknown) {
+      alert(`Inventory update failed: ${error instanceof Error ? error.message : "Unknown error"}`);
+      await loadRequests();
+    } finally {
+      setTakingOut(null);
+    }
   }
 
   function formatTime(ts: string) {
@@ -151,6 +229,46 @@ export default function RestockRequestsPage() {
                       <div className="req-meta">
                         Requested by {r.requested_by} from {r.requested_from}<br/>
                         {formatTime(r.created_at)}
+                      </div>
+                      <div className="takeout">
+                        <div className="takeout-top">
+                          <div className="takeout-label">Main Supply Inventory</div>
+                          <div className="takeout-count"><strong>{r.main_on_hand ?? "—"}</strong> available</div>
+                        </div>
+                        <div className="takeout-controls">
+                          <div className="qty-control">
+                            <button
+                              type="button"
+                              className="qty-btn"
+                              disabled={takingOut === r.id || (quantities[r.id] ?? 1) <= 1}
+                              onClick={() => setQuantity(r, (quantities[r.id] ?? 1) - 1)}
+                              aria-label={`Decrease quantity for ${r.item_name}`}
+                            >−</button>
+                            <input
+                              className="qty-input"
+                              type="number"
+                              min={1}
+                              max={Math.max(1, Number(r.main_on_hand ?? 0))}
+                              value={quantities[r.id] ?? 1}
+                              disabled={takingOut === r.id}
+                              onChange={event => setQuantity(r, Number(event.target.value))}
+                              aria-label={`Quantity to take out for ${r.item_name}`}
+                            />
+                            <button
+                              type="button"
+                              className="qty-btn"
+                              disabled={takingOut === r.id || (quantities[r.id] ?? 1) >= Number(r.main_on_hand ?? 0)}
+                              onClick={() => setQuantity(r, (quantities[r.id] ?? 1) + 1)}
+                              aria-label={`Increase quantity for ${r.item_name}`}
+                            >+</button>
+                          </div>
+                          <button
+                            onClick={() => takeOutInventory(r)}
+                            disabled={takingOut === r.id || updating === r.id || Number(r.main_on_hand ?? 0) <= 0}
+                            className="btn btn-purple"
+                          >{takingOut === r.id ? "Updating…" : "📦 Take Out Inventory"}</button>
+                        </div>
+                        {takeOutMessages[r.id] && <div className="takeout-msg">{takeOutMessages[r.id]}</div>}
                       </div>
                       <div className="btn-row">
                         {r.status !== "IN_ROUTE" && (
