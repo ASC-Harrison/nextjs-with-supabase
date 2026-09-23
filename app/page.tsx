@@ -276,6 +276,10 @@ export default function Home() {
             📦 Kaya Restock Requests
           </button>
 
+          <button onClick={() => router.push("/anesthesia")} style={{ display:"block", width:"100%", borderRadius:14, padding:16, fontSize:15, fontWeight:700, border:"1px solid rgba(167,139,250,0.3)", cursor:"pointer", textAlign:"center", fontFamily:"inherit", background:"rgba(109,40,217,0.18)", color:"#ddd6fe", marginBottom:16 }}>
+            💉 Anesthesia Restock Requests
+          </button>
+
           <button onClick={() => router.push("/chat")} style={{ display:"block", width:"100%", borderRadius:14, padding:16, fontSize:15, fontWeight:700, border:"1px solid rgba(200,16,46,0.3)", cursor:"pointer", textAlign:"center", fontFamily:"inherit", background:"rgba(200,16,46,0.18)", color:"#fecaca", marginBottom:16 }}>
             💬 Staff Chat
           </button>
@@ -405,6 +409,7 @@ export default function Home() {
               {label:"Pre-Op / PACU",icon:"🏥",href:"/preop",color:"#5eead4"},
               {label:"Pre-Op Testing",icon:"🧪",href:"/preop-testing",color:"#fda4af"},
               {label:"Kaya Restock",icon:"📦",href:"/kaya",color:"#fecaca"},
+              {label:"Anesthesia Restock",icon:"💉",href:"/anesthesia",color:"#c4b5fd"},
             ].map(link => (
               <button className="dashboard-mini-card" key={link.href} onClick={() => router.push(link.href)} style={{
                 ...btnBase,marginBottom:0,padding:14,background:"rgba(30,41,59,.72)",
