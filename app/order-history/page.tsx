@@ -438,22 +438,22 @@ This does NOT add ${qtyThisDelivery} to the inventory count. Use “Add to Inven
     const note = issueNote.trim();
     if (!note) return alert("Please describe the issue first.");
     setIssueSaving(true);
-    const reportedAt = new Date().toISOString();
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      const staff = session?.user?.user_metadata?.full_name || session?.user?.email || "Administrator";
-      const { error } = await supabase.from("order_requests").update({
-        status: "ISSUE",
-        issue_note: note,
-        issue_reported_by: staff,
-        issue_reported_at: reportedAt,
-        issue_previous_status: issueOrder.status,
-      }).eq("id", issueOrder.id).select("id").single();
-      if (error) throw error;
-      setOrders(prev => prev.map(row => row.id === issueOrder.id ? { ...row, status:"ISSUE", issue_note:note, issue_reported_by:staff, issue_reported_at:reportedAt, issue_previous_status:issueOrder.status } : row));
+      if (!session) throw new Error("Please sign in again.");
+      const response = await fetch("/api/orders/issue", {
+        method:"POST",
+        headers:{ "Content-Type":"application/json", Authorization:`Bearer ${session.access_token}` },
+        body:JSON.stringify({ order_id:issueOrder.id, note }),
+      });
+      const json = await response.json();
+      if (!response.ok || !json.ok) throw new Error(json.error || "Could not move this order to Issues");
+      const saved = json.order as Order;
+      setOrders(prev => prev.map(row => row.id === issueOrder.id ? { ...row, ...saved } : row));
       setIssueOrder(null);
       setIssueNote("");
       setOrderView("ISSUES");
+      alert("Moved to Issues and Brooklyn was notified.");
     } catch (error) {
       alert(`Could not move this order to Issues: ${error instanceof Error ? error.message : "Unknown error"}`);
     } finally {
@@ -564,7 +564,7 @@ This does NOT add ${qtyThisDelivery} to the inventory count. Use “Add to Inven
                 <div style={{fontSize:13,color:"#cbd5e1",marginBottom:14}}>{issueOrder.item_name}</div>
                 <label style={{display:"block",fontSize:11,fontWeight:800,color:"#fdba74",marginBottom:5}}>WHAT IS THE ISSUE?</label>
                 <textarea value={issueNote} onChange={event=>setIssueNote(event.target.value.slice(0,500))} rows={4} placeholder="Example: Wrong quantity delivered, damaged box, or vendor follow-up needed." style={{width:"100%",borderRadius:9,border:"1px solid rgba(249,115,22,.3)",background:"#0f172a",color:"#f0f6ff",padding:"10px 11px",fontSize:13,fontFamily:"inherit",outline:"none",resize:"vertical",marginBottom:12}} />
-                <div style={{fontSize:11,color:"#94a3b8",lineHeight:1.5,marginBottom:14}}>This only moves the order into the Issues view. It will not change the item or inventory count.</div>
+                <div style={{fontSize:11,color:"#94a3b8",lineHeight:1.5,marginBottom:14}}>This moves the order into Issues and emails Brooklyn. It will not change the item or inventory count.</div>
                 <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:9}}>
                   <button type="button" className="received-only-btn" style={{background:"#334155"}} disabled={issueSaving} onClick={()=>setIssueOrder(null)}>Cancel</button>
                   <button type="button" className="received-only-btn" style={{background:"#ea580c"}} disabled={issueSaving || !issueNote.trim()} onClick={markAsIssue}>{issueSaving ? "Moving…" : "Move to Issues"}</button>
