@@ -113,6 +113,9 @@ const CSS = `
   .receive-btn:disabled,.received-only-btn:disabled{opacity:.55;cursor:not-allowed;}
   .followup-btn{grid-column:1/-1;width:100%;border:1px solid rgba(168,85,247,.3);border-radius:10px;background:rgba(168,85,247,.15);color:#d8b4fe;padding:10px 14px;font:800 12px inherit;cursor:pointer;}
   .followup-btn:disabled{opacity:.55;cursor:not-allowed;}
+  .reminder-btn{grid-column:1/-1;width:100%;border:1px solid rgba(245,158,11,.38);border-radius:10px;background:rgba(245,158,11,.16);color:#fde68a;padding:11px 14px;font:900 13px inherit;cursor:pointer;}
+  .reminder-btn:hover{background:rgba(245,158,11,.24);}
+  .reminder-btn:disabled{opacity:.55;cursor:not-allowed;}
   .issue-btn{grid-column:1/-1;width:100%;border:1px solid rgba(249,115,22,.35);border-radius:10px;background:rgba(249,115,22,.13);color:#fdba74;padding:10px 14px;font:800 12px inherit;cursor:pointer;}
   .cancel-order-btn{grid-column:1/-1;width:100%;border:1px solid rgba(239,68,68,.35);border-radius:10px;background:rgba(239,68,68,.12);color:#fca5a5;padding:10px 14px;font:800 12px inherit;cursor:pointer;}
   .cancel-order-btn:disabled{opacity:.55;cursor:not-allowed;}
@@ -483,8 +486,8 @@ This does NOT add ${qtyThisDelivery} to the inventory count. Use “Add to Inven
     }
   }
 
-  async function sendFollowUp(order: Order) {
-    const note = followUpNote.trim();
+  async function sendFollowUp(order: Order, reminderNote?: string) {
+    const note = (reminderNote ?? followUpNote).trim();
     if (!note) return alert("Type a note for Brooklyn first.");
     setFollowUpSending(true);
     try {
@@ -504,14 +507,22 @@ This does NOT add ${qtyThisDelivery} to the inventory count. Use “Add to Inven
         last_follow_up_at:json.follow_up.sent_at,
         follow_up_count:json.follow_up.count,
       } : o));
-      setFollowUpId(null);
-      setFollowUpNote("");
-      alert("Follow-up sent to Brooklyn.");
+      if (!reminderNote) {
+        setFollowUpId(null);
+        setFollowUpNote("");
+      }
+      alert(reminderNote ? "Reminder sent to Brooklyn." : "Follow-up sent to Brooklyn.");
     } catch (error) {
       alert(error instanceof Error ? error.message : "Could not send follow-up");
     } finally {
       setFollowUpSending(false);
     }
+  }
+
+  async function sendPendingReminder(order: Order) {
+    const note = "Reminder: This item is still pending and needs to be ordered. Please let us know when the order has been placed.";
+    if (!confirm(`Send Brooklyn another reminder about "${order.item_name}"?\n\n${note}`)) return;
+    await sendFollowUp(order, note);
   }
 
   return (
@@ -726,6 +737,16 @@ This does NOT add ${qtyThisDelivery} to the inventory count. Use “Add to Inven
                         {order.status === "PENDING" && (
                           <button
                             type="button"
+                            className="reminder-btn"
+                            disabled={followUpSending || updatingOrderId === order.id}
+                            onClick={() => sendPendingReminder(order)}
+                          >
+                            {followUpSending ? "Sending Reminder…" : "🔔 Send Brooklyn Another Reminder"}
+                          </button>
+                        )}
+                        {order.status === "PENDING" && (
+                          <button
+                            type="button"
                             className="ordered-btn"
                             disabled={updatingOrderId === order.id}
                             onClick={() => markOrdered(order)}
@@ -750,7 +771,7 @@ This does NOT add ${qtyThisDelivery} to the inventory count. Use “Add to Inven
                             disabled={updatingOrderId === order.id}
                             onClick={()=>{setFollowUpId(order.id);setFollowUpNote("Can we please follow up on this item? We have not received it yet.");}}
                           >
-                            💬 Follow Up With Brooklyn
+                            {order.status === "PENDING" ? "✍️ Write a Custom Follow-up" : "💬 Follow Up With Brooklyn"}
                           </button>
                         )}
                         <button
