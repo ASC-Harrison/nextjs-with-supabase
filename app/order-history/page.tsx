@@ -113,7 +113,9 @@ const CSS = `
   .receive-btn:disabled,.received-only-btn:disabled{opacity:.55;cursor:not-allowed;}
   .followup-btn{grid-column:1/-1;width:100%;border:1px solid rgba(168,85,247,.3);border-radius:10px;background:rgba(168,85,247,.15);color:#d8b4fe;padding:10px 14px;font:800 12px inherit;cursor:pointer;}
   .followup-btn:disabled{opacity:.55;cursor:not-allowed;}
-  .reminder-btn{grid-column:1/-1;width:100%;border:1px solid rgba(245,158,11,.38);border-radius:10px;background:rgba(245,158,11,.16);color:#fde68a;padding:11px 14px;font:900 13px inherit;cursor:pointer;}
+  .pending-reminder-panel{display:flex;align-items:center;justify-content:space-between;gap:12px;background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.35);border-radius:13px;padding:13px;margin-bottom:12px;}
+  .pending-reminder-copy{font-size:12px;color:#fde68a;line-height:1.45;}
+  .reminder-btn{flex:0 0 auto;border:1px solid rgba(245,158,11,.45);border-radius:10px;background:#b45309;color:#fff;padding:11px 14px;font:900 12px inherit;cursor:pointer;}
   .reminder-btn:hover{background:rgba(245,158,11,.24);}
   .reminder-btn:disabled{opacity:.55;cursor:not-allowed;}
   .issue-btn{grid-column:1/-1;width:100%;border:1px solid rgba(249,115,22,.35);border-radius:10px;background:rgba(249,115,22,.13);color:#fdba74;padding:10px 14px;font:800 12px inherit;cursor:pointer;}
@@ -121,6 +123,7 @@ const CSS = `
   .cancel-order-btn:disabled{opacity:.55;cursor:not-allowed;}
   .resolve-issue-btn{grid-column:1/-1;width:100%;border:0;border-radius:10px;background:#9d2235;color:#fff;padding:11px 14px;font:800 13px inherit;cursor:pointer;}
   .issue-btn:disabled,.resolve-issue-btn:disabled{opacity:.55;cursor:not-allowed;}
+  @media(max-width:560px){.pending-reminder-panel{align-items:stretch;flex-direction:column;}.reminder-btn{width:100%;}}
 `;
 
 export default function OrderHistoryPage() {
@@ -135,6 +138,7 @@ export default function OrderHistoryPage() {
   const [followUpId, setFollowUpId] = useState<string | null>(null);
   const [followUpNote, setFollowUpNote] = useState("");
   const [followUpSending, setFollowUpSending] = useState(false);
+  const [pendingReminderSending, setPendingReminderSending] = useState(false);
   const [receivingOrder, setReceivingOrder] = useState<Order | null>(null);
   const [receiveQty, setReceiveQty] = useState("");
   const [receivePrice, setReceivePrice] = useState("");
@@ -486,8 +490,8 @@ This does NOT add ${qtyThisDelivery} to the inventory count. Use “Add to Inven
     }
   }
 
-  async function sendFollowUp(order: Order, reminderNote?: string) {
-    const note = (reminderNote ?? followUpNote).trim();
+  async function sendFollowUp(order: Order) {
+    const note = followUpNote.trim();
     if (!note) return alert("Type a note for Brooklyn first.");
     setFollowUpSending(true);
     try {
@@ -507,11 +511,9 @@ This does NOT add ${qtyThisDelivery} to the inventory count. Use “Add to Inven
         last_follow_up_at:json.follow_up.sent_at,
         follow_up_count:json.follow_up.count,
       } : o));
-      if (!reminderNote) {
-        setFollowUpId(null);
-        setFollowUpNote("");
-      }
-      alert(reminderNote ? "Reminder sent to Brooklyn." : "Follow-up sent to Brooklyn.");
+      setFollowUpId(null);
+      setFollowUpNote("");
+      alert("Follow-up sent to Brooklyn.");
     } catch (error) {
       alert(error instanceof Error ? error.message : "Could not send follow-up");
     } finally {
@@ -519,10 +521,33 @@ This does NOT add ${qtyThisDelivery} to the inventory count. Use “Add to Inven
     }
   }
 
-  async function sendPendingReminder(order: Order) {
-    const note = "Reminder: This item is still pending and needs to be ordered. Please let us know when the order has been placed.";
-    if (!confirm(`Send Brooklyn another reminder about "${order.item_name}"?\n\n${note}`)) return;
-    await sendFollowUp(order, note);
+  async function sendPendingReminder() {
+    if (!totalPending || pendingReminderSending) return;
+    if (!confirm(`Send Brooklyn one reminder listing all ${totalPending} Pending item${totalPending === 1 ? "" : "s"} that still need to be ordered?`)) return;
+    setPendingReminderSending(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error("Please sign in again.");
+      const response = await fetch("/api/orders/pending-reminder", {
+        method:"POST",
+        headers:{ "Content-Type":"application/json", Authorization:`Bearer ${session.access_token}` },
+      });
+      const json = await response.json();
+      if (!response.ok || !json.ok) throw new Error(json.error || "Could not send the Pending reminder");
+      const counts = new Map<string, number>((json.orders || []).map((order: { id:string; count:number }) => [order.id, order.count]));
+      setOrders(prev => prev.map(order => counts.has(order.id) ? {
+        ...order,
+        last_follow_up_note:json.follow_up.note,
+        last_follow_up_by:json.follow_up.sent_by,
+        last_follow_up_at:json.follow_up.sent_at,
+        follow_up_count:counts.get(order.id) ?? order.follow_up_count,
+      } : order));
+      alert(`One reminder was sent to Brooklyn with all ${json.count} Pending item${json.count === 1 ? "" : "s"}.`);
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "Could not send the Pending reminder");
+    } finally {
+      setPendingReminderSending(false);
+    }
   }
 
   return (
@@ -635,6 +660,15 @@ This does NOT add ${qtyThisDelivery} to the inventory count. Use “Add to Inven
             </select>
           </div>
 
+          {orderView === "ORDERS" && statusFilter === "PENDING" && totalPending > 0 && (
+            <div className="pending-reminder-panel">
+              <div className="pending-reminder-copy"><strong>{totalPending} Pending item{totalPending === 1 ? "" : "s"}</strong><br />Send Brooklyn one email containing the complete list.</div>
+              <button type="button" className="reminder-btn" disabled={pendingReminderSending} onClick={sendPendingReminder}>
+                {pendingReminderSending ? "Sending…" : "🔔 Remind Brooklyn"}
+              </button>
+            </div>
+          )}
+
           <div className="count">Showing {filtered.length} of {totalOrders} orders</div>
 
           {loading ? (
@@ -737,16 +771,6 @@ This does NOT add ${qtyThisDelivery} to the inventory count. Use “Add to Inven
                         {order.status === "PENDING" && (
                           <button
                             type="button"
-                            className="reminder-btn"
-                            disabled={followUpSending || updatingOrderId === order.id}
-                            onClick={() => sendPendingReminder(order)}
-                          >
-                            {followUpSending ? "Sending Reminder…" : "🔔 Send Brooklyn Another Reminder"}
-                          </button>
-                        )}
-                        {order.status === "PENDING" && (
-                          <button
-                            type="button"
                             className="ordered-btn"
                             disabled={updatingOrderId === order.id}
                             onClick={() => markOrdered(order)}
@@ -764,14 +788,14 @@ This does NOT add ${qtyThisDelivery} to the inventory count. Use “Add to Inven
                             {updatingOrderId === order.id ? "Canceling…" : "🚫 Cancel Order & Notify Brooklyn"}
                           </button>
                         )}
-                        {followUpId !== order.id && (
+                        {order.status !== "PENDING" && followUpId !== order.id && (
                           <button
                             type="button"
                             className="followup-btn"
                             disabled={updatingOrderId === order.id}
                             onClick={()=>{setFollowUpId(order.id);setFollowUpNote("Can we please follow up on this item? We have not received it yet.");}}
                           >
-                            {order.status === "PENDING" ? "✍️ Write a Custom Follow-up" : "💬 Follow Up With Brooklyn"}
+                            💬 Follow Up With Brooklyn
                           </button>
                         )}
                         <button
