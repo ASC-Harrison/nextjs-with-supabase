@@ -42,7 +42,21 @@ type Order = {
   cancelled_by?: string | null;
   cancellation_reason?: string | null;
   cancellation_email_status?: string | null;
+  receipt_exception_type?: string | null;
+  receipt_exception_note?: string | null;
+  receipt_pickup_required?: boolean;
+  receipt_exception_recorded_at?: string | null;
+  receipt_exception_recorded_by?: string | null;
 };
+
+const RECEIPT_EXCEPTION_OPTIONS = [
+  "Stocked at Baxter Main OR instead of delivered to ASC",
+  "Delivered to the wrong location",
+  "Wrong item received",
+  "Wrong quantity received",
+  "Item damaged",
+  "Other receiving problem",
+];
 
 const CSS = `
   *,*::before,*::after{box-sizing:border-box;}
@@ -147,6 +161,12 @@ export default function OrderHistoryPage() {
   const [receivedOnlyOrder, setReceivedOnlyOrder] = useState<Order | null>(null);
   const [receivedOnlyQty, setReceivedOnlyQty] = useState("");
   const [receivedOnlySaving, setReceivedOnlySaving] = useState(false);
+  const [receiptHadProblem, setReceiptHadProblem] = useState(false);
+  const [receiptProblemType, setReceiptProblemType] = useState("");
+  const [receiptPickupRequired, setReceiptPickupRequired] = useState(false);
+  const [receiptProblemNote, setReceiptProblemNote] = useState("");
+  const [editingReceiptOrder, setEditingReceiptOrder] = useState<Order | null>(null);
+  const [receiptNoteSaving, setReceiptNoteSaving] = useState(false);
   const [issueOrder, setIssueOrder] = useState<Order | null>(null);
   const [issueNote, setIssueNote] = useState("");
   const [issueSaving, setIssueSaving] = useState(false);
@@ -210,7 +230,9 @@ export default function OrderHistoryPage() {
         (o.reference_number || "").toLowerCase().includes(q) ||
         (o.requested_by || "").toLowerCase().includes(q) ||
         (o.notes || "").toLowerCase().includes(q) ||
-        (o.item_note || "").toLowerCase().includes(q)
+        (o.item_note || "").toLowerCase().includes(q) ||
+        (o.receipt_exception_type || "").toLowerCase().includes(q) ||
+        (o.receipt_exception_note || "").toLowerCase().includes(q)
       );
     }
     return list;
@@ -242,12 +264,46 @@ export default function OrderHistoryPage() {
     return "badge badge-received";
   }
 
+  function clearReceiptProblem() {
+    setReceiptHadProblem(false);
+    setReceiptProblemType("");
+    setReceiptPickupRequired(false);
+    setReceiptProblemNote("");
+  }
+
+  function loadReceiptProblem(order: Order) {
+    const hasProblem = Boolean(order.receipt_exception_type);
+    setReceiptHadProblem(hasProblem);
+    setReceiptProblemType(order.receipt_exception_type || "");
+    setReceiptPickupRequired(Boolean(order.receipt_pickup_required));
+    setReceiptProblemNote(order.receipt_exception_note || "");
+  }
+
+  function validateReceiptProblem() {
+    if (receiptHadProblem && !receiptProblemType) {
+      alert("Choose what went wrong with this delivery.");
+      return false;
+    }
+    return true;
+  }
+
+  function receiptProblemUpdate(staff: string, recordedAt: string) {
+    return {
+      receipt_exception_type: receiptHadProblem ? receiptProblemType : null,
+      receipt_exception_note: receiptHadProblem ? receiptProblemNote.trim() || null : null,
+      receipt_pickup_required: receiptHadProblem && receiptPickupRequired,
+      receipt_exception_recorded_at: receiptHadProblem ? recordedAt : null,
+      receipt_exception_recorded_by: receiptHadProblem ? staff : null,
+    };
+  }
+
   function openAddToInventory(order: Order) {
     const orderedQty = order.qty_actual_ordered || order.qty_requested;
     const alreadyReceived = order.qty_actual_received || 0;
     setReceiveQty(String(Math.max(orderedQty - alreadyReceived, 1)));
     setReceivePrice("");
     setReceiveUnitsPerPackage("1");
+    clearReceiptProblem();
     setReceivingOrder(order);
   }
 
@@ -268,13 +324,14 @@ export default function OrderHistoryPage() {
       alert("Units in the package must be at least 1.");
       return;
     }
+    if (!validateReceiptProblem()) return;
     if (!confirm(`Add ${qty} of "${receivingOrder.item_name}" to Main Sterile Supply and mark this order received?`)) return;
 
     setReceiveSaving(true);
     try {
       const { data: { session } } = await supabase.auth.getSession();
       const staff = session?.user?.user_metadata?.full_name || session?.user?.email || "Administrator";
-      const { data, error } = await supabase.rpc("receive_order_with_pricing", {
+      const { data, error } = await supabase.rpc("receive_order_with_pricing_and_exception", {
         p_order_id: receivingOrder.id,
         p_qty: qty,
         p_complete: true,
@@ -284,15 +341,21 @@ export default function OrderHistoryPage() {
         p_units_per_package: packagePrice === null ? null : packageQty,
         p_vendor: packagePrice === null ? null : receivingOrder.vendor || null,
         p_price_source: packagePrice === null ? null : "Invoice",
+        p_receipt_exception_type: receiptHadProblem ? receiptProblemType : null,
+        p_receipt_exception_note: receiptHadProblem ? receiptProblemNote.trim() || null : null,
+        p_receipt_pickup_required: receiptHadProblem && receiptPickupRequired,
       });
       if (error) throw error;
       const result = data as { status: Order["status"]; total_received: number; inventory_on_hand: number; package_price: number | null; unit_cost: number | null; };
       const receivedAt = new Date().toISOString();
+      const receiptUpdate = receiptProblemUpdate(staff, receivedAt);
       setOrders(prev => prev.map(row => row.id === receivingOrder.id ? {
         ...row,
         status: result.status,
         qty_actual_received: result.total_received,
         received_at: receivedAt,
+        received_by: staff,
+        ...receiptUpdate,
       } : row));
       const previousOnHand = result.inventory_on_hand - qty;
       setReceivingOrder(null);
@@ -308,6 +371,7 @@ export default function OrderHistoryPage() {
     const orderedQty = order.qty_actual_ordered || order.qty_requested;
     const alreadyReceived = order.qty_actual_received || 0;
     setReceivedOnlyQty(String(Math.max(orderedQty - alreadyReceived, 1)));
+    clearReceiptProblem();
     setReceivedOnlyOrder(order);
   }
 
@@ -398,6 +462,7 @@ export default function OrderHistoryPage() {
       alert("Enter a valid whole-number amount received.");
       return;
     }
+    if (!validateReceiptProblem()) return;
     const alreadyReceived = receivedOnlyOrder.qty_actual_received || 0;
     const totalReceived = alreadyReceived + qtyThisDelivery;
     if (!confirm(`Record ${qtyThisDelivery} of "${receivedOnlyOrder.item_name}" as received on the order only?
@@ -409,6 +474,7 @@ This does NOT add ${qtyThisDelivery} to the inventory count. Use “Add to Inven
     try {
       const { data: { session } } = await supabase.auth.getSession();
       const staff = session?.user?.user_metadata?.full_name || session?.user?.email || "Administrator";
+      const receiptUpdate = receiptProblemUpdate(staff, receivedAt);
       const { data: saved, error } = await supabase
         .from("order_requests")
         .update({
@@ -416,9 +482,10 @@ This does NOT add ${qtyThisDelivery} to the inventory count. Use “Add to Inven
           qty_actual_received: totalReceived,
           received_at: receivedAt,
           received_by: staff,
+          ...receiptUpdate,
         })
         .eq("id", receivedOnlyOrder.id)
-        .select("id,status,qty_actual_received,received_at,received_by")
+        .select("id,status,qty_actual_received,received_at,received_by,receipt_exception_type,receipt_exception_note,receipt_pickup_required,receipt_exception_recorded_at,receipt_exception_recorded_by")
         .single();
 
       if (error) throw error;
@@ -428,7 +495,18 @@ This does NOT add ${qtyThisDelivery} to the inventory count. Use “Add to Inven
 
       setOrders(prev => prev.map(row =>
         row.id === receivedOnlyOrder.id
-          ? { ...row, status: saved.status, qty_actual_received: Number(saved.qty_actual_received), received_at: saved.received_at, received_by: saved.received_by }
+          ? {
+              ...row,
+              status: saved.status,
+              qty_actual_received: Number(saved.qty_actual_received),
+              received_at: saved.received_at,
+              received_by: saved.received_by,
+              receipt_exception_type: saved.receipt_exception_type,
+              receipt_exception_note: saved.receipt_exception_note,
+              receipt_pickup_required: saved.receipt_pickup_required,
+              receipt_exception_recorded_at: saved.receipt_exception_recorded_at,
+              receipt_exception_recorded_by: saved.receipt_exception_recorded_by,
+            }
           : row
       ));
       setReceivedOnlyOrder(null);
@@ -437,6 +515,35 @@ This does NOT add ${qtyThisDelivery} to the inventory count. Use “Add to Inven
       alert(`Could not mark this order received: ${error instanceof Error ? error.message : "Unknown error"}`);
     } finally {
       setReceivedOnlySaving(false);
+    }
+  }
+
+  async function saveReceiptProblem() {
+    if (!editingReceiptOrder || receiptNoteSaving) return;
+    if (!validateReceiptProblem()) return;
+
+    setReceiptNoteSaving(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const staff = session?.user?.user_metadata?.full_name || session?.user?.email || "Administrator";
+      const recordedAt = new Date().toISOString();
+      const update = receiptProblemUpdate(staff, recordedAt);
+      const { data: saved, error } = await supabase
+        .from("order_requests")
+        .update(update)
+        .eq("id", editingReceiptOrder.id)
+        .eq("status", "RECEIVED")
+        .select("id,receipt_exception_type,receipt_exception_note,receipt_pickup_required,receipt_exception_recorded_at,receipt_exception_recorded_by")
+        .single();
+
+      if (error) throw error;
+      setOrders(prev => prev.map(row => row.id === editingReceiptOrder.id ? { ...row, ...saved } : row));
+      setEditingReceiptOrder(null);
+      alert(receiptHadProblem ? "Receiving problem saved with this order." : "Receiving problem removed from this order.");
+    } catch (error) {
+      alert(`Could not save the receiving record: ${error instanceof Error ? error.message : "Unknown error"}`);
+    } finally {
+      setReceiptNoteSaving(false);
     }
   }
 
@@ -550,6 +657,59 @@ This does NOT add ${qtyThisDelivery} to the inventory count. Use “Add to Inven
     }
   }
 
+  function renderReceiptProblemFields() {
+    return (
+      <div style={{background:"rgba(245,158,11,.08)",border:"1px solid rgba(245,158,11,.28)",borderRadius:10,padding:12,marginBottom:14}}>
+        <label style={{display:"flex",alignItems:"flex-start",gap:9,color:"#fde68a",fontSize:13,fontWeight:800,cursor:"pointer",lineHeight:1.4}}>
+          <input
+            type="checkbox"
+            checked={receiptHadProblem}
+            onChange={event=>{
+              setReceiptHadProblem(event.target.checked);
+              if (!event.target.checked) {
+                setReceiptProblemType("");
+                setReceiptPickupRequired(false);
+                setReceiptProblemNote("");
+              }
+            }}
+            style={{marginTop:2,width:17,height:17,accentColor:"#f59e0b"}}
+          />
+          There was a problem with how this item was received
+        </label>
+        {receiptHadProblem && (
+          <div style={{marginTop:12}}>
+            <label style={{display:"block",fontSize:11,fontWeight:900,color:"#fcd34d",marginBottom:5}}>WHAT WENT WRONG?</label>
+            <select
+              className="inp"
+              value={receiptProblemType}
+              onChange={event=>{
+                const value = event.target.value;
+                setReceiptProblemType(value);
+                if (value === RECEIPT_EXCEPTION_OPTIONS[0]) setReceiptPickupRequired(true);
+              }}
+              style={{width:"100%",marginBottom:10}}
+            >
+              <option value="">Choose a reason…</option>
+              {RECEIPT_EXCEPTION_OPTIONS.map(option=><option key={option} value={option}>{option}</option>)}
+            </select>
+            <label style={{display:"flex",alignItems:"center",gap:8,color:"#f0f6ff",fontSize:12,fontWeight:700,cursor:"pointer",marginBottom:10}}>
+              <input type="checkbox" checked={receiptPickupRequired} onChange={event=>setReceiptPickupRequired(event.target.checked)} style={{width:16,height:16,accentColor:"#f59e0b"}} />
+              ASC staff had to pick up the item
+            </label>
+            <label style={{display:"block",fontSize:11,fontWeight:900,color:"#fcd34d",marginBottom:5}}>DETAILS (OPTIONAL)</label>
+            <textarea
+              value={receiptProblemNote}
+              onChange={event=>setReceiptProblemNote(event.target.value.slice(0,500))}
+              rows={3}
+              placeholder="Add anything else that should be kept in the record."
+              style={{width:"100%",borderRadius:9,border:"1px solid rgba(245,158,11,.3)",background:"#0f172a",color:"#f0f6ff",padding:"10px 11px",fontSize:13,fontFamily:"inherit",outline:"none",resize:"vertical"}}
+            />
+          </div>
+        )}
+      </div>
+    );
+  }
+
   return (
     <>
       <style dangerouslySetInnerHTML={{ __html: CSS }} />
@@ -557,7 +717,7 @@ This does NOT add ${qtyThisDelivery} to the inventory count. Use “Add to Inven
         <div className="wrap">
           {receivingOrder && createPortal((
             <div style={{position:"fixed",inset:0,zIndex:1000,background:"rgba(2,6,23,.82)",display:"grid",placeItems:"center",padding:16}} onClick={()=>{if(!receiveSaving)setReceivingOrder(null);}}>
-              <div style={{width:"min(430px,100%)",background:"#111827",border:"1px solid rgba(248,113,113,.28)",borderRadius:18,padding:18,boxShadow:"0 24px 70px rgba(0,0,0,.55)"}} onClick={event=>event.stopPropagation()}>
+              <div style={{width:"min(430px,100%)",maxHeight:"calc(100vh - 32px)",overflowY:"auto",background:"#111827",border:"1px solid rgba(248,113,113,.28)",borderRadius:18,padding:18,boxShadow:"0 24px 70px rgba(0,0,0,.55)"}} onClick={event=>event.stopPropagation()}>
                 <div style={{fontSize:18,fontWeight:900,marginBottom:4}}>📦 Add & Receive</div>
                 <div style={{fontSize:13,color:"#cbd5e1",marginBottom:16}}>{receivingOrder.item_name}</div>
                 <label style={{display:"block",fontSize:11,fontWeight:800,color:"#94a3b8",marginBottom:5}}>AMOUNT RECEIVED</label>
@@ -570,6 +730,7 @@ This does NOT add ${qtyThisDelivery} to the inventory count. Use “Add to Inven
                     <input className="inp" inputMode="numeric" value={receiveUnitsPerPackage} onChange={event=>setReceiveUnitsPerPackage(event.target.value.replace(/\D/g,""))} style={{marginBottom:12}} />
                   </>
                 )}
+                {renderReceiptProblemFields()}
                 <div style={{fontSize:11,color:"#64748b",lineHeight:1.5,marginBottom:14}}>This adds the amount to the existing Main Sterile Supply count and marks this order received. It does not replace the old count.</div>
                 <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:9}}>
                   <button type="button" className="received-only-btn" style={{background:"#334155"}} disabled={receiveSaving} onClick={()=>setReceivingOrder(null)}>Cancel</button>
@@ -580,15 +741,30 @@ This does NOT add ${qtyThisDelivery} to the inventory count. Use “Add to Inven
           ), document.body)}
           {receivedOnlyOrder && createPortal((
             <div style={{position:"fixed",inset:0,zIndex:1000,background:"rgba(2,6,23,.82)",display:"grid",placeItems:"center",padding:16}} onClick={()=>{if(!receivedOnlySaving)setReceivedOnlyOrder(null);}}>
-              <div style={{width:"min(430px,100%)",background:"#111827",border:"1px solid rgba(16,185,129,.3)",borderRadius:18,padding:18,boxShadow:"0 24px 70px rgba(0,0,0,.55)"}} onClick={event=>event.stopPropagation()}>
+              <div style={{width:"min(430px,100%)",maxHeight:"calc(100vh - 32px)",overflowY:"auto",background:"#111827",border:"1px solid rgba(16,185,129,.3)",borderRadius:18,padding:18,boxShadow:"0 24px 70px rgba(0,0,0,.55)"}} onClick={event=>event.stopPropagation()}>
                 <div style={{fontSize:18,fontWeight:900,marginBottom:4}}>✅ Record Received Only</div>
                 <div style={{fontSize:13,color:"#cbd5e1",marginBottom:16}}>{receivedOnlyOrder.item_name}</div>
                 <label style={{display:"block",fontSize:11,fontWeight:800,color:"#94a3b8",marginBottom:5}}>AMOUNT RECEIVED THIS DELIVERY</label>
                 <input className="inp" inputMode="numeric" value={receivedOnlyQty} onChange={event=>setReceivedOnlyQty(event.target.value.replace(/\D/g,""))} style={{marginBottom:12,fontSize:18,fontWeight:900,textAlign:"center"}} />
+                {renderReceiptProblemFields()}
                 <div style={{fontSize:11,color:"#fcd34d",background:"rgba(245,158,11,.08)",border:"1px solid rgba(245,158,11,.2)",borderRadius:8,padding:"8px 10px",lineHeight:1.5,marginBottom:14}}>This closes the order and records the delivery amount. It does NOT increase the on-hand inventory number.</div>
                 <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:9}}>
                   <button type="button" className="received-only-btn" style={{background:"#334155"}} disabled={receivedOnlySaving} onClick={()=>setReceivedOnlyOrder(null)}>Cancel</button>
                   <button type="button" className="received-only-btn" disabled={receivedOnlySaving} onClick={saveReceivedOnly}>{receivedOnlySaving ? "Saving…" : "Save Receipt Only"}</button>
+                </div>
+              </div>
+            </div>
+          ), document.body)}
+          {editingReceiptOrder && createPortal((
+            <div style={{position:"fixed",inset:0,zIndex:1000,background:"rgba(2,6,23,.82)",display:"grid",placeItems:"center",padding:16}} onClick={()=>{if(!receiptNoteSaving)setEditingReceiptOrder(null);}}>
+              <div style={{width:"min(430px,100%)",maxHeight:"calc(100vh - 32px)",overflowY:"auto",background:"#111827",border:"1px solid rgba(245,158,11,.35)",borderRadius:18,padding:18,boxShadow:"0 24px 70px rgba(0,0,0,.55)"}} onClick={event=>event.stopPropagation()}>
+                <div style={{fontSize:18,fontWeight:900,marginBottom:4}}>📝 Receiving Record</div>
+                <div style={{fontSize:13,color:"#cbd5e1",marginBottom:14}}>{editingReceiptOrder.item_name}</div>
+                {renderReceiptProblemFields()}
+                <div style={{fontSize:11,color:"#94a3b8",lineHeight:1.5,marginBottom:14}}>This stays attached to the received order so you have a record of what happened.</div>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:9}}>
+                  <button type="button" className="received-only-btn" style={{background:"#334155"}} disabled={receiptNoteSaving} onClick={()=>setEditingReceiptOrder(null)}>Cancel</button>
+                  <button type="button" className="received-only-btn" style={{background:"#b45309"}} disabled={receiptNoteSaving} onClick={saveReceiptProblem}>{receiptNoteSaving ? "Saving…" : "Save Record"}</button>
                 </div>
               </div>
             </div>
@@ -714,6 +890,16 @@ This does NOT add ${qtyThisDelivery} to the inventory count. Use “Add to Inven
                         {order.cancelled_at && <><br /><span style={{color:"#94a3b8"}}>{order.cancelled_by || "Staff"} · {formatTime(order.cancelled_at)}{order.cancellation_email_status === "SENT" ? " · Brooklyn emailed" : ""}</span></>}
                       </div>
                     )}
+                    {order.receipt_exception_type && (
+                      <div style={{fontSize:12,color:"#fef3c7",marginTop:8,background:"rgba(245,158,11,.1)",border:"1px solid rgba(245,158,11,.35)",borderRadius:8,padding:"9px 10px",lineHeight:1.5}}>
+                        ⚠️ <strong>Receiving problem:</strong> {order.receipt_exception_type}
+                        {order.receipt_pickup_required && <><br /><strong>🚗 ASC staff had to pick up the item.</strong></>}
+                        {order.receipt_exception_note && <><br /><span>{order.receipt_exception_note}</span></>}
+                        {order.receipt_exception_recorded_at && (
+                          <><br /><span style={{color:"#94a3b8"}}>Recorded by {order.receipt_exception_recorded_by || "Staff"} · {formatTime(order.receipt_exception_recorded_at)}</span></>
+                        )}
+                      </div>
+                    )}
                     {order.issue_note && (
                       <div style={{fontSize:12,color:"#fed7aa",marginTop:8,background:"rgba(249,115,22,.1)",border:"1px solid rgba(249,115,22,.3)",borderRadius:7,padding:"8px 9px",lineHeight:1.45}}>
                         ⚠️ <strong>Issue:</strong> {order.issue_note}
@@ -745,6 +931,7 @@ This does NOT add ${qtyThisDelivery} to the inventory count. Use “Add to Inven
                       {order.received_at && (
                         <div className="step done">
                           ✓ Received {formatTime(order.received_at)}
+                          {order.received_by && <span style={{ color:"#64748b" }}> by {order.received_by}</span>}
                         </div>
                       )}
                       {order.status === "CANCELLED" && order.cancelled_at && (
@@ -820,6 +1007,20 @@ This does NOT add ${qtyThisDelivery} to the inventory count. Use “Add to Inven
                     {order.status === "ISSUE" && (
                       <div className="order-actions">
                         <button type="button" className="resolve-issue-btn" disabled={issueSaving} onClick={()=>resolveIssue(order)}>{issueSaving ? "Saving…" : "✓ Resolve / Move Back"}</button>
+                      </div>
+                    )}
+                    {order.status === "RECEIVED" && (
+                      <div className="order-actions" style={{gridTemplateColumns:"1fr"}}>
+                        <button
+                          type="button"
+                          className="issue-btn"
+                          onClick={()=>{
+                            loadReceiptProblem(order);
+                            setEditingReceiptOrder(order);
+                          }}
+                        >
+                          {order.receipt_exception_type ? "✏️ Edit Receiving Record" : "📝 Add Receiving Problem"}
+                        </button>
                       </div>
                     )}
                   </div>
