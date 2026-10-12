@@ -449,6 +449,7 @@ export default function Home() {
                 ["📦","Box Notes","/box-notes"],
                 ["➕","Add Items","/items"],
                 ["📊","Reports","/reports"],
+                ["💵","Cost Savings","/cost-savings"],
                 ...(userEmail?.toLowerCase() === "hogstud800@gmail.com" ? [["🧾","Inventory Activity","/inventory-activity"]] : []),
                 ["💰","Pricing Center","/price-editor"],
                 ["👥","Staff Activity","/staff-activity"],
