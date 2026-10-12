@@ -153,6 +153,8 @@ export default function OrderHistoryPage() {
   const [followUpNote, setFollowUpNote] = useState("");
   const [followUpSending, setFollowUpSending] = useState(false);
   const [pendingReminderSending, setPendingReminderSending] = useState(false);
+  const [orderingOrder, setOrderingOrder] = useState<Order | null>(null);
+  const [orderedQty, setOrderedQty] = useState("");
   const [receivingOrder, setReceivingOrder] = useState<Order | null>(null);
   const [receiveQty, setReceiveQty] = useState("");
   const [receivePrice, setReceivePrice] = useState("");
@@ -375,7 +377,7 @@ export default function OrderHistoryPage() {
     setReceivedOnlyOrder(order);
   }
 
-  async function markOrdered(order: Order) {
+  function openMarkOrdered(order: Order) {
     if (updatingOrderId) return;
     const orderingInfo = [
       order.item_note ? `Item / Box Information: ${order.item_note}` : "",
@@ -383,13 +385,27 @@ export default function OrderHistoryPage() {
     ].filter(Boolean).join("\n\n");
     if (orderingInfo && !confirm(`Please confirm you read all ordering information before marking the item ordered:\n\n${orderingInfo}`)) return;
 
+    setOrderedQty(String(order.qty_actual_ordered || order.qty_requested));
+    setOrderingOrder(order);
+  }
+
+  async function markOrdered() {
+    if (!orderingOrder || updatingOrderId) return;
+    const order = orderingOrder;
+    const qty = Number(orderedQty);
+    if (!Number.isInteger(qty) || qty < 1) {
+      alert("Enter the whole-number amount actually ordered.");
+      return;
+    }
+
     setUpdatingOrderId(order.id);
     const confirmedAt = new Date().toISOString();
     try {
       const { data: { session } } = await supabase.auth.getSession();
       const staff = session?.user?.user_metadata?.full_name || session?.user?.email || "Administrator";
-      const update: Record<string, string> = {
+      const update: Record<string, string | number> = {
         status: "ORDERED",
+        qty_actual_ordered: qty,
         confirmed_by: staff,
         confirmed_at: confirmedAt,
       };
@@ -408,9 +424,10 @@ export default function OrderHistoryPage() {
 
       setOrders(prev => prev.map(row =>
         row.id === order.id
-          ? { ...row, status: "ORDERED", confirmed_by: staff, confirmed_at: confirmedAt }
+          ? { ...row, status: "ORDERED", qty_actual_ordered: qty, confirmed_by: staff, confirmed_at: confirmedAt }
           : row
       ));
+      setOrderingOrder(null);
     } catch (error) {
       alert(`Could not mark this order as ordered: ${error instanceof Error ? error.message : "Unknown error"}`);
     } finally {
@@ -739,6 +756,21 @@ This does NOT add ${qtyThisDelivery} to the inventory count. Use “Add to Inven
               </div>
             </div>
           ), document.body)}
+          {orderingOrder && createPortal((
+            <div style={{position:"fixed",inset:0,zIndex:1000,background:"rgba(2,6,23,.82)",display:"grid",placeItems:"center",padding:16}} onClick={()=>{if(!updatingOrderId)setOrderingOrder(null);}}>
+              <div style={{width:"min(430px,100%)",background:"#111827",border:"1px solid rgba(248,113,113,.3)",borderRadius:18,padding:18,boxShadow:"0 24px 70px rgba(0,0,0,.55)"}} onClick={event=>event.stopPropagation()}>
+                <div style={{fontSize:18,fontWeight:900,marginBottom:4}}>✅ Mark Ordered</div>
+                <div style={{fontSize:13,color:"#cbd5e1",marginBottom:16}}>{orderingOrder.item_name}</div>
+                <label htmlFor="actual-ordered-qty" style={{display:"block",fontSize:11,fontWeight:800,color:"#94a3b8",marginBottom:5}}>AMOUNT ACTUALLY ORDERED</label>
+                <input id="actual-ordered-qty" className="inp" autoFocus inputMode="numeric" value={orderedQty} onChange={event=>setOrderedQty(event.target.value.replace(/\D/g,""))} onKeyDown={event=>{if(event.key === "Enter") void markOrdered();}} style={{width:"100%",marginBottom:8,fontSize:22,fontWeight:900,textAlign:"center"}} />
+                <div style={{fontSize:11,color:"#94a3b8",lineHeight:1.5,marginBottom:14}}>Requested: <strong style={{color:"#f0f6ff"}}>{orderingOrder.qty_requested}</strong> {orderingOrder.unit || "units"}. Change the number above if a different amount was ordered.</div>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:9}}>
+                  <button type="button" className="received-only-btn" style={{background:"#334155"}} disabled={updatingOrderId === orderingOrder.id} onClick={()=>setOrderingOrder(null)}>Cancel</button>
+                  <button type="button" className="ordered-btn" style={{gridColumn:"auto"}} disabled={updatingOrderId === orderingOrder.id || !orderedQty} onClick={()=>void markOrdered()}>{updatingOrderId === orderingOrder.id ? "Saving…" : "Save as Ordered"}</button>
+                </div>
+              </div>
+            </div>
+          ), document.body)}
           {receivedOnlyOrder && createPortal((
             <div style={{position:"fixed",inset:0,zIndex:1000,background:"rgba(2,6,23,.82)",display:"grid",placeItems:"center",padding:16}} onClick={()=>{if(!receivedOnlySaving)setReceivedOnlyOrder(null);}}>
               <div style={{width:"min(430px,100%)",maxHeight:"calc(100vh - 32px)",overflowY:"auto",background:"#111827",border:"1px solid rgba(16,185,129,.3)",borderRadius:18,padding:18,boxShadow:"0 24px 70px rgba(0,0,0,.55)"}} onClick={event=>event.stopPropagation()}>
@@ -865,8 +897,8 @@ This does NOT add ${qtyThisDelivery} to the inventory count. Use “Add to Inven
                       {order.vendor || "—"} · {order.reference_number ? `Ref: ${order.reference_number}` : "No ref"} · {order.unit || "—"}<br />
                       <strong style={{ color:"#f0f6ff" }}>Requested by: {order.requested_by}</strong> · {formatDate(order.created_at)}<br />
                       Qty Requested: <strong style={{ color:"#f0f6ff" }}>{order.qty_requested}</strong>
-                      {order.qty_actual_ordered && order.qty_actual_ordered !== order.qty_requested && (
-                        <span style={{ color:"#fcd34d" }}> → Actual Ordered: <strong>{order.qty_actual_ordered}</strong></span>
+                      {order.qty_actual_ordered && (
+                        <span style={{ color:"#fcd34d" }}> · Qty Ordered: <strong>{order.qty_actual_ordered}</strong></span>
                       )}
                       {order.qty_actual_received && (
                         <span style={{ color:"#6ee7b7" }}> · Received: <strong>{order.qty_actual_received}</strong></span>
@@ -960,7 +992,7 @@ This does NOT add ${qtyThisDelivery} to the inventory count. Use “Add to Inven
                             type="button"
                             className="ordered-btn"
                             disabled={updatingOrderId === order.id}
-                            onClick={() => markOrdered(order)}
+                            onClick={() => openMarkOrdered(order)}
                           >
                             {updatingOrderId === order.id ? "Saving…" : "✅ Mark Ordered"}
                           </button>
