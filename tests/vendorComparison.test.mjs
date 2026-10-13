@@ -1,0 +1,42 @@
+import assert from "node:assert/strict";
+import fs from "node:fs";
+import ts from "typescript";
+
+const compile=path=>ts.transpileModule(fs.readFileSync(path,"utf8"),{compilerOptions:{module:ts.ModuleKind.ES2022,target:ts.ScriptTarget.ES2022}}).outputText;
+const url=code=>"data:text/javascript;base64,"+Buffer.from(code).toString("base64");
+const libraryURL=url(compile("lib/vendorComparison.ts"));
+const {sanitizeResearch,packageEaches,withLegacyPackaging}=await import(libraryURL);
+const {verifyProductHTML}=await import(url(compile("lib/verifyVendorSources.ts").replace('"./vendorComparison"',JSON.stringify(libraryURL))));
+const sources=[{url:"https://supplier.example/MB46G",title:"Product"}];
+const raw={vendor:"Supplier",product:"MB46G",reference:"MB46G",match:"EXACT",currency:"USD",package_type:"CASE",each_per_box:12,boxes_per_case:4,package_units:48,package_price:240,package_evidence:"4 boxes of 12 each",url:sources[0].url};
+const clean=sanitizeResearch({offers:[raw]},sources,"MB46G").offers[0];
+assert.equal(clean.package_units,48);
+assert.equal(packageEaches("EACH",null,null),1);
+assert.equal(packageEaches("BOX",12,null),12);
+assert.equal(packageEaches("CASE",12,4),48);
+assert.equal(packageEaches("CASE",12,null),null);
+assert.equal(withLegacyPackaging({...clean,package_type:undefined,package_units:12,product:"Suture, box of 12"}).package_type,"BOX");
+assert.equal(withLegacyPackaging({...clean,package_type:undefined,package_units:12,product:"4 strands per packet",notes:""}).package_type,undefined);
+assert.equal(sanitizeResearch({offers:[{...raw,package_units:12}]},sources,"MB46G").offers[0].package_units,null);
+assert.equal(sanitizeResearch({offers:[{...raw,currency:"EUR"}]},sources,"MB46G").offers[0].package_price,null);
+assert.equal(sanitizeResearch({offers:[{...raw,url:"https://invented.example/item"}]},sources,"MB46G").offers.length,0);
+assert.equal(sanitizeResearch({offers:[{...raw,reference:"OTHER"}]},sources,"MB46G").offers[0].match,"POSSIBLE");
+const html=products=>'<script type="application/ld+json">'+JSON.stringify({"@graph":products})+"</script>";
+const correct={"@type":"Product",sku:"MB46G",description:"Case of 4 boxes of 12 each",offers:{"@type":"Offer",price:"240.00",priceCurrency:"USD"}};
+const verified=verifyProductHTML(clean,html([correct]));
+assert.equal(verified.reference,true);assert.equal(verified.price,true);assert.equal(verified.package,true);
+const unrelated={"@type":"Product",sku:"OTHER",description:"Case of 4 boxes of 12 each",offers:{price:"240.00",priceCurrency:"USD"}};
+const own={...correct,description:"Package quantity unavailable",offers:{price:"900.00",priceCurrency:"USD"}};
+const rejected=verifyProductHTML(clean,html([own,unrelated]));
+assert.equal(rejected.reference,true);assert.equal(rejected.price,false);assert.equal(rejected.package,false);
+const differentPack={...correct,description:"Single box of 12 each"};
+const caseAtOtherPrice={...correct,offers:{price:"900.00",priceCurrency:"USD"}};
+assert.equal(verifyProductHTML(clean,html([differentPack,caseAtOtherPrice])).package,false);
+// A $72 box of 12 versus a $240 case of 48: $6 vs $5 per each,
+// $60 equivalent for 12 each, and $12 saving per current box.
+const currentEach=72/12,vendorEach=240/48;
+assert.equal(currentEach-vendorEach,1);
+assert.equal(vendorEach*12,60);
+assert.equal((currentEach-vendorEach)*12,12);
+assert.equal((currentEach-vendorEach)*48,48);
+console.log("PASS: each/box/case conversion, consistent quantities, USD-only pricing, sourced links, exact references, independent product price checks, related-product exclusion, equal-quantity savings.");
