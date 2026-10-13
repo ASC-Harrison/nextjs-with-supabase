@@ -26,6 +26,19 @@ export default function PurchasingSavings(){
   const [month,setMonth]=useState(today().slice(0,7));
   const [person,setPerson]=useState("ALL");
   useEffect(()=>{
+    const saved=sessionStorage.getItem("asc-purchasing-draft");
+    if(!saved)return;
+    try{
+      const draft=JSON.parse(saved) as Record<string,unknown>;
+      const clean:Partial<ReturnType<typeof initial>>={};
+      for(const key of ["old_product","new_product","old_vendor","new_vendor","old_package_price","new_package_price","old_package_units","new_package_units","unit_label","monthly_packages","evidence"] as const){
+        if(typeof draft[key]==="string")clean[key]=draft[key].slice(0,key==="evidence"?2000:300);
+      }
+      setForm(f=>({...f,...clean}));setNotice("Vendor comparison loaded as a draft. Review the price, package sizes and evidence before saving.");
+      sessionStorage.removeItem("asc-purchasing-draft");
+    }catch{sessionStorage.removeItem("asc-purchasing-draft");}
+  },[]);
+  useEffect(()=>{
     let live=true;
     async function loadRows<T>(table:string):Promise<T[]>{
       const rows:T[]=[];
