@@ -21,6 +21,15 @@ type Order = {
   qty_requested: number;
   qty_actual_ordered: number | null;
   qty_actual_received: number | null;
+  requested_unit_price?: number | null;
+  requested_price_basis?: string | null;
+  ordered_unit_price?: number | null;
+  invoice_unit_price?: number | null;
+  requested_total?: number | null;
+  ordered_total?: number | null;
+  received_spend?: number;
+  received_unpriced_qty?: number;
+  received_estimated_qty?: number;
   status: string;
   confirmed_by: string | null;
   confirmed_at: string | null;
@@ -155,6 +164,8 @@ export default function OrderHistoryPage() {
   const [pendingReminderSending, setPendingReminderSending] = useState(false);
   const [orderingOrder, setOrderingOrder] = useState<Order | null>(null);
   const [orderedQty, setOrderedQty] = useState("");
+  const [orderedPrice, setOrderedPrice] = useState("");
+  const [receivedOnlyPrice, setReceivedOnlyPrice] = useState("");
   const [receivingOrder, setReceivingOrder] = useState<Order | null>(null);
   const [receiveQty, setReceiveQty] = useState("");
   const [receivePrice, setReceivePrice] = useState("");
@@ -350,9 +361,11 @@ export default function OrderHistoryPage() {
       if (error) throw error;
       const result = data as { status: Order["status"]; total_received: number; inventory_on_hand: number; package_price: number | null; unit_cost: number | null; };
       const receivedAt = new Date().toISOString();
+      const { data: pricedOrder } = await supabase.from("order_requests").select("*").eq("id",receivingOrder.id).single();
       const receiptUpdate = receiptProblemUpdate(staff, receivedAt);
       setOrders(prev => prev.map(row => row.id === receivingOrder.id ? {
         ...row,
+        ...pricedOrder,
         status: result.status,
         qty_actual_received: result.total_received,
         received_at: receivedAt,
@@ -373,6 +386,7 @@ export default function OrderHistoryPage() {
     const orderedQty = order.qty_actual_ordered || order.qty_requested;
     const alreadyReceived = order.qty_actual_received || 0;
     setReceivedOnlyQty(String(Math.max(orderedQty - alreadyReceived, 1)));
+    setReceivedOnlyPrice("");
     clearReceiptProblem();
     setReceivedOnlyOrder(order);
   }
@@ -386,6 +400,7 @@ export default function OrderHistoryPage() {
     if (orderingInfo && !confirm(`Please confirm you read all ordering information before marking the item ordered:\n\n${orderingInfo}`)) return;
 
     setOrderedQty(String(order.qty_actual_ordered || order.qty_requested));
+    setOrderedPrice(order.ordered_unit_price != null ? String(order.ordered_unit_price) : "");
     setOrderingOrder(order);
   }
 
@@ -393,6 +408,11 @@ export default function OrderHistoryPage() {
     if (!orderingOrder || updatingOrderId) return;
     const order = orderingOrder;
     const qty = Number(orderedQty);
+    const price = orderedPrice.trim() ? Number(orderedPrice) : null;
+    if (price !== null && (!Number.isFinite(price) || price <= 0 || price > 10000000)) {
+      alert("Enter a positive price per ordered quantity unit, or leave blank if unknown.");
+      return;
+    }
     if (!Number.isInteger(qty) || qty < 1) {
       alert("Enter the whole-number amount actually ordered.");
       return;
@@ -403,9 +423,10 @@ export default function OrderHistoryPage() {
     try {
       const { data: { session } } = await supabase.auth.getSession();
       const staff = session?.user?.user_metadata?.full_name || session?.user?.email || "Administrator";
-      const update: Record<string, string | number> = {
+      const update: Record<string, string | number | null> = {
         status: "ORDERED",
         qty_actual_ordered: qty,
+        ordered_unit_price: price,
         confirmed_by: staff,
         confirmed_at: confirmedAt,
       };
@@ -414,17 +435,17 @@ export default function OrderHistoryPage() {
         update.note_acknowledged_at = confirmedAt;
       }
 
-      const { error } = await supabase
+      const { data: savedOrder, error } = await supabase
         .from("order_requests")
         .update(update)
         .eq("id", order.id)
-        .select("id")
+        .select("*")
         .single();
       if (error) throw error;
 
       setOrders(prev => prev.map(row =>
         row.id === order.id
-          ? { ...row, status: "ORDERED", qty_actual_ordered: qty, confirmed_by: staff, confirmed_at: confirmedAt }
+          ? { ...row, ...savedOrder }
           : row
       ));
       setOrderingOrder(null);
@@ -475,6 +496,11 @@ export default function OrderHistoryPage() {
   async function saveReceivedOnly() {
     if (!receivedOnlyOrder || receivedOnlySaving) return;
     const qtyThisDelivery = Number(receivedOnlyQty);
+    const invoicePrice = receivedOnlyPrice.trim() ? Number(receivedOnlyPrice) : null;
+    if (invoicePrice !== null && (!Number.isFinite(invoicePrice) || invoicePrice <= 0 || invoicePrice > 10000000)) {
+      alert("Enter a positive invoice price per received count unit, or leave blank if unknown.");
+      return;
+    }
     if (!Number.isInteger(qtyThisDelivery) || qtyThisDelivery <= 0) {
       alert("Enter a valid whole-number amount received.");
       return;
@@ -497,12 +523,13 @@ This does NOT add ${qtyThisDelivery} to the inventory count. Use “Add to Inven
         .update({
           status: "RECEIVED",
           qty_actual_received: totalReceived,
+          invoice_unit_price: invoicePrice,
           received_at: receivedAt,
           received_by: staff,
           ...receiptUpdate,
         })
         .eq("id", receivedOnlyOrder.id)
-        .select("id,status,qty_actual_received,received_at,received_by,receipt_exception_type,receipt_exception_note,receipt_pickup_required,receipt_exception_recorded_at,receipt_exception_recorded_by")
+        .select("*")
         .single();
 
       if (error) throw error;
@@ -514,6 +541,7 @@ This does NOT add ${qtyThisDelivery} to the inventory count. Use “Add to Inven
         row.id === receivedOnlyOrder.id
           ? {
               ...row,
+              ...saved,
               status: saved.status,
               qty_actual_received: Number(saved.qty_actual_received),
               received_at: saved.received_at,
@@ -743,8 +771,9 @@ This does NOT add ${qtyThisDelivery} to the inventory count. Use “Add to Inven
                 <input className="inp" inputMode="decimal" value={receivePrice} onChange={event=>setReceivePrice(event.target.value.replace(/[^0-9.]/g,""))} placeholder="Leave blank if unknown" style={{marginBottom:12}} />
                 {receivePrice.trim() && (
                   <>
-                    <label style={{display:"block",fontSize:11,fontWeight:800,color:"#94a3b8",marginBottom:5}}>UNITS IN PACKAGE</label>
+                    <label style={{display:"block",fontSize:11,fontWeight:800,color:"#94a3b8",marginBottom:5}}>RECEIVED COUNT UNITS COVERED BY THIS PRICE</label>
                     <input className="inp" inputMode="numeric" value={receiveUnitsPerPackage} onChange={event=>setReceiveUnitsPerPackage(event.target.value.replace(/\D/g,""))} style={{marginBottom:12}} />
+                    <p style={{fontSize:12,color:"#94a3b8"}}>If receiving boxes with a price per box, enter 1. If receiving individual units with a price per box of 10, enter 10.</p>
                   </>
                 )}
                 {renderReceiptProblemFields()}
@@ -763,6 +792,10 @@ This does NOT add ${qtyThisDelivery} to the inventory count. Use “Add to Inven
                 <div style={{fontSize:13,color:"#cbd5e1",marginBottom:16}}>{orderingOrder.item_name}</div>
                 <label htmlFor="actual-ordered-qty" style={{display:"block",fontSize:11,fontWeight:800,color:"#94a3b8",marginBottom:5}}>AMOUNT ACTUALLY ORDERED</label>
                 <input id="actual-ordered-qty" className="inp" autoFocus inputMode="numeric" value={orderedQty} onChange={event=>setOrderedQty(event.target.value.replace(/\D/g,""))} onKeyDown={event=>{if(event.key === "Enter") void markOrdered();}} style={{width:"100%",marginBottom:8,fontSize:22,fontWeight:900,textAlign:"center"}} />
+                <label htmlFor="ordered-unit-price" style={{display:"block",fontSize:11,fontWeight:800,color:"#94a3b8",marginBottom:5}}>ACTUAL PRICE PER ORDERED COUNT UNIT ($)</label>
+                <input id="ordered-unit-price" className="inp" type="number" min=".0001" step=".0001" value={orderedPrice} onChange={event=>setOrderedPrice(event.target.value)} placeholder="Leave blank if cost is unknown" style={{width:"100%",marginBottom:8}} />
+                <p style={{fontSize:12,color:"#cbd5e1"}}>If quantity is boxes, enter price per box; if each, enter price per each. {orderingOrder.requested_unit_price != null && <>Saved-price estimate: ${Number(orderingOrder.requested_unit_price).toFixed(4)} — confirm the package basis before using it.</>}</p>
+                <p style={{fontSize:14,fontWeight:800}}>Order total: {orderedPrice.trim() && Number(orderedPrice)>0 ? `$${(Number(orderedQty)*Number(orderedPrice)).toFixed(2)}` : "Cost unknown"}</p>
                 <div style={{fontSize:11,color:"#94a3b8",lineHeight:1.5,marginBottom:14}}>Requested: <strong style={{color:"#f0f6ff"}}>{orderingOrder.qty_requested}</strong> {orderingOrder.unit || "units"}. Change the number above if a different amount was ordered.</div>
                 <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:9}}>
                   <button type="button" className="received-only-btn" style={{background:"#334155"}} disabled={updatingOrderId === orderingOrder.id} onClick={()=>setOrderingOrder(null)}>Cancel</button>
@@ -778,6 +811,8 @@ This does NOT add ${qtyThisDelivery} to the inventory count. Use “Add to Inven
                 <div style={{fontSize:13,color:"#cbd5e1",marginBottom:16}}>{receivedOnlyOrder.item_name}</div>
                 <label style={{display:"block",fontSize:11,fontWeight:800,color:"#94a3b8",marginBottom:5}}>AMOUNT RECEIVED THIS DELIVERY</label>
                 <input className="inp" inputMode="numeric" value={receivedOnlyQty} onChange={event=>setReceivedOnlyQty(event.target.value.replace(/\D/g,""))} style={{marginBottom:12,fontSize:18,fontWeight:900,textAlign:"center"}} />
+                <label htmlFor="receipt-only-price" style={{display:"block",fontSize:11,fontWeight:800,color:"#94a3b8",marginBottom:5}}>INVOICE PRICE PER RECEIVED COUNT UNIT ($)</label>
+                <input id="receipt-only-price" className="inp" type="number" min=".0001" step=".0001" value={receivedOnlyPrice} onChange={event=>setReceivedOnlyPrice(event.target.value)} placeholder="Optional — otherwise uses ordered price estimate" style={{width:"100%",marginBottom:12}} />
                 {renderReceiptProblemFields()}
                 <div style={{fontSize:11,color:"#fcd34d",background:"rgba(245,158,11,.08)",border:"1px solid rgba(245,158,11,.2)",borderRadius:8,padding:"8px 10px",lineHeight:1.5,marginBottom:14}}>This closes the order and records the delivery amount. It does NOT increase the on-hand inventory number.</div>
                 <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:9}}>
@@ -817,6 +852,7 @@ This does NOT add ${qtyThisDelivery} to the inventory count. Use “Add to Inven
             </div>
           ), document.body)}
           <button onClick={() => router.push("/")} className="back-btn">← Back</button>
+          <button onClick={() => router.push("/order-spending")} className="back-btn" style={{marginLeft:8}}>💵 Order Spending</button>
 
           <div className="header">
             <div className="header-title">📋 Order History</div>
@@ -903,6 +939,10 @@ This does NOT add ${qtyThisDelivery} to the inventory count. Use “Add to Inven
                       {order.qty_actual_received && (
                         <span style={{ color:"#6ee7b7" }}> · Received: <strong>{order.qty_actual_received}</strong></span>
                       )}
+                    </div>
+                    <div style={{fontSize:12,color:"#cbd5e1",marginTop:8,lineHeight:1.6}}>
+                      Requested estimate: {order.requested_total != null ? `$${Number(order.requested_total).toFixed(2)}` : "Cost unknown"} · Ordered: {order.ordered_total != null ? `$${Number(order.ordered_total).toFixed(2)}` : "Cost unknown"}<br />
+                      Received cost recorded: ${Number(order.received_spend || 0).toFixed(2)}{Number(order.received_estimated_qty)>0 ? " (includes ordered-price estimates)" : ""}{Number(order.received_unpriced_qty)>0 ? ` · ${order.received_unpriced_qty} received units have unknown cost` : ""}
                     </div>
                     {order.item_note && !["RECEIVED","CANCELLED"].includes(order.status) && (
                       <div style={{ fontSize:13, color:"#dbeafe", marginTop:10, marginBottom:10, background:"rgba(30,64,175,.2)", border:"2px solid rgba(96,165,250,.65)", borderRadius:9, padding:"10px 11px", lineHeight:1.5 }}>

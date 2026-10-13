@@ -51,6 +51,10 @@ export async function POST(req: Request) {
     const by = formData.get("by") as string || "Brooklyn";
     const status = formData.get("status") as string || "ORDERED";
     const qtyActual = formData.get("qty_actual") as string;
+    const priceText = String(formData.get("ordered_unit_price") || "").trim();
+    const orderedPrice = priceText ? Number(priceText) : null;
+    if (!Number.isInteger(Number(qtyActual)) || Number(qtyActual) <= 0) return new Response(errorPage("Enter a positive whole-number quantity."), {headers:{"Content-Type":"text/html"},status:400});
+    if (orderedPrice !== null && (!Number.isFinite(orderedPrice) || orderedPrice <= 0 || orderedPrice > 10000000)) return new Response(errorPage("Enter a positive price per ordered count unit, or leave blank if unknown."), {headers:{"Content-Type":"text/html"},status:400});
     const qtyReceived = formData.get("qty_received") as string;
     const expectedDelivery = formData.get("expected_delivery_date") as string;
     const noteAcknowledged = formData.get("note_acknowledged") as string;
@@ -72,6 +76,7 @@ export async function POST(req: Request) {
       status: isBackorder ? "BACKORDERED" : "ORDERED",
       confirmed_by: by,
       confirmed_at: new Date().toISOString(),
+      ordered_unit_price: orderedPrice,
     };
 
     if (order.notes || order.item_note) {
@@ -89,7 +94,8 @@ export async function POST(req: Request) {
       update.qty_actual_received = Number(qtyReceived);
     }
 
-    await supabase.from("order_requests").update(update).eq("id", id);
+    const {error:updateError} = await supabase.from("order_requests").update(update).eq("id", id).select("id").single();
+    if (updateError) throw updateError;
 
     if (isBackorder) {
       await supabase.from("items").update({ backordered: true, order_status: "BACKORDER" }).eq("name", order.item_name);
@@ -141,8 +147,14 @@ function confirmFormPage(order: any, by: string) {
               <label style='font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:6px'>
                 Actual Qty Ordered <span style='color:#64748b;font-weight:400'>(update if different from requested)</span>
               </label>
-              <input type='number' name='qty_actual' value='${order.qty_requested}' min='1' style='width:100%;border-radius:10px;border:1px solid #1e3a5f;background:#111827;color:#f0f6ff;padding:12px 14px;font-size:16px;font-weight:800;text-align:center;box-sizing:border-box;outline:none' />
+              <input type='number' name='qty_actual' value='${order.qty_actual_ordered || order.qty_requested}' min='1' step='1' required style='width:100%;border-radius:10px;border:1px solid #1e3a5f;background:#111827;color:#f0f6ff;padding:12px 14px;font-size:16px;font-weight:800;text-align:center;box-sizing:border-box;outline:none' />
               <div style='font-size:11px;color:#334155;margin-top:5px'>Change this if the item only comes in cases or different pack sizes</div>
+            </div>
+
+            <div style='margin-bottom:14px'>
+              <label for='ordered_unit_price' style='font-size:11px;font-weight:700;color:#94a3b8;display:block;margin-bottom:6px'>Actual price per ordered count unit ($)</label>
+              <input id='ordered_unit_price' type='number' name='ordered_unit_price' min='0.0001' max='10000000' step='0.0001' value='${order.ordered_unit_price || ""}' placeholder='Leave blank if unknown' style='width:100%;border-radius:10px;border:1px solid #1e3a5f;background:#111827;color:#f0f6ff;padding:12px;box-sizing:border-box' />
+              <div style='font-size:12px;color:#94a3b8;margin-top:6px'>For boxes enter price per box; for each enter price per each. Saved-price estimate: ${order.requested_unit_price ? '$'+Number(order.requested_unit_price).toFixed(4) : 'unknown'}. Confirm the package basis before using it.</div>
             </div>
 
             <div style='margin-bottom:14px'>
