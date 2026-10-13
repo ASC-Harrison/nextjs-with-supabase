@@ -127,6 +127,7 @@ export default function CostSavings() {
     <div className="savings-inner">
       <Link className="no-print" href="/">← Dashboard</Link>
       <h1>Cost Savings</h1>
+      <Link className="no-print" href="/current-prices">View current inventory prices →</Link>
       <p>Document the value of your inventory work at Baxter ASC.</p>
       <PurchasingSavings />
       <h2 style={{marginTop:32}}>Other savings: credits, avoided purchases & waste</h2>
