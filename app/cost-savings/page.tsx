@@ -3,6 +3,7 @@
 import { useEffect, useState, FormEvent } from "react";
 import Link from "next/link";
 import { createClient } from "@supabase/supabase-js";
+import PurchasingSavings from "@/components/PurchasingSavings";
 
 const db = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!);
 const categories = ["Duplicate order avoided", "Return credit", "Lower purchase price", "Transfer instead of purchase", "Waste prevented", "Other"];
@@ -127,6 +128,8 @@ export default function CostSavings() {
       <Link className="no-print" href="/">← Dashboard</Link>
       <h1>Cost Savings</h1>
       <p>Document the value of your inventory work at Baxter ASC.</p>
+      <PurchasingSavings />
+      <h2 style={{marginTop:32}}>Other savings: credits, avoided purchases & waste</h2>
       <div className="savings-grid no-print">
         <label>Report month<input type="month" value={month} onChange={e=>setMonth(e.target.value)}/></label>
         <label>Staff credited<select value={person} onChange={e=>setPerson(e.target.value)}><option value="ALL">All staff</option>{people.map(p=><option key={p}>{p}</option>)}</select></label>
