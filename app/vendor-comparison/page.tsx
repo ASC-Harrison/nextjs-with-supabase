@@ -80,6 +80,6 @@ export default function VendorComparison(){
   </article>;
  })}
  <section><h3>Research sources</h3>{research.sources.map(s=><p className="source" key={s.url}><a href={s.url} target="_blank" rel="noopener noreferrer">{s.title||s.url}</a></p>)}</section></>}
- {!research&&!researching&&<p>Click “Find Other Vendors” to search current listings for this product. Results will be saved here for later review.</p>}
+ {!research&&!researching&&<p>Click “Find Vendors — focused search” to search current listings for this exact reference. If no public price is available, the results can still give you supplier links for a quote.</p>}
  </>}</div></div></div></main>;
 }
