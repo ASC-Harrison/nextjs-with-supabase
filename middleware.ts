@@ -203,8 +203,9 @@ export async function middleware(request: NextRequest) {
 
   if (role === "kaya") {
     const allowed =
-      pathname === "/api/restock-request" &&
-      (request.method === "GET" || request.method === "POST");
+      (pathname === "/api/restock-request" &&
+        (request.method === "GET" || request.method === "POST")) ||
+      (pathname === "/api/orders/mark-ordered" && request.method === "POST");
     if (!allowed) return jsonError("This account only has access to Kaya restock requests", 403);
   }
 

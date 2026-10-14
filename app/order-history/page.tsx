@@ -151,6 +151,7 @@ const CSS = `
 
 export default function OrderHistoryPage() {
   const router = useRouter();
+  const [isKaya, setIsKaya] = useState<boolean | null>(null);
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -201,6 +202,7 @@ export default function OrderHistoryPage() {
       if (refreshTimer) clearTimeout(refreshTimer);
       refreshTimer = setTimeout(loadHistory, 250);
     };
+    void supabase.auth.getSession().then(({data})=>setIsKaya(data.session?.user.email?.toLowerCase()==="kayalivhuebner@gmail.com"));
     loadHistory();
     const channel = supabase
       .channel("order-history-live-sync")
@@ -419,29 +421,13 @@ export default function OrderHistoryPage() {
     }
 
     setUpdatingOrderId(order.id);
-    const confirmedAt = new Date().toISOString();
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      const staff = session?.user?.user_metadata?.full_name || session?.user?.email || "Administrator";
-      const update: Record<string, string | number | null> = {
-        status: "ORDERED",
-        qty_actual_ordered: qty,
-        ordered_unit_price: price,
-        confirmed_by: staff,
-        confirmed_at: confirmedAt,
-      };
-      if (order.notes || order.item_note) {
-        update.note_acknowledged_by = staff;
-        update.note_acknowledged_at = confirmedAt;
-      }
-
-      const { data: savedOrder, error } = await supabase
-        .from("order_requests")
-        .update(update)
-        .eq("id", order.id)
-        .select("*")
-        .single();
-      if (error) throw error;
+      if (!session) throw new Error("Please sign in again.");
+      const response=await fetch("/api/orders/mark-ordered",{method:"POST",headers:{"Content-Type":"application/json",Authorization:`Bearer ${session.access_token}`},body:JSON.stringify({order_id:order.id,qty_actual_ordered:qty,ordered_unit_price:price})});
+      const json=await response.json();
+      if(!response.ok||!json.ok)throw new Error(json.error||"Could not mark this order as ordered");
+      const savedOrder=json.order as Order;
 
       setOrders(prev => prev.map(row =>
         row.id === order.id
@@ -851,8 +837,8 @@ This does NOT add ${qtyThisDelivery} to the inventory count. Use “Add to Inven
               </div>
             </div>
           ), document.body)}
-          <button onClick={() => router.push("/")} className="back-btn">← Back</button>
-          <button onClick={() => router.push("/order-spending")} className="back-btn" style={{marginLeft:8}}>💵 Order Spending</button>
+          <button onClick={() => router.push(isKaya?"/kaya":"/")} className="back-btn">← Back</button>
+          {isKaya===false&&<button onClick={() => router.push("/order-spending")} className="back-btn" style={{marginLeft:8}}>💵 Order Spending</button>}
 
           <div className="header">
             <div className="header-title">📋 Order History</div>
@@ -904,7 +890,7 @@ This does NOT add ${qtyThisDelivery} to the inventory count. Use “Add to Inven
             </select>
           </div>
 
-          {orderView === "ORDERS" && statusFilter === "PENDING" && totalPending > 0 && (
+          {isKaya===false && orderView === "ORDERS" && statusFilter === "PENDING" && totalPending > 0 && (
             <div className="pending-reminder-panel">
               <div className="pending-reminder-copy"><strong>{totalPending} Pending item{totalPending === 1 ? "" : "s"}</strong><br />Send Brooklyn one email containing the complete list.</div>
               <button type="button" className="reminder-btn" disabled={pendingReminderSending} onClick={sendPendingReminder}>
@@ -1037,7 +1023,7 @@ This does NOT add ${qtyThisDelivery} to the inventory count. Use “Add to Inven
                             {updatingOrderId === order.id ? "Saving…" : "✅ Mark Ordered"}
                           </button>
                         )}
-                        {order.status === "PENDING" && (
+                        {isKaya===false && order.status === "PENDING" && (
                           <button
                             type="button"
                             className="cancel-order-btn"
@@ -1047,7 +1033,7 @@ This does NOT add ${qtyThisDelivery} to the inventory count. Use “Add to Inven
                             {updatingOrderId === order.id ? "Canceling…" : "🚫 Cancel Order & Notify Brooklyn"}
                           </button>
                         )}
-                        {order.status !== "PENDING" && followUpId !== order.id && (
+                        {isKaya===false && order.status !== "PENDING" && followUpId !== order.id && (
                           <button
                             type="button"
                             className="followup-btn"
@@ -1057,31 +1043,31 @@ This does NOT add ${qtyThisDelivery} to the inventory count. Use “Add to Inven
                             💬 Follow Up With Brooklyn
                           </button>
                         )}
-                        <button
+                        {isKaya===false&&<button
                           type="button"
                           className="receive-btn"
                           disabled={updatingOrderId === order.id}
                           onClick={() => openAddToInventory(order)}
                         >
                           📦 Add to Inventory
-                        </button>
-                        <button
+                        </button>}
+                        {isKaya===false&&<button
                           type="button"
                           className="received-only-btn"
                           disabled={updatingOrderId === order.id}
                           onClick={() => openReceivedOnly(order)}
                         >
                           {updatingOrderId === order.id ? "Saving…" : "✅ Received Only"}
-                        </button>
-                        <button type="button" className="issue-btn" disabled={issueSaving} onClick={()=>{setIssueOrder(order);setIssueNote("");}}>⚠️ Move to Issues</button>
+                        </button>}
+                        {isKaya===false&&<button type="button" className="issue-btn" disabled={issueSaving} onClick={()=>{setIssueOrder(order);setIssueNote("");}}>⚠️ Move to Issues</button>}
                       </div>
                     )}
-                    {order.status === "ISSUE" && (
+                    {isKaya===false && order.status === "ISSUE" && (
                       <div className="order-actions">
                         <button type="button" className="resolve-issue-btn" disabled={issueSaving} onClick={()=>resolveIssue(order)}>{issueSaving ? "Saving…" : "✓ Resolve / Move Back"}</button>
                       </div>
                     )}
-                    {order.status === "RECEIVED" && (
+                    {isKaya===false && order.status === "RECEIVED" && (
                       <div className="order-actions" style={{gridTemplateColumns:"1fr"}}>
                         <button
                           type="button"
