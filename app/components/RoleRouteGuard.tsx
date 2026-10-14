@@ -5,7 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { createClient } from "@supabase/supabase-js";
 
 const KAYA_EMAIL = "kayalivhuebner@gmail.com";
-const KAYA_ALLOWED_ROUTES = ["/", "/kaya", "/order-history", "/login", "/forgot-password", "/reset-password"];
+const KAYA_ALLOWED_ROUTES = ["/", "/kaya", "/order-history", "/message-kaya", "/login", "/forgot-password", "/reset-password"];
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,

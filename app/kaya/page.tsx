@@ -65,6 +65,7 @@ const CSS = `
   .k-sub{font-size:10px;color:#94a3b8;margin-top:3px}
   .k-back,.k-refresh,.k-orders{border:1px solid rgba(148,163,184,.16);background:rgba(30,41,59,.72);color:#cbd5e1;border-radius:10px;padding:8px 10px;font:800 11px inherit;cursor:pointer}
   .k-orders{border-color:rgba(52,211,153,.28);background:rgba(16,185,129,.12);color:#a7f3d0}
+  .k-message{width:100%;margin-top:10px;border:1px solid rgba(96,165,250,.28);background:rgba(37,99,235,.13);color:#bfdbfe;border-radius:11px;padding:10px;font:900 12px inherit;cursor:pointer}
   .k-hero{border:1px solid rgba(248,113,113,.22);border-radius:20px;padding:15px;background:linear-gradient(145deg,rgba(46,16,101,.45),rgba(15,23,42,.92));box-shadow:0 20px 50px rgba(0,0,0,.22)}
   .k-hero-title{font-size:15px;font-weight:900;color:#fff1f2}
   .k-hero-copy{font-size:11px;color:#a5b4fc;line-height:1.45;margin-top:5px}
@@ -304,6 +305,7 @@ export default function KayaRestockPage() {
             <div className="k-hero-copy">
               Search every active inventory item and send Receiving a restock request. This page cannot add, subtract, or edit inventory.
             </div>
+            <button className="k-message" onClick={() => router.push("/message-kaya")}>✉️ Open My Messages</button>
             <div className="k-stats">
               <div className="k-stat"><div className="k-stat-num">{items.length}</div><div className="k-stat-label">All Items</div></div>
               <div className="k-stat"><div className="k-stat-num" style={{ color: lowCount ? "#fda4af" : "#6ee7b7" }}>{lowCount}</div><div className="k-stat-label">Need Attention</div></div>

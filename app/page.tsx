@@ -444,6 +444,7 @@ export default function Home() {
               {[
                 ["📜","Order History","/order-history"],
                 ["✉️","Message Brooklyn","/message-brooklyn"],
+                ["✉️","Message Kaya","/message-kaya"],
                 ["🔄","Restock Requests","/restock-requests"],
                 ["🎯","Inventory Accuracy","/recount"],
                 ["📦","Box Notes","/box-notes"],
