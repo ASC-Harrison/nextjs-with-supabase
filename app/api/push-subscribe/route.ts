@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
-const ALLOWED_ROLES = ["admin", "staff", "preop"];
+const ALLOWED_ROLES = ["admin", "staff", "preop", "kaya"];
 
 function getBearerToken(req: Request) {
   const header = req.headers.get("authorization") || "";
@@ -66,8 +66,8 @@ export async function POST(req: Request) {
 
     if (insertError) throw insertError;
     return NextResponse.json({ ok: true });
-  } catch (e: any) {
-    console.error("Unable to save push subscription:", e?.message ?? e);
+  } catch (e: unknown) {
+    console.error("Unable to save push subscription:", e instanceof Error ? e.message : e);
     return NextResponse.json(
       { ok: false, error: "Unable to save push subscription" },
       { status: 500 }

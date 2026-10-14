@@ -206,6 +206,7 @@ export async function middleware(request: NextRequest) {
       (pathname === "/api/restock-request" &&
         (request.method === "GET" || request.method === "POST")) ||
       (pathname === "/api/orders/mark-ordered" && request.method === "POST") ||
+      (pathname === "/api/push-subscribe" && request.method === "POST") ||
       (pathname === "/api/message-kaya" &&
         (request.method === "GET" || request.method === "PATCH"));
     if (!allowed) return jsonError("This account only has access to Kaya restock, ordering, and messages", 403);
