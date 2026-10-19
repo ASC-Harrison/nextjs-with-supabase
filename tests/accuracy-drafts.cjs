@@ -1,0 +1,17 @@
+const fs=require("node:fs"),ts=require("typescript"),assert=require("node:assert/strict");
+const output=ts.transpileModule(fs.readFileSync("lib/accuracy-drafts.ts","utf8"),{compilerOptions:{module:ts.ModuleKind.CommonJS}}).outputText;
+const compiled={exports:{}};new Function("exports",output)(compiled.exports);
+const {accuracyDraftKey,readAccuracyDrafts}=compiled.exports;
+const entry={value:"0",expected:8,unit:"EA",status:"pending"};
+assert.equal(readAccuracyDrafts(JSON.stringify({item:entry})).item.value,"0","Zero is an entered count, not an empty field");
+assert.equal(readAccuracyDrafts(JSON.stringify({item:{...entry,value:"124"}})).item.value,"124","Digits survive a close/reopen JSON round trip");
+assert.equal(readAccuracyDrafts(JSON.stringify({item:{...entry,status:"saved",saved_at:"2026-10-19T18:00:00Z"}})).item.status,"saved","Saved markers survive reopening");
+assert.equal(readAccuracyDrafts(JSON.stringify({item:{...entry,status:"saving"}})).item.status,"pending","Interrupted saves restore as pending, never success");
+assert.equal(readAccuracyDrafts(JSON.stringify({item:{...entry,status:"error",conflict:true}})).item.conflict,true,"Conflicts survive reopening");
+assert.deepEqual(readAccuracyDrafts("bad json"),{});
+assert.deepEqual(readAccuracyDrafts("[]"),{});
+assert.deepEqual(readAccuracyDrafts(JSON.stringify({item:{...entry,value:"-2"}})),{});
+assert.deepEqual(readAccuracyDrafts(JSON.stringify({item:{...entry,expected:-1}})),{});
+assert.notEqual(accuracyDraftKey("user-a","main"),accuracyDraftKey("user-b","main"),"Account isolation");
+assert.notEqual(accuracyDraftKey("user-a","main"),accuracyDraftKey("user-a","cabinet"),"Area isolation");
+console.log("11 draft persistence checks passed.");

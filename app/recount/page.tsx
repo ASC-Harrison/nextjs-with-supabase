@@ -1,291 +1,135 @@
 "use client";
-
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
-import { createClient } from "@supabase/supabase-js";
+import {useCallback,useEffect,useMemo,useRef,useState} from "react";
+import {useRouter} from "next/navigation";
+import {createClient} from "@supabase/supabase-js";
 import AccuracyItemEditor from "@/app/components/AccuracyItemEditor";
+import {accuracyDraftKey,readAccuracyDrafts,type AccuracyDraft} from "@/lib/accuracy-drafts";
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-);
-
-type Area = { id:string; name:string; is_main:boolean };
-type Verification = {
-  actual_on_hand:number;
-  difference:number;
-  verified_by:string;
-  verified_at:string;
-};
-type InventoryRow = {
-  item_id:string;
-  name:string;
-  reference_number:string|null;
-  vendor:string|null;
-  unit:string|null;
-  category:string|null;
-  shelf:string|null;
-  on_hand:number;
-  updated_at:string;
-  last_verification:Verification|null;
-};
-type Filter = "ALL"|"ENTERED"|"CHANGED"|"VERIFIED";
-
-const CSS = `
-  :root{--bg:#080d19;--card:#131d30;--card2:#18253b;--line:#243b5d;--text:#f0f6ff;--muted:#7c8ba3;--blue:#3b82f6;--green:#10b981;--yellow:#f59e0b;--red:#ef4444}
-  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
-  body{margin:0;background:var(--bg)}
-  .acc-root{min-height:100vh;background:radial-gradient(circle at 15% 0%,rgba(37,99,235,.16),transparent 30%),var(--bg);color:var(--text);padding:14px 14px 110px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}
-  .acc-wrap{max-width:900px;margin:0 auto}
-  .top-btn{border:1px solid var(--line);background:#17243a;color:#9fb0c8;border-radius:10px;padding:9px 14px;font-weight:800;cursor:pointer}
-  .hero{margin-top:11px;padding:20px;border:1px solid rgba(96,165,250,.25);border-radius:20px;background:linear-gradient(145deg,#17243a,#101827);box-shadow:0 18px 45px rgba(0,0,0,.25);position:relative;overflow:hidden}
-  .hero:before{content:"";position:absolute;left:0;right:0;top:0;height:2px;background:linear-gradient(90deg,#3b82f6,#8b5cf6,#10b981)}
-  .hero h1{font-size:24px;margin:0;font-weight:950;letter-spacing:-.8px}
-  .hero p{font-size:12px;color:var(--muted);line-height:1.5;margin:7px 0 0}
-  .safe{margin-top:13px;border:1px solid rgba(16,185,129,.25);background:rgba(16,185,129,.08);color:#86efac;padding:10px 12px;border-radius:10px;font-size:11px;line-height:1.45}
-  .panel{margin-top:12px;padding:14px;border:1px solid var(--line);border-radius:16px;background:var(--card)}
-  .label{display:block;font-size:10px;font-weight:900;letter-spacing:.7px;color:#71819a;margin-bottom:6px}
-  .select,.search{width:100%;border:1px solid #2b456b;border-radius:11px;background:#0d1524;color:var(--text);padding:12px 13px;font-size:14px;outline:none}
-  .stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:12px}
-  .stat{border:1px solid var(--line);border-radius:13px;background:var(--card);padding:12px;text-align:center}
-  .stat strong{display:block;font-size:21px}.stat span{font-size:9px;font-weight:900;color:#71819a;letter-spacing:.6px}
-  .filters{display:flex;gap:7px;overflow-x:auto;margin-top:12px;padding-bottom:2px}
-  .filter{white-space:nowrap;border:1px solid var(--line);border-radius:999px;background:#111a2a;color:#8291a8;padding:7px 11px;font-size:11px;font-weight:850}
-  .filter.on{background:rgba(59,130,246,.16);border-color:rgba(96,165,250,.5);color:#bfdbfe}
-  .list-meta{font-size:10px;color:#56657a;margin:11px 2px 7px}
-  .item{border:1px solid var(--line);border-radius:14px;background:var(--card);padding:13px;margin-bottom:8px}
-  .item.changed{border-color:rgba(245,158,11,.5);background:linear-gradient(145deg,rgba(245,158,11,.06),var(--card))}
-  .item.entered:not(.changed){border-color:rgba(16,185,129,.35)}
-  .item-head{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}
-  .item-name{font-size:13px;font-weight:900;line-height:1.35}.item-meta{font-size:10px;color:#71819a;line-height:1.5;margin-top:3px}
-  .current{text-align:right;flex:0 0 auto}.current strong{display:block;font-size:21px}.current span{font-size:9px;color:#71819a;font-weight:900}
-  .entry{display:grid;grid-template-columns:1fr auto;gap:9px;align-items:center;margin-top:10px}
-  .count-input{width:100%;border:1px solid #2b456b;border-radius:10px;background:#0d1524;color:#fff;padding:10px 12px;font-size:18px;font-weight:900;text-align:center;outline:none}
-  .count-input:focus{border-color:#60a5fa;box-shadow:0 0 0 3px rgba(59,130,246,.12)}
-  .diff{min-width:83px;text-align:center;border-radius:9px;padding:9px 8px;font-size:11px;font-weight:900;background:#111a2a;color:#71819a}
-  .diff.plus{color:#86efac;background:rgba(16,185,129,.1)}.diff.minus{color:#fca5a5;background:rgba(239,68,68,.1)}.diff.same{color:#93c5fd;background:rgba(59,130,246,.1)}
-  .verified{font-size:9px;color:#617189;margin-top:8px}
-  .review-btn{width:100%;border:0;border-radius:12px;background:linear-gradient(135deg,#2563eb,#0891b2);color:#fff;padding:13px;font-size:14px;font-weight:950;cursor:pointer;margin-top:12px}
-  .review-btn:disabled{opacity:.42}
-  .review-row{display:grid;grid-template-columns:1fr auto;gap:10px;padding:12px 0;border-bottom:1px solid rgba(36,59,93,.7)}
-  .review-row:last-child{border-bottom:0}.review-values{text-align:right;font-size:11px;line-height:1.55;color:#9fb0c8}.review-values strong{font-size:14px;color:#fff}
-  .warning{border:1px solid rgba(245,158,11,.35);background:rgba(245,158,11,.08);color:#fcd34d;border-radius:11px;padding:11px;font-size:11px;line-height:1.5;margin-top:12px}
-  .actions{display:grid;grid-template-columns:1fr 1.5fr;gap:9px;margin-top:13px}
-  .btn{border:0;border-radius:11px;padding:12px;font-weight:900;font-size:13px;cursor:pointer}.btn.secondary{background:#202d43;color:#aab8cb;border:1px solid #304765}.btn.confirm{background:#10b981;color:#052e24}.btn:disabled{opacity:.45}
-  .message{margin-top:12px;border-radius:11px;padding:11px 12px;font-size:12px;line-height:1.45}.message.ok{background:rgba(16,185,129,.09);border:1px solid rgba(16,185,129,.3);color:#86efac}.message.err{background:rgba(239,68,68,.09);border:1px solid rgba(239,68,68,.3);color:#fca5a5}
-  .empty{border:1px dashed #243b5d;border-radius:14px;padding:30px;text-align:center;color:#66758a;font-size:12px;margin-top:10px}
-  .more{display:block;margin:12px auto 0;border:1px solid #304765;background:#17243a;color:#9fb0c8;border-radius:10px;padding:10px 16px;font-weight:850}
-  @media(min-width:720px){.acc-root{padding:22px 24px 120px}.item-list{display:grid;grid-template-columns:1fr 1fr;gap:9px}.item{margin-bottom:0}.stats{grid-template-columns:repeat(3,160px)}}
+const db=createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!,process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!);
+type Area={id:string;name:string;is_main:boolean};
+type Verification={actual_on_hand:number;difference:number;verified_by:string;verified_at:string};
+type Item={item_id:string;name:string;reference_number:string|null;vendor:string|null;unit:string|null;category:string|null;shelf:string|null;on_hand:number;updated_at:string;last_verification:Verification|null};
+type Filter="ALL"|"ENTERED"|"UNSAVED"|"VERIFIED";
+const css=`
+body{margin:0;background:#080d19}.acc{font-family:system-ui,sans-serif;color:#f1f5f9;min-height:100vh;padding:18px 14px 110px;background:#080d19}.acc *{box-sizing:border-box}.acc-wrap{max-width:950px;margin:auto}.acc button{cursor:pointer;border:1px solid #345070;border-radius:10px;padding:10px 13px;background:#1b2b43;color:#dbeafe;font:700 12px system-ui}.acc button:disabled{opacity:.5;cursor:wait}.acc button:focus-visible,.acc input:focus-visible,.acc select:focus-visible{outline:3px solid #60a5fa;outline-offset:2px}.acc-hero{background:linear-gradient(135deg,#182c48,#171e30);border:1px solid #304969;border-radius:20px;padding:20px;margin:12px 0}.acc h1{margin:0;font-size:25px}.acc p{font-size:13px;line-height:1.5;color:#a9bad1}.acc-safe{border-left:3px solid #34d399;padding-left:10px}.acc-tools{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0}.acc input,.acc select{background:#0d1727;border:1px solid #345070;border-radius:10px;color:#f8fafc;font:14px system-ui;padding:12px}.acc-search{flex:1;min-width:180px}.acc-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:12px 0}.acc-stat{background:#142137;border:1px solid #293e5a;border-radius:12px;padding:12px;text-align:center}.acc-stat strong{display:block;font-size:24px}.acc-stat span{color:#9bacc4;font-size:11px}.acc-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,330px),1fr));gap:10px}.acc-item{border:1px solid #2d4362;border-radius:14px;padding:15px;background:#131f33}.acc-item.pending{border-color:#d9a441}.acc-item.saved{border-color:#237d65}.acc-item.error{border-color:#e06666}.acc-head{display:flex;justify-content:space-between;gap:10px}.acc-name{font-size:14px;font-weight:850}.acc-meta{font-size:11px;color:#9aacc5;margin-top:5px;line-height:1.5}.acc-current{text-align:right;white-space:nowrap}.acc-current strong{display:block;font-size:22px}.acc-current span{color:#9aacc5;font-size:10px}.acc-input{display:block;width:100%;font-size:19px!important;font-weight:800!important;text-align:center;margin:6px 0}.acc-label{font-size:11px;font-weight:750;color:#b4c4d9;display:block;margin-top:12px}.acc-status{font-size:11px;line-height:1.5;margin:8px 0;color:#fcd34d}.acc-status.saved{color:#86efac}.acc-status.error{color:#fca5a5}.acc-message{padding:12px;border:1px solid #385274;border-radius:10px;margin:10px 0;color:#dbeafe;font-size:13px;line-height:1.5}.acc-actions{display:flex;gap:7px;flex-wrap:wrap;margin-top:10px}.acc-print{display:none}.acc-print table{width:100%;border-collapse:collapse}.acc-print th,.acc-print td{border:1px solid #999;padding:6px;font-size:10px;text-align:left}.acc-print th{background:#eee}.acc-empty{padding:35px;text-align:center;color:#a9bad1}.acc .primary{background:#2563eb}.acc-filter[aria-pressed=true]{background:#23538a;border-color:#60a5fa}
+@media print{@page{size:landscape;margin:12mm}body{background:white!important}body *{visibility:hidden!important}.acc-print,.acc-print *{visibility:visible!important}.acc-print{display:block!important;position:absolute;top:0;left:0;width:100%;color:black;background:white;font-family:Arial,sans-serif}.acc-print tr{break-inside:avoid}.acc-print thead{display:table-header-group}.acc-print h1{font-size:20px}.acc-print p{color:black;font-size:11px}.acc-print th,.acc-print td{color:black!important}.acc-wrap>*:not(.acc-print){display:none!important}}
 `;
 
-export default function InventoryAccuracyPage() {
-  const router = useRouter();
-  const [areas,setAreas] = useState<Area[]>([]);
-  const [areaId,setAreaId] = useState("");
-  const [items,setItems] = useState<InventoryRow[]>([]);
-  const [counts,setCounts] = useState<Record<string,string>>({});
-  const [search,setSearch] = useState("");
-  const [filter,setFilter] = useState<Filter>("ALL");
-  const [stage,setStage] = useState<"COUNT"|"REVIEW">("COUNT");
-  const [loading,setLoading] = useState(true);
-  const [saving,setSaving] = useState(false);
-  const [visibleLimit,setVisibleLimit] = useState(100);
-  const [message,setMessage] = useState<{type:"ok"|"err";text:string}|null>(null);
-  const [returnToReorder,setReturnToReorder] = useState(false);
-  const [editingItem,setEditingItem] = useState<InventoryRow|null>(null);
+export default function InventoryAccuracyPage(){
+  const router=useRouter();
+  const [areas,setAreas]=useState<Area[]>([]),[areaId,setAreaId]=useState("");
+  const [items,setItems]=useState<Item[]>([]),[drafts,setDrafts]=useState<Record<string,AccuracyDraft>>({});
+  const [loading,setLoading]=useState(true),[message,setMessage]=useState("");
+  const [search,setSearch]=useState(""),[filter,setFilter]=useState<Filter>("ALL"),[limit,setLimit]=useState(100);
+  const [saving,setSaving]=useState<Record<string,boolean>>({}),[editing,setEditing]=useState<Item|null>(null);
+  const [bulkSaving,setBulkSaving]=useState(false);
+  const [printing,setPrinting]=useState(false);
+  const [returnToReorder,setReturnToReorder]=useState(false),[printedAt,setPrintedAt]=useState("");
+  const draftRef=useRef<Record<string,AccuracyDraft>>({});
+  const context=useRef({userId:"",areaId:""});
+  const inFlight=useRef(new Set<string>());
+  const loadVersion=useRef(0);
+  const authFetch=useCallback(async(url:string,options:RequestInit={})=>{
+    const {data}=await db.auth.getSession();if(!data.session)throw new Error("Please sign in again. Your entered counts remain on this device.");
+    return fetch(url,{...options,cache:"no-store",headers:{"Content-Type":"application/json",Authorization:`Bearer ${data.session.access_token}`,...options.headers}});
+  },[]);
+  const persist=useCallback((next:Record<string,AccuracyDraft>)=>{
+    draftRef.current=next;setDrafts(next);
+    const current=context.current;if(!current.userId||!current.areaId)return;
+    try{localStorage.setItem(accuracyDraftKey(current.userId,current.areaId),JSON.stringify(next));}
+    catch{setMessage("This device could not retain the entries locally. Keep this screen open and use Save now; only a green Saved status confirms the live count.");}
+  },[]);
+  const loadArea=useCallback(async(requestedArea?:string)=>{
+    if(inFlight.current.size)return;
+    const version=++loadVersion.current;setLoading(true);setMessage("");
+    try{
+      const {data:session}=await db.auth.getSession();if(!session.session)throw new Error("Please sign in to count inventory.");
+      const userId=session.session.user.id;
+      let nextArea=requestedArea;
+      if(!nextArea){try{nextArea=localStorage.getItem(`asc-accuracy-last-area:${userId}`)||undefined;}catch{}}
+      const response=await authFetch("/api/inventory-accuracy"+(nextArea?`?area_id=${encodeURIComponent(nextArea)}`:"")),data=await response.json();
+      if(!response.ok||!data.ok)throw new Error(data.error||"Could not load inventory");
+      if(version!==loadVersion.current)return;
+      const selected=String(data.selected_area_id),rows=(data.items||[]) as Item[];
+      let restored:Record<string,AccuracyDraft>={};
+      try{restored=readAccuracyDrafts(localStorage.getItem(accuracyDraftKey(userId,selected)));localStorage.setItem(`asc-accuracy-last-area:${userId}`,selected);}catch{}
+      for(const row of rows){const entry=restored[row.item_id];if(entry&&entry.unit!==row.unit)restored[row.item_id]={...entry,status:"error",conflict:true,error:"The unit changed since this entry. Physically check and re-enter the count using the displayed unit."};}
+      context.current={userId,areaId:selected};draftRef.current=restored;
+      setDrafts(restored);setAreas(data.areas||[]);setAreaId(selected);setItems(rows);setLimit(100);
+    }catch(error){setMessage(error instanceof Error?error.message:"Could not load inventory");}
+    finally{if(version===loadVersion.current)setLoading(false);}
+  },[authFetch]);
+  useEffect(()=>{const params=new URLSearchParams(window.location.search);setSearch(params.get("reference")||"");setReturnToReorder(params.get("from")==="smart-reorder");void loadArea(params.get("area_id")||undefined);},[loadArea]);
+  const selectedArea=areas.find(area=>area.id===areaId)?.name||"Storage area";
+  const entered=useMemo(()=>items.filter(item=>drafts[item.item_id]?.value!==undefined&&drafts[item.item_id].value!==""),[items,drafts]);
+  const pending=entered.filter(item=>drafts[item.item_id].status!=="saved");
+  const busy=bulkSaving||printing||Object.values(saving).some(Boolean);
+  const filtered=useMemo(()=>items.filter(item=>{
+    const entry=drafts[item.item_id];
+    if(filter==="ENTERED"&&(!entry||entry.value===""))return false;
+    if(filter==="UNSAVED"&&(!entry||entry.value===""||entry.status==="saved"))return false;
+    if(filter==="VERIFIED"&&!item.last_verification)return false;
+    return [item.name,item.reference_number,item.vendor,item.category,item.shelf].some(value=>(value||"").toLowerCase().includes(search.trim().toLowerCase()));
+  }),[items,drafts,search,filter]);
 
-  const authFetch = useCallback(async (url:string, options:RequestInit = {}) => {
-    const { data } = await supabase.auth.getSession();
-    if (!data.session) throw new Error("Please sign in again.");
-    return fetch(url, {
-      ...options,
-      cache:"no-store",
-      headers:{
-        "Content-Type":"application/json",
-        Authorization:`Bearer ${data.session.access_token}`,
-        ...(options.headers || {}),
-      },
-    });
-  }, []);
-
-  const loadArea = useCallback(async (requestedArea?:string, keepMessage=false) => {
-    setLoading(true);
-    if (!keepMessage) setMessage(null);
-    try {
-      const suffix = requestedArea ? `?area_id=${encodeURIComponent(requestedArea)}` : "";
-      const response = await authFetch("/api/inventory-accuracy" + suffix);
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "Could not load inventory");
-      setAreas(data.areas || []);
-      setAreaId(data.selected_area_id || "");
-      setItems(data.items || []);
-      setCounts({});
-      setStage("COUNT");
-      setVisibleLimit(100);
-    } catch (error) {
-      setMessage({type:"err",text:error instanceof Error ? error.message : "Could not load inventory"});
-    } finally {
-      setLoading(false);
-    }
-  }, [authFetch]);
-
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    setSearch(params.get("reference") || "");
-    setReturnToReorder(params.get("from") === "smart-reorder");
-    void loadArea(params.get("area_id") || undefined);
-  }, [loadArea]);
-
-  const entered = useMemo(() => items.filter(item => counts[item.item_id] !== undefined && counts[item.item_id] !== ""), [items,counts]);
-  const changed = useMemo(() => entered.filter(item => Number(counts[item.item_id]) !== item.on_hand), [entered,counts]);
-  const selectedArea = areas.find(area => area.id === areaId)?.name || "Storage Area";
-
-  const filtered = useMemo(() => {
-    const query = search.trim().toLowerCase();
-    return items.filter(item => {
-      if (filter === "ENTERED" && !(counts[item.item_id] !== undefined && counts[item.item_id] !== "")) return false;
-      if (filter === "CHANGED" && Number(counts[item.item_id]) === item.on_hand) return false;
-      if (filter === "CHANGED" && (counts[item.item_id] === undefined || counts[item.item_id] === "")) return false;
-      if (filter === "VERIFIED" && !item.last_verification) return false;
-      if (!query) return true;
-      return [item.name,item.reference_number,item.vendor,item.category,item.shelf]
-        .some(value => (value || "").toLowerCase().includes(query));
-    });
-  }, [items,counts,search,filter]);
-
-  function changeArea(nextArea:string) {
-    if (entered.length > 0 && !window.confirm("Discard the counts you entered and switch areas? Nothing has been saved yet.")) return;
-    void loadArea(nextArea);
+  function setCount(item:Item,value:string){
+    if(inFlight.current.has(item.item_id))return;
+    const clean=value.replace(/\D/g,"").slice(0,7),old=draftRef.current[item.item_id];
+    const keepBaseline=old&&old.status!=="saved"&&!old.conflict&&old.unit===item.unit;
+    persist({...draftRef.current,[item.item_id]:{value:clean,expected:keepBaseline?old.expected:item.on_hand,unit:item.unit,status:"pending"}});
+  }
+  async function saveCount(item:Item){
+    const id=item.item_id,entry=draftRef.current[id];
+    if(!entry||entry.value===""||entry.status==="saved"||inFlight.current.has(id)||entry.conflict)return;
+    if(entry.unit!==item.unit){persist({...draftRef.current,[id]:{...entry,status:"error",conflict:true,error:"The count unit changed. Physically check and re-enter this quantity using the displayed unit."}});return;}
+    inFlight.current.add(id);setSaving(old=>({...old,[id]:true}));
+    try{
+      const response=await authFetch("/api/inventory-accuracy/count",{method:"POST",body:JSON.stringify({area_id:context.current.areaId,item_id:id,expected_on_hand:entry.expected,actual_on_hand:Number(entry.value),unit:entry.unit})}),data=await response.json();
+      if(!response.ok||!data.ok){persist({...draftRef.current,[id]:{...entry,status:"error",conflict:data.conflict===true,error:data.error||"Could not save; tap Retry."}});return;}
+      const verification=data.verification as Verification;
+      setItems(old=>old.map(row=>row.item_id===id?{...row,on_hand:Number(data.on_hand),last_verification:verification}:row));
+      persist({...draftRef.current,[id]:{...entry,expected:Number(data.on_hand),status:"saved",saved_at:verification.verified_at,error:undefined,conflict:false}});
+    }catch(error){persist({...draftRef.current,[id]:{...entry,status:"error",error:error instanceof Error?error.message:"Connection interrupted. Tap Retry."}});}
+    finally{inFlight.current.delete(id);setSaving(old=>({...old,[id]:false}));}
+  }
+  async function savePending(){if(bulkSaving)return;setBulkSaving(true);try{for(const item of pending)await saveCount(item);}finally{setBulkSaving(false);}}
+  async function print(){
+    if(inFlight.current.size){setMessage("Wait for the live count save to finish, then tap Print inventory sheet again.");return;}
+    setPrinting(true);setMessage("");
+    try{
+      const response=await authFetch(`/api/inventory-accuracy?area_id=${encodeURIComponent(areaId)}`),data=await response.json();
+      if(!response.ok||!data.ok)throw new Error(data.error||"Could not refresh the inventory sheet. Try again when connected.");
+      setItems(data.items||[]);setPrintedAt(new Date().toLocaleString());window.setTimeout(()=>window.print(),0);
+    }catch(error){setMessage(error instanceof Error?error.message:"Could not prepare the latest inventory sheet.");}
+    finally{setPrinting(false);}
   }
 
-  function setCount(itemId:string, value:string) {
-    const clean = value.replace(/\D/g,"").slice(0,7);
-    setCounts(previous => ({...previous,[itemId]:clean}));
-  }
-
-  async function saveConfirmedCounts() {
-    if (entered.length === 0 || saving) return;
-    if (!window.confirm(`Save ${entered.length} verified counts for ${selectedArea}? This is the only step that can change live inventory.`)) return;
-
-    setSaving(true);
-    setMessage(null);
-    try {
-      const response = await authFetch("/api/inventory-accuracy", {
-        method:"POST",
-        body:JSON.stringify({
-          area_id:areaId,
-          counts:entered.map(item => ({
-            item_id:item.item_id,
-            expected_on_hand:item.on_hand,
-            actual_on_hand:Number(counts[item.item_id]),
-          })),
-        }),
-      });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "Could not save counts");
-      setMessage({
-        type:"ok",
-        text:`Saved safely: ${data.updated_count} corrected and ${data.unchanged_count} confirmed with no change.`,
-      });
-      await loadArea(areaId, true);
-    } catch (error) {
-      setMessage({type:"err",text:error instanceof Error ? error.message : "Could not save counts"});
-      setStage("COUNT");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  if (stage === "REVIEW") {
-    return <>
-      <style dangerouslySetInnerHTML={{__html:CSS}} />
-      <main className="acc-root"><div className="acc-wrap">
-        <button className="top-btn" onClick={()=>setStage("COUNT")}>← Back to counting</button>
-        <section className="hero">
-          <h1>Review Before Saving</h1>
-          <p>{selectedArea} · Nothing below has changed inventory yet.</p>
-          <div className="safe">Every number is checked against the live database when you confirm. If another device changed an item, the entire batch stops and nothing is overwritten.</div>
-        </section>
-        {message && <div className={`message ${message.type}`}>{message.text}</div>}
-        <section className="panel">
-          <div className="label">COUNTS READY FOR CONFIRMATION</div>
-          {entered.map(item => {
-            const actual=Number(counts[item.item_id]);
-            const difference=actual-item.on_hand;
-            return <div className="review-row" key={item.item_id}>
-              <div><div className="item-name">{item.name}</div><div className="item-meta">Ref: {item.reference_number||"—"} · {item.unit||"—"}</div></div>
-              <div className="review-values"><div>Current: {item.on_hand}</div><div>Entered: <strong>{actual}</strong></div><div style={{color:difference===0?"#93c5fd":difference>0?"#86efac":"#fca5a5"}}>{difference===0?"No change":`Difference: ${difference>0?"+":""}${difference}`}</div></div>
-            </div>;
-          })}
-          <div className="warning">Check this list carefully. Confirming changes only the selected area; it does not move, delete, deactivate, or rename any item.</div>
-          <div className="actions">
-            <button className="btn secondary" onClick={()=>setStage("COUNT")} disabled={saving}>Edit</button>
-            <button className="btn confirm" onClick={saveConfirmedCounts} disabled={saving}>{saving?"Saving safely…":`Confirm ${entered.length} Counts`}</button>
-          </div>
-        </section>
-      </div></main>
-    </>;
-  }
-
-  return <>
-    <style dangerouslySetInnerHTML={{__html:CSS}} />
-    <main className="acc-root"><div className="acc-wrap">
-      {editingItem && <AccuracyItemEditor itemId={editingItem.item_id} areaId={areaId} areaName={selectedArea} authFetch={authFetch} onClose={()=>setEditingItem(null)} onSaved={(details,unitsChanged)=>{
-        const id=editingItem.item_id;
-        setItems(old=>old.map(item=>item.item_id===id?{...item,name:String(details.name),reference_number:details.reference_number as string|null,vendor:details.vendor as string|null,category:details.category as string|null,unit:details.unit as string|null,shelf:details.shelf as string|null,last_verification:unitsChanged?null:item.last_verification}:item));
-        if(unitsChanged)setCounts(old=>{const next={...old};delete next[id];return next;});
-        setEditingItem(null);setMessage({type:"ok",text:unitsChanged?"Item info saved. Recount this item using its updated unit and package size. Other entered counts were kept.":"Item info saved. Your entered counts were kept; review and confirm them when ready."});
-      }}/>}
-      <button className="top-btn" onClick={()=>router.push(returnToReorder ? "/smart-reorder" : "/")}>{returnToReorder ? "← Back to Verify Before Ordering" : "← Back"}</button>
-      <section className="hero">
-        <h1>🎯 Inventory Accuracy</h1>
-        <p>Count one area at a time. Enter what you physically see, review every difference, then confirm once.</p>
-        <div className="safe">Draft mode is safe: typing numbers does not change inventory. Live counts change only after the review and final confirmation.</div>
-      </section>
-
-      {message && <div className={`message ${message.type}`}>{message.text}</div>}
-
-      <section className="panel">
-        <label className="label">AREA BEING COUNTED</label>
-        <select className="select" value={areaId} onChange={event=>changeArea(event.target.value)} disabled={loading}>
-          {areas.map(area=><option key={area.id} value={area.id}>{area.name}{area.is_main?" · Main":""}</option>)}
-        </select>
-        <input className="search" style={{marginTop:10}} value={search} onChange={event=>{setSearch(event.target.value);setVisibleLimit(100);}} placeholder="Search item, reference, vendor, shelf…" />
-      </section>
-
-      <div className="stats">
-        <div className="stat"><strong>{items.length}</strong><span>ITEMS IN AREA</span></div>
-        <div className="stat"><strong style={{color:"#93c5fd"}}>{entered.length}</strong><span>ENTERED</span></div>
-        <div className="stat"><strong style={{color:changed.length?"#fcd34d":"#86efac"}}>{changed.length}</strong><span>DIFFERENT</span></div>
-      </div>
-
-      <div className="filters">
-        {(["ALL","ENTERED","CHANGED","VERIFIED"] as Filter[]).map(option=><button key={option} onClick={()=>{setFilter(option);setVisibleLimit(100);}} className={`filter ${filter===option?"on":""}`}>{option==="ALL"?"All Items":option==="ENTERED"?"Entered":option==="CHANGED"?"Differences":"Previously Verified"}</button>)}
-      </div>
-
-      <div className="list-meta">{loading?"Loading…":`Showing ${Math.min(filtered.length,visibleLimit)} of ${filtered.length} matching items`}</div>
-      {loading ? <div className="empty">Loading the live area counts…</div> : filtered.length===0 ? <div className="empty">No items match this view.</div> :
-        <div className="item-list">{filtered.slice(0,visibleLimit).map(item=>{
-          const raw=counts[item.item_id];
-          const hasEntry=raw!==undefined&&raw!=="";
-          const actual=hasEntry?Number(raw):null;
-          const difference=actual===null?null:actual-item.on_hand;
-          return <article key={item.item_id} className={`item ${hasEntry?"entered":""} ${difference!==null&&difference!==0?"changed":""}`}>
-            <div className="item-head">
-              <div><div className="item-name">{item.name}</div><div className="item-meta">{item.vendor||"—"} · Ref: {item.reference_number||"—"} · {item.unit||"—"}{item.shelf?` · Shelf: ${item.shelf}`:""}</div></div>
-              <div className="current"><strong>{item.on_hand}</strong><span>CURRENT</span></div>
-            </div>
-            <button className="top-btn" style={{marginTop:10,fontSize:11,padding:"7px 10px"}} onClick={()=>setEditingItem(item)}>✎ Edit Item Info</button>
-            <div className="entry">
-              <input className="count-input" inputMode="numeric" type="text" value={raw??""} onChange={event=>setCount(item.item_id,event.target.value)} placeholder="Enter actual count" aria-label={`Actual count for ${item.name}`} />
-              <div className={`diff ${difference===null?"":difference===0?"same":difference>0?"plus":"minus"}`}>{difference===null?"Not entered":difference===0?"Matches":`${difference>0?"+":""}${difference}`}</div>
-            </div>
-            {item.last_verification && <div className="verified">Last verified {new Date(item.last_verification.verified_at).toLocaleDateString()} by {item.last_verification.verified_by}</div>}
-          </article>;
-        })}</div>
-      }
-      {filtered.length>visibleLimit && <button className="more" onClick={()=>setVisibleLimit(value=>value+100)}>Show 100 More</button>}
-      <button className="review-btn" disabled={entered.length===0||loading} onClick={()=>{setMessage(null);setStage("REVIEW");}}>Review {entered.length} Entered {entered.length===1?"Count":"Counts"}</button>
-    </div></main>
-  </>;
+  return <><style>{css}</style><main className="acc"><div className="acc-wrap">
+    {editing&&<AccuracyItemEditor itemId={editing.item_id} areaId={areaId} areaName={selectedArea} authFetch={authFetch} onClose={()=>setEditing(null)} onSaved={(details,unitsChanged)=>{
+      const id=editing.item_id;
+      setItems(old=>old.map(item=>item.item_id===id?{...item,name:String(details.name),reference_number:details.reference_number as string|null,vendor:details.vendor as string|null,category:details.category as string|null,unit:details.unit as string|null,shelf:details.shelf as string|null,last_verification:unitsChanged?null:item.last_verification}:item));
+      if(unitsChanged){const next={...draftRef.current};delete next[id];persist(next);}
+      setEditing(null);setMessage(unitsChanged?"Item info saved. Recount this item in its updated unit; other entered counts were kept.":"Item info saved. Your entered counts were kept.");
+    }}/>}
+    <div className="acc-tools"><button onClick={()=>{if(!inFlight.current.size)router.push(returnToReorder?"/smart-reorder":"/");}} disabled={busy}>← Back</button><button onClick={()=>void print()} disabled={loading||busy||!items.length}>{printing?"Preparing latest counts…":"Print inventory sheet"}</button><button onClick={()=>void loadArea(areaId)} disabled={loading||busy}>Reload live counts</button></div>
+    <section className="acc-hero"><h1>Inventory Accuracy</h1><p>Enter the actual quantity in the displayed unit. Tap the next field, press Enter, or tap Save now to update live on-hand stock. Enter 0 when none remain; leaving a field blank does not change stock.</p><p className="acc-safe">Your entries are retained on this device as you type. <strong>Green “Saved to live inventory”</strong> confirms the database update. Unsaved entries stay visible when you reopen the app; tap Save unsaved counts to finish them.</p></section>
+    {message&&<div className="acc-message" role="status">{message}</div>}
+    <div className="acc-tools"><select aria-label="Area being counted" value={areaId} onChange={event=>void loadArea(event.target.value)} disabled={loading||busy}>{areas.map(area=><option key={area.id} value={area.id}>{area.name}{area.is_main?" · Main":""}</option>)}</select><input className="acc-search" aria-label="Search inventory" value={search} onChange={event=>{setSearch(event.target.value);setLimit(100);}} placeholder="Search item, reference, vendor, shelf…"/></div>
+    <div className="acc-stats"><div className="acc-stat"><strong>{items.length}</strong><span>Items in area</span></div><div className="acc-stat"><strong>{entered.length}</strong><span>Entered and retained</span></div><div className="acc-stat"><strong>{pending.length}</strong><span>Need saving / review</span></div></div>
+    <div className="acc-tools">{(["ALL","ENTERED","UNSAVED","VERIFIED"] as Filter[]).map(value=><button className="acc-filter" key={value} aria-pressed={filter===value} onClick={()=>{setFilter(value);setLimit(100);}}>{value==="ALL"?"All items":value==="ENTERED"?"Entered":value==="UNSAVED"?"Unsaved":"Previously verified"}</button>)}<button className="primary" onClick={()=>void savePending()} disabled={loading||busy||pending.length===0}>Save {pending.length} unsaved counts</button></div>
+    <p>{loading?"Loading live counts…":`${filtered.length} matching items · Print includes every item in ${selectedArea}, including rows hidden by filters.`}</p>
+    {!loading&&<div className="acc-list">{filtered.slice(0,limit).map(item=>{
+      const entry=drafts[item.item_id],isSaving=saving[item.item_id],changedSinceSave=entry?.status==="saved"&&Number(entry.value)!==item.on_hand;
+      return <article className={`acc-item ${entry?.status||""}`} key={item.item_id}><div className="acc-head"><div><div className="acc-name">{item.name}</div><div className="acc-meta">{item.vendor||"—"} · Ref: {item.reference_number||"—"}<br/>Count unit: <strong>{item.unit||"Not set"}</strong>{item.shelf?` · Shelf: ${item.shelf}`:""}</div></div><div className="acc-current"><strong>{item.on_hand}</strong><span>LIVE ON HAND</span></div></div>
+        <div className="acc-actions"><button disabled={busy} onClick={()=>{if(!inFlight.current.size)setEditing(item);}}>✎ Edit Item Info</button></div>
+        <label className="acc-label">Actual count ({item.unit||"confirm unit"})<input className="acc-input" type="text" inputMode="numeric" value={entry?.value??""} onChange={event=>setCount(item,event.target.value)} onBlur={()=>void saveCount(item)} onKeyDown={event=>{if(event.key==="Enter"){event.preventDefault();event.currentTarget.blur();}}} disabled={Boolean(isSaving)||bulkSaving||printing} placeholder="Enter actual count"/></label>
+        {entry&&entry.value!==""&&<div className={`acc-status ${entry.status}`} role="status">{isSaving?"Saving to live inventory…":entry.status==="saved"?`✓ Saved to live inventory ${entry.saved_at?new Date(entry.saved_at).toLocaleString():""}${changedSinceSave?". Live stock has changed since this count; check before re-entering.":""}`:entry.status==="error"?entry.error:"Retained on this device — finish this field to save live."}</div>}
+        {entry?.value!==undefined&&entry.value!==""&&entry.status!=="saved"&&<div className="acc-actions">{entry.conflict?<button disabled={busy} onClick={()=>void loadArea(areaId)}>Reload, check, and re-enter</button>:<button disabled={Boolean(isSaving)} onClick={()=>void saveCount(item)}>{isSaving?"Saving…":entry.status==="error"?"Retry save":"Save now"}</button>}</div>}
+        {item.last_verification&&<div className="acc-meta">Last verified {new Date(item.last_verification.verified_at).toLocaleString()} by {item.last_verification.verified_by}</div>}
+      </article>;
+    })}</div>}
+    {!loading&&!filtered.length&&<div className="acc-empty">No items match this view.</div>}
+    {filtered.length>limit&&<div className="acc-tools"><button onClick={()=>setLimit(value=>value+100)}>Show 100 more</button></div>}
+    <section className="acc-print"><h1>Baxter ASC — Inventory Sheet</h1><p>Area: {selectedArea} · Printed: {printedAt}<br/>Live on hand is the last loaded/saved database count. Unsaved entries are labeled separately and have not updated inventory. A blank actual-count cell means no entry on this device.</p><table><thead><tr>{["Item","Reference","Vendor","Shelf","Unit","Live on hand","Entered actual","Entry status","Last verified","Verified by"].map(title=><th key={title}>{title}</th>)}</tr></thead><tbody>{items.map(item=>{const entry=drafts[item.item_id];return <tr key={item.item_id}><td>{item.name}</td><td>{item.reference_number}</td><td>{item.vendor}</td><td>{item.shelf}</td><td>{item.unit||"Not set"}</td><td>{item.on_hand}</td><td>{entry?.value??""}</td><td>{entry?.value!==undefined&&entry.value!==""?entry.status==="saved"?"Saved":"UNSAVED — review":"Not entered"}</td><td>{item.last_verification?new Date(item.last_verification.verified_at).toLocaleString():"Not verified"}</td><td>{item.last_verification?.verified_by||""}</td></tr>;})}</tbody></table></section>
+  </div></main></>;
 }
