@@ -90,6 +90,7 @@ export default function InventoryAccuracyPage() {
   const [saving,setSaving] = useState(false);
   const [visibleLimit,setVisibleLimit] = useState(100);
   const [message,setMessage] = useState<{type:"ok"|"err";text:string}|null>(null);
+  const [returnToReorder,setReturnToReorder] = useState(false);
 
   const authFetch = useCallback(async (url:string, options:RequestInit = {}) => {
     const { data } = await supabase.auth.getSession();
@@ -126,7 +127,12 @@ export default function InventoryAccuracyPage() {
     }
   }, [authFetch]);
 
-  useEffect(() => { void loadArea(); }, [loadArea]);
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    setSearch(params.get("reference") || "");
+    setReturnToReorder(params.get("from") === "smart-reorder");
+    void loadArea(params.get("area_id") || undefined);
+  }, [loadArea]);
 
   const entered = useMemo(() => items.filter(item => counts[item.item_id] !== undefined && counts[item.item_id] !== ""), [items,counts]);
   const changed = useMemo(() => entered.filter(item => Number(counts[item.item_id]) !== item.on_hand), [entered,counts]);
@@ -222,7 +228,7 @@ export default function InventoryAccuracyPage() {
   return <>
     <style dangerouslySetInnerHTML={{__html:CSS}} />
     <main className="acc-root"><div className="acc-wrap">
-      <button className="top-btn" onClick={()=>router.push("/")}>← Back</button>
+      <button className="top-btn" onClick={()=>router.push(returnToReorder ? "/smart-reorder" : "/")}>{returnToReorder ? "← Back to Verify Before Ordering" : "← Back"}</button>
       <section className="hero">
         <h1>🎯 Inventory Accuracy</h1>
         <p>Count one area at a time. Enter what you physically see, review every difference, then confirm once.</p>
