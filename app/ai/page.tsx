@@ -304,6 +304,7 @@ export default function AICommandCenterPage() {
           </section>
 
           <section className="ai-brief" aria-live="polite">
+            <button className="ai-refresh" onClick={() => router.push("/smart-reorder")} style={{marginBottom: 12}}>🧠 Open Smart Reorder — quantities, open requests, and AI briefing</button>
             <div className="ai-brief-head">
               <div>
                 <div className="ai-brief-title">Today’s Operations Briefing</div>
