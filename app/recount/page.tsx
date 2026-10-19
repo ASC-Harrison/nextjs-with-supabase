@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@supabase/supabase-js";
+import AccuracyItemEditor from "@/app/components/AccuracyItemEditor";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -91,6 +92,7 @@ export default function InventoryAccuracyPage() {
   const [visibleLimit,setVisibleLimit] = useState(100);
   const [message,setMessage] = useState<{type:"ok"|"err";text:string}|null>(null);
   const [returnToReorder,setReturnToReorder] = useState(false);
+  const [editingItem,setEditingItem] = useState<InventoryRow|null>(null);
 
   const authFetch = useCallback(async (url:string, options:RequestInit = {}) => {
     const { data } = await supabase.auth.getSession();
@@ -228,6 +230,12 @@ export default function InventoryAccuracyPage() {
   return <>
     <style dangerouslySetInnerHTML={{__html:CSS}} />
     <main className="acc-root"><div className="acc-wrap">
+      {editingItem && <AccuracyItemEditor itemId={editingItem.item_id} areaId={areaId} areaName={selectedArea} authFetch={authFetch} onClose={()=>setEditingItem(null)} onSaved={(details,unitsChanged)=>{
+        const id=editingItem.item_id;
+        setItems(old=>old.map(item=>item.item_id===id?{...item,name:String(details.name),reference_number:details.reference_number as string|null,vendor:details.vendor as string|null,category:details.category as string|null,unit:details.unit as string|null,shelf:details.shelf as string|null,last_verification:unitsChanged?null:item.last_verification}:item));
+        if(unitsChanged)setCounts(old=>{const next={...old};delete next[id];return next;});
+        setEditingItem(null);setMessage({type:"ok",text:unitsChanged?"Item info saved. Recount this item using its updated unit and package size. Other entered counts were kept.":"Item info saved. Your entered counts were kept; review and confirm them when ready."});
+      }}/>}
       <button className="top-btn" onClick={()=>router.push(returnToReorder ? "/smart-reorder" : "/")}>{returnToReorder ? "← Back to Verify Before Ordering" : "← Back"}</button>
       <section className="hero">
         <h1>🎯 Inventory Accuracy</h1>
@@ -267,6 +275,7 @@ export default function InventoryAccuracyPage() {
               <div><div className="item-name">{item.name}</div><div className="item-meta">{item.vendor||"—"} · Ref: {item.reference_number||"—"} · {item.unit||"—"}{item.shelf?` · Shelf: ${item.shelf}`:""}</div></div>
               <div className="current"><strong>{item.on_hand}</strong><span>CURRENT</span></div>
             </div>
+            <button className="top-btn" style={{marginTop:10,fontSize:11,padding:"7px 10px"}} onClick={()=>setEditingItem(item)}>✎ Edit Item Info</button>
             <div className="entry">
               <input className="count-input" inputMode="numeric" type="text" value={raw??""} onChange={event=>setCount(item.item_id,event.target.value)} placeholder="Enter actual count" aria-label={`Actual count for ${item.name}`} />
               <div className={`diff ${difference===null?"":difference===0?"same":difference>0?"plus":"minus"}`}>{difference===null?"Not entered":difference===0?"Matches":`${difference>0?"+":""}${difference}`}</div>
