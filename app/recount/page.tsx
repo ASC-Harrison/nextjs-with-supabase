@@ -26,6 +26,8 @@ export default function InventoryAccuracyPage(){
   const [saving,setSaving]=useState<Record<string,boolean>>({}),[editing,setEditing]=useState<Item|null>(null);
   const [bulkSaving,setBulkSaving]=useState(false);
   const [printing,setPrinting]=useState(false);
+  const [worksheet,setWorksheet]=useState<{url:string;name:string}|null>(null);
+  useEffect(()=>()=>{if(worksheet)URL.revokeObjectURL(worksheet.url);},[worksheet]);
   const [returnToReorder,setReturnToReorder]=useState(false),[printedAt,setPrintedAt]=useState("");
   const draftRef=useRef<Record<string,AccuracyDraft>>({});
   const context=useRef({userId:"",areaId:""});
@@ -121,6 +123,25 @@ export default function InventoryAccuracyPage(){
     }catch(error){setMessage(error instanceof Error?error.message:"Could not prepare the latest inventory sheet.");}
     finally{setPrinting(false);}
   }
+  async function downloadWorksheet(){
+    if(inFlight.current.size||printing)return;
+    setPrinting(true);setMessage("");
+    try{
+      const response=await authFetch(`/api/inventory-accuracy?area_id=${encodeURIComponent(areaId)}`),data=await response.json();
+      if(!response.ok||!data.ok)throw new Error(data.error||"Could not load the latest counts for your worksheet.");
+      const rows=(data.items||[]) as Item[];
+      setItems(rows);
+      const {createAccuracyWorksheet}=await import("@/lib/accuracy-worksheet");
+      const bytes=await createAccuracyWorksheet(rows,draftRef.current,selectedArea);
+      const url=URL.createObjectURL(new Blob([new Uint8Array(bytes).buffer],{type:"application/pdf"}));
+      const name=`Baxter-ASC-count-${selectedArea.replace(/[^a-z0-9]+/gi,"-")}-${new Date().toLocaleDateString("en-CA",{timeZone:"America/Chicago"})}.pdf`;
+      setWorksheet({url,name});
+      const link=document.createElement("a");link.href=url;link.download=name;
+      document.body.appendChild(link);link.click();link.remove();
+      setMessage("Your PDF count sheet is ready. It includes the full catalog, saved counts and this device's unsaved entries, plus blank paper-count and notes columns. Open the PDF to print or share it. Enter paper counts in Accuracy when you finish.");
+    }catch(error){setMessage(error instanceof Error?error.message:"Could not create the count sheet. Please try again.");}
+    finally{setPrinting(false);}
+  }
 
   return <><style>{css}</style><main className="acc"><div className="acc-wrap">
     {editing&&<AccuracyItemEditor itemId={editing.item_id} areaId={areaId} areaName={selectedArea} authFetch={authFetch} onClose={()=>setEditing(null)} onSaved={(details,unitsChanged)=>{
@@ -129,9 +150,10 @@ export default function InventoryAccuracyPage(){
       if(unitsChanged){const next={...draftRef.current};delete next[id];persist(next);}
       setEditing(null);setMessage(unitsChanged?"Item info saved. Recount this item in its updated unit; other entered counts were kept.":"Item info saved. Your entered counts were kept.");
     }}/>}
-    <div className="acc-tools"><button onClick={()=>{if(!inFlight.current.size)router.push(returnToReorder?"/smart-reorder":"/");}} disabled={busy}>← Back</button><button onClick={()=>void print()} disabled={loading||busy||!areaItems.length}>{printing?"Preparing latest counts…":"Print inventory sheet"}</button><button onClick={()=>void loadArea(areaId)} disabled={loading||busy}>Reload live counts</button></div>
+    <div className="acc-tools"><button onClick={()=>{if(!inFlight.current.size)router.push(returnToReorder?"/smart-reorder":"/");}} disabled={busy}>← Back</button><button className="primary" onClick={()=>void downloadWorksheet()} disabled={loading||busy||!items.length}>{printing?"Preparing latest counts…":"Download count sheet PDF"}</button><button onClick={()=>void print()} disabled={loading||busy||!areaItems.length}>Print inventory sheet</button><button onClick={()=>void loadArea(areaId)} disabled={loading||busy}>Reload live counts</button></div>
     <section className="acc-hero"><h1>Inventory Accuracy</h1><p>Enter the actual quantity in the displayed unit. Tap the next field, press Enter, or tap Save now to update live on-hand stock. Enter 0 when none remain; leaving a field blank does not change stock.</p><p className="acc-safe">Your entries are retained on this device as you type. <strong>Green “Saved to live inventory”</strong> confirms the database update. Unsaved entries stay visible when you reopen the app; tap Save unsaved counts to finish them.</p></section>
     {message&&<div className="acc-message" role="status">{message}</div>}
+    {worksheet&&<div className="acc-message"><a style={{color:"#93c5fd"}} href={worksheet.url} download={worksheet.name} target="_blank" rel="noopener">Open / save count sheet PDF</a><p>{worksheet.name} · Snapshot at download time. Download again for updated counts.</p></div>}
     <div className="acc-tools"><select aria-label="Area being counted" value={areaId} onChange={event=>void loadArea(event.target.value)} disabled={loading||busy}>{areas.map(area=><option key={area.id} value={area.id}>{area.name}{area.is_main?" · Main":""}</option>)}</select><input className="acc-search" aria-label="Search inventory" value={search} onChange={event=>{setSearch(event.target.value);setFilter("ALL");setAreaOnly(false);setLimit(100);}} placeholder="Search all inventory: name, reference, barcode…"/></div>
     <div className="acc-stats"><div className="acc-stat"><strong>{areaItems.length}</strong><span>Items in area</span></div><div className="acc-stat"><strong>{entered.length}</strong><span>Entered and retained</span></div><div className="acc-stat"><strong>{pending.length}</strong><span>Need saving / review</span></div></div>
     <div className="acc-tools"><button className="acc-filter" aria-pressed={areaOnly} onClick={()=>{setAreaOnly(value=>!value);setSearch("");setLimit(100);}}>This area only</button>{(["ALL","ENTERED","UNSAVED","VERIFIED"] as Filter[]).map(value=><button className="acc-filter" key={value} aria-pressed={filter===value&&(value!=="ALL"||!areaOnly)} onClick={()=>{setFilter(value);if(value==="ALL")setAreaOnly(false);setSearch("");setLimit(100);}}>{value==="ALL"?"All inventory":value==="ENTERED"?"Entered":value==="UNSAVED"?"Unsaved":"Previously verified"}</button>)}<button className="primary" onClick={()=>void savePending()} disabled={loading||busy||pending.length===0}>Save {pending.length} unsaved counts</button></div>
