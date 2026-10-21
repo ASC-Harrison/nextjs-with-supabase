@@ -1,0 +1,26 @@
+const fs=require("node:fs"),ts=require("typescript"),assert=require("node:assert/strict");
+const output=ts.transpileModule(fs.readFileSync("lib/accuracy-catalog.ts","utf8"),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020}}).outputText;
+const compiled={exports:{}};new Function("exports",output)(compiled.exports);
+const {accuracyCatalog,matchesAccuracySearch,readAllAccuracyPages}=compiled.exports;
+const item={id:"one",name:"Adaptic Dressing",reference_number:"61-13",vendor:"Cardinal Health",unit:"BX",category:"Wound care",barcode:"0012345678",item_number:"INV-42",is_active:true};
+const stock=[{item_id:"one",storage_area_id:"main",on_hand:0,shelf:"A-2",updated_at:"today"},{item_id:"two",storage_area_id:"other",on_hand:12,shelf:null,updated_at:"today"}];
+const rows=accuracyCatalog([item,{...item,id:"two",name:"Unassigned"},{...item,id:"three",is_active:false}],stock,[],[{id:"main",name:"ASC",active:true},{id:"other",name:"OR",active:true}],"main");
+assert.equal(rows.length,3,"Catalog items survive missing area assignments");
+assert.equal(rows.find(row=>row.item_id==="one").on_hand,0,"Real zero remains zero");
+assert.equal(rows.find(row=>row.item_id==="two").on_hand,null,"Missing association is not zero stock");
+assert.equal(rows.find(row=>row.item_id==="two").assigned,false);
+assert.equal(rows.find(row=>row.item_id==="two").locations[0].on_hand,12,"Other area count is retained");
+assert.equal(rows.find(row=>row.item_id==="three").is_active,false,"Inactive items remain searchable and marked inactive");
+assert.equal(matchesAccuracySearch({...item,shelf:null},"6113"),true,"Punctuation does not prevent a reference match");
+assert.equal(matchesAccuracySearch({...item,shelf:null},"0012345678"),true,"Barcode lookup");
+assert.equal(matchesAccuracySearch({...item,shelf:null},"adaptic cardinal"),true,"Multiple search terms across fields");
+assert.equal(matchesAccuracySearch({...item,shelf:null},"INV42"),true,"Inventory item number lookup");
+assert.equal(matchesAccuracySearch({...item,shelf:null},"nonexistent"),false);
+(async()=>{
+  const source=Array.from({length:1205},(_,id)=>({id}));
+  const all=await readAllAccuracyPages(async(from,to)=>({data:source.slice(from,to+1),error:null}));
+  assert.equal(all.length,1205,"Pagination loads beyond the database's default 1000 row limit");
+  assert.equal(all[1204].id,1204);
+  await assert.rejects(()=>readAllAccuracyPages(async(from)=>from?{data:null,error:{message:"failed"}}:{data:source.slice(0,500),error:null}),/failed/,"Never quietly return a partial catalog");
+  console.log("14 accuracy catalog checks passed.");
+})().catch(error=>{console.error(error);process.exitCode=1;});

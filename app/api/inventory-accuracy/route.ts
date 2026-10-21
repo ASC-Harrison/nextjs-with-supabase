@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import {accuracyCatalog,readAllAccuracyPages,type AccuracyCatalogItem,type AccuracyLocation,type AccuracyVerification} from "@/lib/accuracy-catalog";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -27,6 +28,7 @@ async function requireAdmin(request: Request) {
 }
 
 export async function GET(request: Request) {
+  try {
   const user = await requireAdmin(request);
   if (!user) {
     return NextResponse.json({ ok:false, error:"Administrator access required" }, { status:403 });
@@ -35,8 +37,7 @@ export async function GET(request: Request) {
   const requestedArea = new URL(request.url).searchParams.get("area_id") || "";
   const { data:areas, error:areaError } = await supabaseAdmin
     .from("storage_areas")
-    .select("id,name,is_main")
-    .eq("active", true)
+    .select("id,name,is_main,active")
     .order("is_main", { ascending:false })
     .order("name");
 
@@ -46,76 +47,20 @@ export async function GET(request: Request) {
 
   const areaId = UUID_RE.test(requestedArea)
     ? requestedArea
-    : String(areas?.[0]?.id || "");
+    : String(areas?.find(area=>area.active)?.id || "");
 
-  if (!areaId || !areas?.some(area => area.id === areaId)) {
+  if (!areaId || !areas?.some(area => area.id === areaId && area.active)) {
     return NextResponse.json({ ok:false, error:"Choose an active storage area" }, { status:400 });
   }
 
-  const [inventoryResult, itemsResult, verificationResult] = await Promise.all([
-    supabaseAdmin
-      .from("storage_inventory")
-      .select("item_id,on_hand,shelf,updated_at")
-      .eq("storage_area_id", areaId),
-    supabaseAdmin
-      .from("items")
-      .select("id,name,reference_number,vendor,unit,category")
-      .eq("is_active", true),
-    supabaseAdmin
-      .from("inventory_count_verifications")
-      .select("item_id,actual_on_hand,difference,verified_by,verified_at")
-      .eq("storage_area_id", areaId)
-      .order("verified_at", { ascending:false })
-      .limit(2000),
+  const [inventory, items, verifications] = await Promise.all([
+    readAllAccuracyPages<AccuracyLocation>((from,to)=>supabaseAdmin.from("storage_inventory").select("item_id,storage_area_id,on_hand,shelf,updated_at").or(`storage_area_id.eq.${areaId},on_hand.gt.0`).order("item_id").order("storage_area_id").range(from,to)),
+    readAllAccuracyPages<AccuracyCatalogItem>((from,to)=>supabaseAdmin.from("items").select("id,name,reference_number,vendor,unit,category,barcode,item_number,is_active").order("id").range(from,to)),
+    readAllAccuracyPages<AccuracyVerification>((from,to)=>supabaseAdmin.from("inventory_count_verifications").select("item_id,actual_on_hand,difference,verified_by,verified_at").eq("storage_area_id",areaId).order("verified_at",{ascending:false}).order("id").range(from,to)),
   ]);
-
-  if (inventoryResult.error || itemsResult.error || verificationResult.error) {
-    return NextResponse.json({
-      ok:false,
-      error:inventoryResult.error?.message || itemsResult.error?.message || verificationResult.error?.message || "Could not load inventory",
-    }, { status:500 });
-  }
-
-  const itemMap = new Map((itemsResult.data || []).map(item => [item.id, item]));
-  const latestVerification = new Map<string, {
-    actual_on_hand:number;
-    difference:number;
-    verified_by:string;
-    verified_at:string;
-  }>();
-
-  for (const row of verificationResult.data || []) {
-    if (!latestVerification.has(row.item_id)) {
-      latestVerification.set(row.item_id, {
-        actual_on_hand:Number(row.actual_on_hand),
-        difference:Number(row.difference),
-        verified_by:String(row.verified_by),
-        verified_at:String(row.verified_at),
-      });
-    }
-  }
-
-  const rows = (inventoryResult.data || [])
-    .map(row => {
-      const item = itemMap.get(row.item_id);
-      if (!item) return null;
-      return {
-        item_id:row.item_id,
-        name:item.name,
-        reference_number:item.reference_number,
-        vendor:item.vendor,
-        unit:item.unit,
-        category:item.category,
-        shelf:row.shelf,
-        on_hand:Number(row.on_hand || 0),
-        updated_at:row.updated_at,
-        last_verification:latestVerification.get(row.item_id) || null,
-      };
-    })
-    .filter(Boolean)
-    .sort((a:any,b:any) => a.name.localeCompare(b.name));
-
-  return NextResponse.json({ ok:true, areas:areas || [], selected_area_id:areaId, items:rows });
+  const rows=accuracyCatalog(items,inventory,verifications,areas||[],areaId);
+  return NextResponse.json({ok:true,areas:(areas||[]).filter(area=>area.active),selected_area_id:areaId,items:rows},{headers:{"Cache-Control":"private, no-store"}});
+  }catch(error){console.error("Accuracy catalog failed:",error instanceof Error?error.message:error);return NextResponse.json({ok:false,error:"Could not load the complete inventory catalog. Reload to try again."},{status:500});}
 }
 
 export async function POST(request: Request) {
