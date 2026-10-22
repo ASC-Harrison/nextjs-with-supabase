@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { Resend } from "resend";
+import {orderingRecipients} from "@/lib/ordering-contact";
 import { createClient } from "@supabase/supabase-js";
 
 const resend = new Resend(process.env.RESEND_API_KEY);
@@ -82,14 +83,14 @@ export async function POST(req: Request) {
     // Build confirm buttons for each item
     const rows = items.map((item, i) => {
       const orderId = savedOrders?.[i]?.id ?? "";
-      const confirmUrl = `${APP_URL}/api/orders/confirm?id=${orderId}&by=Brooklyn`;
-      const backorderUrl = `${APP_URL}/api/orders/confirm?id=${orderId}&by=Brooklyn&status=BACKORDERED`;
+      const confirmUrl = `${APP_URL}/api/orders/confirm?id=${orderId}&by=Kaya`;
+      const backorderUrl = `${APP_URL}/api/orders/confirm?id=${orderId}&by=Kaya&status=BACKORDERED`;
       return `
         <tr style="border-bottom:1px solid #e2e8f0;">
           <td style="padding:12px 14px;font-size:14px;color:#1e293b;font-weight:600;">
             ${item.name}
             ${item.alert_note ? `<div style="margin-top:4px;font-size:11px;color:#d97706;background:#fffbeb;border:1px solid #fde68a;border-radius:4px;padding:2px 6px;display:inline-block">⚡ ${escapeHtml(item.alert_note)}</div>` : ""}
-            ${cleanOrderNote(item.request_note) ? `<div style="margin-top:7px;font-size:12px;line-height:1.45;color:#1e40af;background:#eff6ff;border:1px solid #bfdbfe;border-radius:6px;padding:7px 9px;"><strong>📝 Note for Brooklyn:</strong><br/>${escapeHtml(cleanOrderNote(item.request_note)!)}</div>` : ""}
+            ${cleanOrderNote(item.request_note) ? `<div style="margin-top:7px;font-size:12px;line-height:1.45;color:#1e40af;background:#eff6ff;border:1px solid #bfdbfe;border-radius:6px;padding:7px 9px;"><strong>📝 Note for Kaya:</strong><br/>${escapeHtml(cleanOrderNote(item.request_note)!)}</div>` : ""}
           </td>
           <td style="padding:12px 14px;font-size:13px;color:#475569;">${item.reference_number || "—"}</td>
           <td style="padding:12px 14px;font-size:13px;color:#475569;">${item.vendor || "—"}</td>
@@ -113,7 +114,7 @@ export async function POST(req: Request) {
     const hasOrderNotes = notedItems.length > 0;
     const notesSummary = hasOrderNotes
       ? `<div style="margin-bottom:20px;padding:16px;background:#fff7ed;border:2px solid #f97316;border-radius:10px;">
-          <div style="font-size:13px;font-weight:900;color:#9a3412;text-transform:uppercase;letter-spacing:.6px;margin-bottom:10px;">📝 Ordering Information for Brooklyn — Please Read</div>
+          <div style="font-size:13px;font-weight:900;color:#9a3412;text-transform:uppercase;letter-spacing:.6px;margin-bottom:10px;">📝 Ordering Information for Kaya — Please Read</div>
           ${notedItems.map(item => `<div style="padding:10px 0;border-top:1px solid #fed7aa;font-size:14px;line-height:1.5;color:#431407;"><strong>${escapeHtml(item.name)}</strong>${item.itemNote ? `<br/><span style="color:#1e40af;font-weight:800;">📦 Item / Box Information:</span> ${escapeHtml(item.itemNote)}` : ""}${item.orderNote ? `<br/><span style="color:#9a3412;font-weight:800;">📝 Order Note:</span> ${escapeHtml(item.orderNote)}` : ""}</div>`).join("")}
         </div>`
       : "";
@@ -156,8 +157,8 @@ export async function POST(req: Request) {
 
     const { error } = await resend.emails.send({
       from: "Baxter ASC <orders@ascinventory.com>",
-      to: ["hogstud800@gmail.com", "brooklyncarter.0716@gmail.com", "andrea.burris88@icloud.com", "Ashcpaine@gmail.com"],
-      subject: `${hasOrderNotes ? "📝 NOTE FOR BROOKLYN — " : ""}Supply Order Request — ${items.length} item${items.length > 1 ? "s" : ""} — Baxter ASC`,
+      to: orderingRecipients(["hogstud800@gmail.com", "brooklyncarter.0716@gmail.com", "andrea.burris88@icloud.com", "Ashcpaine@gmail.com"]),
+      subject: `${hasOrderNotes ? "📝 NOTE FOR KAYA — " : ""}Supply Order Request — ${items.length} item${items.length > 1 ? "s" : ""} — Baxter ASC`,
       text: [
         `Supply Order Request — ${items.length} item${items.length > 1 ? "s" : ""}`,
         `Requested by: ${requested_by || "Staff"}`,

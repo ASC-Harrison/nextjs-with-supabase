@@ -14,7 +14,7 @@ export async function GET(req: Request) {
   try {
     const { searchParams } = new URL(req.url);
     const id = searchParams.get("id");
-    const by = searchParams.get("by") || "Brooklyn";
+    const by = searchParams.get("by") || "Kaya";
 
     if (!id) {
       return new Response(errorPage("Invalid link"), { headers: { "Content-Type": "text/html" } });
@@ -48,7 +48,7 @@ export async function POST(req: Request) {
   try {
     const formData = await req.formData();
     const id = formData.get("id") as string;
-    const by = formData.get("by") as string || "Brooklyn";
+    const by = formData.get("by") as string || "Kaya";
     const status = formData.get("status") as string || "ORDERED";
     const qtyActual = formData.get("qty_actual") as string;
     const priceText = String(formData.get("ordered_unit_price") || "").trim();
@@ -139,7 +139,7 @@ function confirmFormPage(order: any, by: string) {
           </div>
 
           <form method='POST' action='${appUrl}/api/orders/confirm'>
-            ${order.notes || order.item_note ? `<div style='background:rgba(59,130,246,0.1);border:2px solid rgba(96,165,250,0.65);border-radius:12px;padding:14px;margin-bottom:18px'>${order.item_note ? `<div style='font-size:11px;font-weight:900;color:#93c5fd;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px'>📦 Item / Box Information</div><div style='font-size:15px;font-weight:800;color:#f0f6ff;line-height:1.5;margin-bottom:12px'>${escapeHtml(order.item_note)}</div>` : ""}${order.notes ? `<div style='font-size:11px;font-weight:900;color:#fdba74;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px'>📝 Order Note from Jeremy</div><div style='font-size:14px;color:#f0f6ff;line-height:1.5;margin-bottom:12px'>${escapeHtml(order.notes)}</div>` : ""}<label style='display:flex;align-items:flex-start;gap:9px;font-size:13px;font-weight:700;color:#bfdbfe;cursor:pointer'><input type='checkbox' name='note_acknowledged' value='yes' required style='width:18px;height:18px;margin-top:1px;accent-color:#3b82f6' />I, Brooklyn, confirm that I read all item and order information.</label></div>` : ""}
+            ${order.notes || order.item_note ? `<div style='background:rgba(59,130,246,0.1);border:2px solid rgba(96,165,250,0.65);border-radius:12px;padding:14px;margin-bottom:18px'>${order.item_note ? `<div style='font-size:11px;font-weight:900;color:#93c5fd;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px'>📦 Item / Box Information</div><div style='font-size:15px;font-weight:800;color:#f0f6ff;line-height:1.5;margin-bottom:12px'>${escapeHtml(order.item_note)}</div>` : ""}${order.notes ? `<div style='font-size:11px;font-weight:900;color:#fdba74;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px'>📝 Order Note from Jeremy</div><div style='font-size:14px;color:#f0f6ff;line-height:1.5;margin-bottom:12px'>${escapeHtml(order.notes)}</div>` : ""}<label style='display:flex;align-items:flex-start;gap:9px;font-size:13px;font-weight:700;color:#bfdbfe;cursor:pointer'><input type='checkbox' name='note_acknowledged' value='yes' required style='width:18px;height:18px;margin-top:1px;accent-color:#3b82f6' />I, ${escapeHtml(by)}, confirm that I read all item and order information.</label></div>` : ""}
             <input type='hidden' name='id' value='${order.id}' />
             <input type='hidden' name='by' value='${by}' />
 

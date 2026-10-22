@@ -444,7 +444,7 @@ export default function OrderHistoryPage() {
 
   async function cancelPendingOrder(order: Order) {
     if (updatingOrderId) return;
-    if (!confirm(`Cancel "${order.item_name}"?\n\nIt will be removed from Pending, and Brooklyn will receive an email saying: Order canceled — please disregard.\n\nThis will not change inventory.`)) return;
+    if (!confirm(`Cancel "${order.item_name}"?\n\nIt will be removed from Pending, and Kaya will receive an email saying: Order canceled — please disregard.\n\nThis will not change inventory.`)) return;
 
     setUpdatingOrderId(order.id);
     try {
@@ -468,9 +468,9 @@ export default function OrderHistoryPage() {
       } : row));
 
       if (json.email_sent) {
-        alert("Order canceled and Brooklyn was emailed. The item was not changed in inventory.");
+        alert("Order canceled and Kaya was emailed. The item was not changed in inventory.");
       } else {
-        alert(`Order canceled, but the email could not be delivered. A copy was saved in Brooklyn Messages. ${json.warning || ""}`);
+        alert(`Order canceled, but the email could not be delivered. A copy was saved in Kaya Messages. ${json.warning || ""}`);
       }
     } catch (error) {
       alert(`Could not cancel this order: ${error instanceof Error ? error.message : "Unknown error"}`);
@@ -598,7 +598,7 @@ This does NOT add ${qtyThisDelivery} to the inventory count. Use “Add to Inven
       setIssueOrder(null);
       setIssueNote("");
       setOrderView("ISSUES");
-      alert("Moved to Issues and Brooklyn was notified.");
+      alert("Moved to Issues and Kaya was notified.");
     } catch (error) {
       alert(`Could not move this order to Issues: ${error instanceof Error ? error.message : "Unknown error"}`);
     } finally {
@@ -630,7 +630,7 @@ This does NOT add ${qtyThisDelivery} to the inventory count. Use “Add to Inven
 
   async function sendFollowUp(order: Order) {
     const note = followUpNote.trim();
-    if (!note) return alert("Type a note for Brooklyn first.");
+    if (!note) return alert("Type a note for Kaya first.");
     setFollowUpSending(true);
     try {
       const { data: { session } } = await supabase.auth.getSession();
@@ -651,7 +651,7 @@ This does NOT add ${qtyThisDelivery} to the inventory count. Use “Add to Inven
       } : o));
       setFollowUpId(null);
       setFollowUpNote("");
-      alert("Follow-up sent to Brooklyn.");
+      alert("Follow-up sent to Kaya.");
     } catch (error) {
       alert(error instanceof Error ? error.message : "Could not send follow-up");
     } finally {
@@ -661,7 +661,7 @@ This does NOT add ${qtyThisDelivery} to the inventory count. Use “Add to Inven
 
   async function sendPendingReminder() {
     if (!totalPending || pendingReminderSending) return;
-    if (!confirm(`Send Brooklyn one reminder listing all ${totalPending} Pending item${totalPending === 1 ? "" : "s"} that still need to be ordered?`)) return;
+    if (!confirm(`Send Kaya one reminder listing all ${totalPending} Pending item${totalPending === 1 ? "" : "s"} that still need to be ordered?`)) return;
     setPendingReminderSending(true);
     try {
       const { data: { session } } = await supabase.auth.getSession();
@@ -680,7 +680,7 @@ This does NOT add ${qtyThisDelivery} to the inventory count. Use “Add to Inven
         last_follow_up_at:json.follow_up.sent_at,
         follow_up_count:counts.get(order.id) ?? order.follow_up_count,
       } : order));
-      alert(`One reminder was sent to Brooklyn with all ${json.count} Pending item${json.count === 1 ? "" : "s"}.`);
+      alert(`One reminder was sent to Kaya with all ${json.count} Pending item${json.count === 1 ? "" : "s"}.`);
     } catch (error) {
       alert(error instanceof Error ? error.message : "Could not send the Pending reminder");
     } finally {
@@ -829,7 +829,7 @@ This does NOT add ${qtyThisDelivery} to the inventory count. Use “Add to Inven
                 <div style={{fontSize:13,color:"#cbd5e1",marginBottom:14}}>{issueOrder.item_name}</div>
                 <label style={{display:"block",fontSize:11,fontWeight:800,color:"#fdba74",marginBottom:5}}>WHAT IS THE ISSUE?</label>
                 <textarea value={issueNote} onChange={event=>setIssueNote(event.target.value.slice(0,500))} rows={4} placeholder="Example: Wrong quantity delivered, damaged box, or vendor follow-up needed." style={{width:"100%",borderRadius:9,border:"1px solid rgba(249,115,22,.3)",background:"#0f172a",color:"#f0f6ff",padding:"10px 11px",fontSize:13,fontFamily:"inherit",outline:"none",resize:"vertical",marginBottom:12}} />
-                <div style={{fontSize:11,color:"#94a3b8",lineHeight:1.5,marginBottom:14}}>This moves the order into Issues and emails Brooklyn. It will not change the item or inventory count.</div>
+                <div style={{fontSize:11,color:"#94a3b8",lineHeight:1.5,marginBottom:14}}>This moves the order into Issues and emails Kaya. It will not change the item or inventory count.</div>
                 <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:9}}>
                   <button type="button" className="received-only-btn" style={{background:"#334155"}} disabled={issueSaving} onClick={()=>setIssueOrder(null)}>Cancel</button>
                   <button type="button" className="received-only-btn" style={{background:"#ea580c"}} disabled={issueSaving || !issueNote.trim()} onClick={markAsIssue}>{issueSaving ? "Moving…" : "Move to Issues"}</button>
@@ -892,9 +892,9 @@ This does NOT add ${qtyThisDelivery} to the inventory count. Use “Add to Inven
 
           {isKaya===false && orderView === "ORDERS" && statusFilter === "PENDING" && totalPending > 0 && (
             <div className="pending-reminder-panel">
-              <div className="pending-reminder-copy"><strong>{totalPending} Pending item{totalPending === 1 ? "" : "s"}</strong><br />Send Brooklyn one email containing the complete list.</div>
+              <div className="pending-reminder-copy"><strong>{totalPending} Pending item{totalPending === 1 ? "" : "s"}</strong><br />Send Kaya one email containing the complete list.</div>
               <button type="button" className="reminder-btn" disabled={pendingReminderSending} onClick={sendPendingReminder}>
-                {pendingReminderSending ? "Sending…" : "🔔 Remind Brooklyn"}
+                {pendingReminderSending ? "Sending…" : "🔔 Remind Kaya"}
               </button>
             </div>
           )}
@@ -938,14 +938,14 @@ This does NOT add ${qtyThisDelivery} to the inventory count. Use “Add to Inven
                     )}
                     {order.notes && !["RECEIVED","CANCELLED"].includes(order.status) && (
                       <div style={{ fontSize:13, color:"#ffedd5", marginTop:10, marginBottom:10, background:"rgba(154,52,18,.22)", border:"2px solid rgba(249,115,22,.65)", borderRadius:9, padding:"10px 11px", lineHeight:1.5 }}>
-                        <div style={{fontSize:10,fontWeight:900,color:"#fdba74",letterSpacing:".7px",textTransform:"uppercase",marginBottom:4}}>📝 Order Note for Brooklyn — Please Read</div>
+                        <div style={{fontSize:10,fontWeight:900,color:"#fdba74",letterSpacing:".7px",textTransform:"uppercase",marginBottom:4}}>📝 Order Note for Kaya — Please Read</div>
                         <strong>{order.notes}</strong>
                       </div>
                     )}
                     {order.status === "CANCELLED" && (
                       <div style={{fontSize:12,color:"#cbd5e1",marginTop:8,background:"rgba(100,116,139,.12)",border:"1px solid rgba(148,163,184,.3)",borderRadius:7,padding:"8px 9px",lineHeight:1.45}}>
                         🚫 <strong>Order canceled — please disregard.</strong>
-                        {order.cancelled_at && <><br /><span style={{color:"#94a3b8"}}>{order.cancelled_by || "Staff"} · {formatTime(order.cancelled_at)}{order.cancellation_email_status === "SENT" ? " · Brooklyn emailed" : ""}</span></>}
+                        {order.cancelled_at && <><br /><span style={{color:"#94a3b8"}}>{order.cancelled_by || "Staff"} · {formatTime(order.cancelled_at)}{order.cancellation_email_status === "SENT" ? " · Ordering contact emailed" : ""}</span></>}
                       </div>
                     )}
                     {order.receipt_exception_type && (
@@ -1001,11 +1001,11 @@ This does NOT add ${qtyThisDelivery} to the inventory count. Use “Add to Inven
                     </div>
                     {followUpId === order.id && (
                       <div style={{ marginTop:12, background:"rgba(168,85,247,0.08)", border:"1px solid rgba(168,85,247,0.25)", borderRadius:10, padding:12 }}>
-                        <div style={{ fontSize:12, color:"#d8b4fe", fontWeight:800, marginBottom:6 }}>Send Brooklyn a follow-up about this item</div>
+                        <div style={{ fontSize:12, color:"#d8b4fe", fontWeight:800, marginBottom:6 }}>Send Kaya a follow-up about this item</div>
                         <textarea value={followUpNote} onChange={e=>setFollowUpNote(e.target.value.slice(0,500))} rows={3} placeholder="Can we please follow up on this item? We have not received it yet." style={{ width:"100%", borderRadius:8, border:"1px solid rgba(168,85,247,0.3)", background:"#111827", color:"#f0f6ff", padding:"9px 10px", fontSize:12, fontFamily:"inherit", outline:"none", resize:"vertical", marginBottom:8 }} />
                         <div style={{ display:"flex", gap:8 }}>
                           <button type="button" onClick={()=>sendFollowUp(order)} disabled={followUpSending || !followUpNote.trim()} style={{ flex:1, border:0, borderRadius:8, background:"#9d2235", color:"#fff", padding:"10px", fontWeight:800 }}>
-                            {followUpSending ? "Sending…" : "✉️ Send to Brooklyn"}
+                            {followUpSending ? "Sending…" : "✉️ Send to Kaya"}
                           </button>
                           <button type="button" onClick={()=>{setFollowUpId(null);setFollowUpNote("");}} disabled={followUpSending} style={{ border:"1px solid #1e3a5f", borderRadius:8, background:"#1e2d42", color:"#94a3b8", padding:"10px 14px", fontWeight:800 }}>Cancel</button>
                         </div>
@@ -1030,7 +1030,7 @@ This does NOT add ${qtyThisDelivery} to the inventory count. Use “Add to Inven
                             disabled={updatingOrderId === order.id}
                             onClick={() => cancelPendingOrder(order)}
                           >
-                            {updatingOrderId === order.id ? "Canceling…" : "🚫 Cancel Order & Notify Brooklyn"}
+                            {updatingOrderId === order.id ? "Canceling…" : "🚫 Cancel Order & Notify Kaya"}
                           </button>
                         )}
                         {isKaya===false && order.status !== "PENDING" && followUpId !== order.id && (
@@ -1040,7 +1040,7 @@ This does NOT add ${qtyThisDelivery} to the inventory count. Use “Add to Inven
                             disabled={updatingOrderId === order.id}
                             onClick={()=>{setFollowUpId(order.id);setFollowUpNote("Can we please follow up on this item? We have not received it yet.");}}
                           >
-                            💬 Follow Up With Brooklyn
+                            💬 Follow Up With Kaya
                           </button>
                         )}
                         {isKaya===false&&<button

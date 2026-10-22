@@ -4,7 +4,7 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 const ALLOWED_ROLES = ["admin", "staff", "preop"];
-const BROOKLYN_EMAIL = process.env.BROOKLYN_ORDER_EMAIL || "brooklyncarter.0716@gmail.com";
+import {ORDERING_EMAIL} from "@/lib/ordering-contact";
 
 function bearerToken(request: Request) {
   const header = request.headers.get("authorization") || "";
@@ -94,7 +94,7 @@ export async function POST(request: Request) {
 
     const { data:emailData, error:emailError } = await resend.emails.send({
       from:"Baxter ASC <orders@ascinventory.com>",
-      to:[BROOKLYN_EMAIL],
+      to:[ORDERING_EMAIL],
       subject,
       html:`
         <div style="background:#f8fafc;padding:28px;font-family:Arial,sans-serif;color:#0f172a">
@@ -128,7 +128,7 @@ export async function POST(request: Request) {
       })
       .eq("id", order.id);
 
-    const { error:messageError } = await supabaseAdmin.from("brooklyn_messages").insert({
+    const { error:messageError } = await supabaseAdmin.from("kaya_messages").insert({
       sender_user_id:authData.user.id,
       sender_name:cancelledBy,
       sender_email:authData.user.email,

@@ -4,10 +4,10 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 const ALLOWED_ROLES = ["admin", "staff", "preop"];
-const BROOKLYN_EMAIL = process.env.BROOKLYN_ORDER_EMAIL || "brooklyncarter.0716@gmail.com";
+import {ORDERING_EMAIL} from "@/lib/ordering-contact";
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "https://nextjs-with-supabase-gamma-rosy.vercel.app";
 const SUBJECT = "Pending Orders Reminder";
-const NOTE = "Reminder sent to Brooklyn with all items that are still pending and need to be ordered.";
+const NOTE = "Reminder sent to Kaya with all items that are still pending and need to be ordered.";
 
 type PendingOrder = {
   id: string;
@@ -72,7 +72,7 @@ export async function POST(request: Request) {
 
     const oneMinuteAgo = new Date(Date.now() - 60_000).toISOString();
     const { data:recent, error:recentError } = await supabaseAdmin
-      .from("brooklyn_messages")
+      .from("kaya_messages")
       .select("id")
       .eq("sender_user_id", authData.user.id)
       .eq("subject", SUBJECT)
@@ -96,7 +96,7 @@ export async function POST(request: Request) {
     const subject = `Pending Orders Reminder — ${pending.length} item${pending.length === 1 ? "" : "s"} — Baxter ASC`;
     const { data:emailData, error:emailError } = await resend.emails.send({
       from:"Baxter ASC <orders@ascinventory.com>",
-      to:[BROOKLYN_EMAIL],
+      to:[ORDERING_EMAIL],
       subject,
       html:`<div style="background:#f8fafc;padding:28px;font-family:Arial,sans-serif;color:#0f172a">
         <div style="max-width:640px;margin:auto;background:#fff;border:1px solid #fde68a;border-radius:14px;overflow:hidden">
@@ -121,7 +121,7 @@ export async function POST(request: Request) {
       ...pending.map(order => `${order.item_name} — Qty ${order.qty_requested ?? "—"} ${order.unit || ""} — Ref ${order.reference_number || "—"} — ${order.vendor || "No vendor"}`),
     ].join("\n");
 
-    const { error:messageError } = await supabaseAdmin.from("brooklyn_messages").insert({
+    const { error:messageError } = await supabaseAdmin.from("kaya_messages").insert({
       sender_user_id:authData.user.id,
       sender_name:sender,
       sender_email:authData.user.email,

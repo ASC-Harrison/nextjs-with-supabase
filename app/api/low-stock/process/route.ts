@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import {orderingRecipients} from "@/lib/ordering-contact";
 import { createClient } from "@supabase/supabase-js";
 
 function getServiceClient() {
@@ -28,7 +29,7 @@ async function sendEmailResend(subject: string, html: string) {
     throw new Error("Missing RESEND_API_KEY / RESEND_FROM / RESEND_TO env vars");
   }
 
-  const recipients = to.split(",").map((s) => s.trim()).filter(Boolean);
+  const recipients = orderingRecipients(to.split(","));
 
   const res = await fetch("https://api.resend.com/emails", {
     method: "POST",

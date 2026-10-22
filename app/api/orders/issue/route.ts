@@ -4,7 +4,7 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 const ALLOWED_ROLES = ["admin", "staff", "preop"];
-const BROOKLYN_EMAIL = process.env.BROOKLYN_ORDER_EMAIL || "brooklyncarter.0716@gmail.com";
+import {ORDERING_EMAIL} from "@/lib/ordering-contact";
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "https://nextjs-with-supabase-gamma-rosy.vercel.app";
 
 type IssueOrder = {
@@ -80,7 +80,7 @@ function emailShell(title: string, body: string) {
 }
 
 async function saveMessage(user: { id: string; email?: string | null }, senderName: string, subject: string, message: string, providerMessageId?: string | null) {
-  return supabaseAdmin.from("brooklyn_messages").insert({
+  return supabaseAdmin.from("kaya_messages").insert({
     sender_user_id:user.id,
     sender_name:senderName,
     sender_email:user.email,
@@ -127,7 +127,7 @@ export async function POST(request: Request) {
       const message = [`There ${issues.length === 1 ? "is" : "are"} currently ${issues.length} open issue${issues.length === 1 ? "" : "s"}.`, "", ...issues.map(issueText)].join("\n\n");
       const { data:emailData, error:emailError } = await resend.emails.send({
         from:"Baxter ASC <orders@ascinventory.com>",
-        to:[BROOKLYN_EMAIL],
+        to:[ORDERING_EMAIL],
         subject,
         html:emailShell(`Current Issues (${issues.length})`, `<p style="font-size:15px;line-height:1.55;margin:0">Here is everything currently in the Issues tab.</p>${issues.map(issueCard).join("")}`),
       });
@@ -174,7 +174,7 @@ export async function POST(request: Request) {
     const subject = `New Issue — ${issue.item_name} — Baxter ASC`;
     const { data:emailData, error:emailError } = await resend.emails.send({
       from:"Baxter ASC <orders@ascinventory.com>",
-      to:[BROOKLYN_EMAIL],
+      to:[ORDERING_EMAIL],
       subject,
       html:emailShell(issue.item_name, `<p style="font-size:15px;line-height:1.55;margin:0 0 8px">An order was moved into the Issues tab and needs attention.</p>${issueCard(issue)}`),
     });
@@ -187,7 +187,7 @@ export async function POST(request: Request) {
         issue_reported_at:null,
         issue_previous_status:null,
       }).eq("id", order.id).eq("status", "ISSUE").eq("issue_reported_at", reportedAt);
-      return NextResponse.json({ ok:false, error:`Brooklyn could not be notified, so the item was not moved. ${emailError.message}` }, { status:502 });
+      return NextResponse.json({ ok:false, error:`Kaya could not be notified, so the item was not moved. ${emailError.message}` }, { status:502 });
     }
 
     const message = `A new order was moved into Issues.\n\n${issueText(issue)}`;

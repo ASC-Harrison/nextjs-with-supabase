@@ -2,6 +2,7 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 import { NextResponse } from "next/server";
+import {orderingRecipients} from "@/lib/ordering-contact";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 export async function POST(req: Request) {
@@ -14,7 +15,7 @@ export async function POST(req: Request) {
   if (!toRaw) return NextResponse.json({ ok: false, error: "Missing LOW_STOCK_EMAIL_TO" }, { status: 500, headers });
 
   const { area_id } = await req.json().catch(() => ({}));
-  const to = toRaw.split(",").map((s) => s.trim()).filter(Boolean);
+  const to = orderingRecipients(toRaw.split(","));
 
   let q = supabaseAdmin
     .from("storage_inventory")

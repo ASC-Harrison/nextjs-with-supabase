@@ -4,7 +4,7 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 const ALLOWED_ROLES = ["admin", "staff", "preop"];
-const BROOKLYN_EMAIL = process.env.BROOKLYN_ORDER_EMAIL || "brooklyncarter.0716@gmail.com";
+import {ORDERING_EMAIL} from "@/lib/ordering-contact";
 
 function bearerToken(req: Request) {
   const header = req.headers.get("authorization") || "";
@@ -44,7 +44,7 @@ export async function POST(req: Request) {
     const orderId = typeof body?.order_id === "string" ? body.order_id.trim() : "";
     const note = typeof body?.note === "string" ? body.note.trim() : "";
     if (!orderId) return NextResponse.json({ ok:false, error:"Order is required" }, { status:400 });
-    if (!note) return NextResponse.json({ ok:false, error:"Type a note for Brooklyn first" }, { status:400 });
+    if (!note) return NextResponse.json({ ok:false, error:"Type a note for Kaya first" }, { status:400 });
     if (note.length > 500) return NextResponse.json({ ok:false, error:"Follow-up notes are limited to 500 characters" }, { status:400 });
 
     const { data:order, error:orderError } = await supabaseAdmin
@@ -77,7 +77,7 @@ export async function POST(req: Request) {
 
     const { error:emailError } = await resend.emails.send({
       from:"Baxter ASC <orders@ascinventory.com>",
-      to:[BROOKLYN_EMAIL],
+      to:[ORDERING_EMAIL],
       subject:`Follow-up Needed — ${order.item_name} — Baxter ASC`,
       html:`
         <div style="background:#f8fafc;padding:28px;font-family:Arial,sans-serif;color:#0f172a;">
