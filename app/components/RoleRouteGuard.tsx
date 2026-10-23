@@ -32,6 +32,10 @@ export default function RoleRouteGuard() {
       if (isKaya && !isKayaRouteAllowed(pathname)) {
         router.replace("/kaya");
       }
+      if (data.session && pathname!=="/viewer") {
+        const response=await fetch("/api/session-role",{headers:{Authorization:`Bearer ${data.session.access_token}`},cache:"no-store"});
+        if(response.ok&&(await response.json()).role==="viewer"&&active)router.replace("/viewer");
+      }
     }
 
     void enforceKayaAccess();
@@ -41,6 +45,7 @@ export default function RoleRouteGuard() {
       if (isKaya && !isKayaRouteAllowed(pathname)) {
         router.replace("/kaya");
       }
+      if(session&&pathname!=="/viewer")setTimeout(()=>{if(active)void enforceKayaAccess();},0);
     });
 
     return () => {

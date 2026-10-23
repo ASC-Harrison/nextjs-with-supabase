@@ -212,6 +212,10 @@ export async function middleware(request: NextRequest) {
     if (!allowed) return jsonError("This account only has access to Kaya restock, ordering, and messages", 403);
   }
 
+  if (role === "viewer" && !(request.method === "GET" && ["/api/viewer", "/api/session-role"].includes(pathname))) {
+    return jsonError("This account has view-only access to inventory and order requests", 403);
+  }
+
   if (isAdminPath(pathname) && role !== "admin") {
     return jsonError("Administrator access required", 403);
   }
