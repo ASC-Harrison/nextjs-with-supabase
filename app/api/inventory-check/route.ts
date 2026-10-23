@@ -1,14 +1,14 @@
 // v2
 import { NextResponse } from "next/server";
 import { Resend } from "resend";
-import {ORDERING_EMAIL} from "@/lib/ordering-contact";
+import {orderingRecipients} from "@/lib/ordering-contact";
 import { createClient } from "@supabase/supabase-js";
 import Anthropic from "@anthropic-ai/sdk";
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 const anthropic = new Anthropic();
 const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!);
-const CONTACTS = [{ email: "hogstud800@gmail.com" }, { email: ORDERING_EMAIL }, { email: "ashelyomsa@gmail.com" }];
+const CONTACTS = orderingRecipients(["hogstud800@gmail.com","brooklyncarter.0716@gmail.com","ashelyomsa@gmail.com"]).map(email=>({email}));
 
 export async function GET(req: Request) {
   try {

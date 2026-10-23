@@ -4,7 +4,7 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 const ALLOWED_ROLES = ["admin", "staff", "preop"];
-import {ORDERING_EMAIL} from "@/lib/ordering-contact";
+import {ORDERING_EMAILS} from "@/lib/ordering-contact";
 
 function bearerToken(request: Request) {
   const header = request.headers.get("authorization") || "";
@@ -94,7 +94,7 @@ export async function POST(request: Request) {
 
     const { data:emailData, error:emailError } = await resend.emails.send({
       from:"Baxter ASC <orders@ascinventory.com>",
-      to:[ORDERING_EMAIL],
+      to:ORDERING_EMAILS,
       subject,
       html:`
         <div style="background:#f8fafc;padding:28px;font-family:Arial,sans-serif;color:#0f172a">

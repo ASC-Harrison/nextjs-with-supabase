@@ -4,7 +4,7 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 const ALLOWED_ROLES = ["admin", "staff", "preop"];
-import {ORDERING_EMAIL} from "@/lib/ordering-contact";
+import {ORDERING_EMAILS} from "@/lib/ordering-contact";
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "https://nextjs-with-supabase-gamma-rosy.vercel.app";
 const SUBJECT = "Pending Orders Reminder";
 const NOTE = "Reminder sent to Kaya with all items that are still pending and need to be ordered.";
@@ -96,7 +96,7 @@ export async function POST(request: Request) {
     const subject = `Pending Orders Reminder — ${pending.length} item${pending.length === 1 ? "" : "s"} — Baxter ASC`;
     const { data:emailData, error:emailError } = await resend.emails.send({
       from:"Baxter ASC <orders@ascinventory.com>",
-      to:[ORDERING_EMAIL],
+      to:ORDERING_EMAILS,
       subject,
       html:`<div style="background:#f8fafc;padding:28px;font-family:Arial,sans-serif;color:#0f172a">
         <div style="max-width:640px;margin:auto;background:#fff;border:1px solid #fde68a;border-radius:14px;overflow:hidden">
