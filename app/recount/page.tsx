@@ -73,10 +73,12 @@ export default function InventoryAccuracyPage(){
   const pending=entered.filter(item=>drafts[item.item_id].status!=="saved");
   const busy=bulkSaving||printing||Object.values(saving).some(Boolean);
   const filtered=useMemo(()=>view==="SAVED"?savedItems.filter(item=>matchesAccuracySearch(item,search)):items.filter(item=>{
-    if(search.trim())return matchesAccuracySearch(item,search);
+    if(search.trim()&&!matchesAccuracySearch(item,search))return false;
     if(areaOnly&&!item.assigned)return false;
     const entry=drafts[item.item_id];
-    if(filter==="ENTERED"&&(!entry||entry.value===""))return false;
+    const hasSavedCount=item.last_verification!==null||entry?.status==="saved";
+    if(filter==="ALL"&&hasSavedCount)return false;
+    if(filter==="ENTERED"&&!hasSavedCount&&(!entry||entry.value===""))return false;
     if(filter==="UNSAVED"&&(!entry||entry.value===""||entry.status==="saved"))return false;
     if(filter==="VERIFIED"&&!item.last_verification)return false;
     return true;
@@ -167,10 +169,11 @@ export default function InventoryAccuracyPage(){
       <button id="accuracy-count-tab" role="tab" aria-selected={view==="COUNT"} aria-controls="accuracy-count-panel" tabIndex={view==="COUNT"?0:-1} className={view==="COUNT"?"primary":""} onClick={()=>changeView("COUNT")}>Count Inventory</button>
       <button id="accuracy-saved-tab" role="tab" aria-selected={view==="SAVED"} aria-controls="accuracy-saved-panel" tabIndex={view==="SAVED"?0:-1} className={view==="SAVED"?"primary":""} onClick={()=>changeView("SAVED")}>Counted &amp; Saved ({savedItems.length})</button>
     </div>
-    <div className="acc-tools"><select aria-label="Area being counted" value={areaId} onChange={event=>void loadArea(event.target.value)} disabled={loading||busy}>{areas.map(area=><option key={area.id} value={area.id}>{area.name}{area.is_main?" · Main":""}</option>)}</select><input className="acc-search" aria-label="Search inventory" value={search} onChange={event=>{setSearch(event.target.value);setFilter("ALL");setAreaOnly(false);setLimit(100);}} placeholder={view==="SAVED"?"Search counted & saved items…":"Search all inventory: name, reference, barcode…"}/></div>
+    <div className="acc-tools"><select aria-label="Area being counted" value={areaId} onChange={event=>void loadArea(event.target.value)} disabled={loading||busy}>{areas.map(area=><option key={area.id} value={area.id}>{area.name}{area.is_main?" · Main":""}</option>)}</select><input className="acc-search" aria-label="Search inventory" value={search} onChange={event=>{setSearch(event.target.value);setLimit(100);}} placeholder={view==="SAVED"?"Search counted & saved items…":"Search this list: name, reference, barcode…"}/></div>
     <div className="acc-stats"><div className="acc-stat"><strong>{areaItems.length}</strong><span>Items in area</span></div><div className="acc-stat"><strong>{entered.length}</strong><span>Entered and retained</span></div><div className="acc-stat"><strong>{pending.length}</strong><span>Need saving / review</span></div></div>
     {view==="COUNT"&&<div className="acc-tools"><button className="acc-filter" aria-pressed={areaOnly} onClick={()=>{setAreaOnly(value=>!value);setSearch("");setLimit(100);}}>This area only</button>{(["ALL","ENTERED","UNSAVED","VERIFIED"] as Filter[]).map(value=><button className="acc-filter" key={value} aria-pressed={filter===value&&(value!=="ALL"||!areaOnly)} onClick={()=>{setFilter(value);if(value==="ALL")setAreaOnly(false);setSearch("");setLimit(100);}}>{value==="ALL"?"All inventory":value==="ENTERED"?"Entered":value==="UNSAVED"?"Unsaved":"Previously verified"}</button>)}<button className="primary" onClick={()=>void savePending()} disabled={loading||busy||pending.length===0}>Save {pending.length} unsaved counts</button></div>}
     <section role="tabpanel" id={view==="SAVED"?"accuracy-saved-panel":"accuracy-count-panel"} aria-labelledby={view==="SAVED"?"accuracy-saved-tab":"accuracy-count-tab"}>
+    {view==="COUNT"&&filter==="ALL"&&<p>Saved counts move out of All inventory. Find them in Entered or Counted &amp; Saved. Unsaved counts stay here until saving succeeds.</p>}
     <p>{loading?"Loading live counts…":view==="SAVED"?`${filtered.length} counted and saved items in ${selectedArea}. Search stays within saved counts. Print and PDF buttons above include the full inventory sheet.`:`${filtered.length} matching items · ${items.length} items in the full catalog. Search includes all areas and inactive items. Print includes assigned items in ${selectedArea}.`}</p>
     {!loading&&<div className="acc-list">{filtered.slice(0,limit).map(item=>{
       if(view==="SAVED"&&item.last_verification){
@@ -180,7 +183,7 @@ export default function InventoryAccuracyPage(){
           <div className="acc-status saved">✓ Counted &amp; saved {new Date(saved.verified_at).toLocaleString()} by {saved.verified_by}</div>
           <div className="acc-meta">Current live on hand: {item.on_hand??"Unknown"} {item.unit||""}{item.on_hand!==saved.actual_on_hand?" · Stock has changed since this count.":""}</div>
           {hasUnsaved&&<div className="acc-status">A newer entry on this device still needs saving. The count above is your last saved record.</div>}
-          <div className="acc-actions"><button disabled={busy||loading} onClick={()=>{changeView("COUNT");setSearch(item.reference_number||item.name);}}>Find in counting view</button></div>
+          <div className="acc-actions"><button disabled={busy||loading} onClick={()=>{changeView("COUNT");setFilter("ENTERED");setSearch(item.reference_number||item.name);}}>Review / edit entered count</button></div>
         </article>;
       }
       const entry=drafts[item.item_id],isSaving=saving[item.item_id],changedSinceSave=entry?.status==="saved"&&Number(entry.value)!==item.on_hand;
