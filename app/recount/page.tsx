@@ -11,6 +11,7 @@ type Area={id:string;name:string;is_main:boolean};
 type Verification={actual_on_hand:number;difference:number;verified_by:string;verified_at:string};
 type Item={item_id:string;name:string;reference_number:string|null;vendor:string|null;unit:string|null;category:string|null;barcode:string|null;item_number:string|null;shelf:string|null;on_hand:number|null;updated_at:string|null;last_verification:Verification|null;assigned:boolean;is_active:boolean;locations:{area_id:string;area_name:string;active:boolean;on_hand:number|null}[]};
 type Filter="ALL"|"ENTERED"|"UNSAVED"|"VERIFIED";
+type AccuracyView="COUNT"|"SAVED";
 const css=`
 body{margin:0;background:#080d19}.acc{font-family:system-ui,sans-serif;color:#f1f5f9;min-height:100vh;padding:18px 14px 110px;background:#080d19}.acc *{box-sizing:border-box}.acc-wrap{max-width:950px;margin:auto}.acc button{cursor:pointer;border:1px solid #345070;border-radius:10px;padding:10px 13px;background:#1b2b43;color:#dbeafe;font:700 12px system-ui}.acc button:disabled{opacity:.5;cursor:wait}.acc button:focus-visible,.acc input:focus-visible,.acc select:focus-visible{outline:3px solid #60a5fa;outline-offset:2px}.acc-hero{background:linear-gradient(135deg,#182c48,#171e30);border:1px solid #304969;border-radius:20px;padding:20px;margin:12px 0}.acc h1{margin:0;font-size:25px}.acc p{font-size:13px;line-height:1.5;color:#a9bad1}.acc-safe{border-left:3px solid #34d399;padding-left:10px}.acc-tools{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0}.acc input,.acc select{background:#0d1727;border:1px solid #345070;border-radius:10px;color:#f8fafc;font:14px system-ui;padding:12px}.acc-search{flex:1;min-width:180px}.acc-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:12px 0}.acc-stat{background:#142137;border:1px solid #293e5a;border-radius:12px;padding:12px;text-align:center}.acc-stat strong{display:block;font-size:24px}.acc-stat span{color:#9bacc4;font-size:11px}.acc-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,330px),1fr));gap:10px}.acc-item{border:1px solid #2d4362;border-radius:14px;padding:15px;background:#131f33}.acc-item.pending{border-color:#d9a441}.acc-item.saved{border-color:#237d65}.acc-item.error{border-color:#e06666}.acc-head{display:flex;justify-content:space-between;gap:10px}.acc-name{font-size:14px;font-weight:850}.acc-meta{font-size:11px;color:#9aacc5;margin-top:5px;line-height:1.5}.acc-current{text-align:right;white-space:nowrap}.acc-current strong{display:block;font-size:22px}.acc-current span{color:#9aacc5;font-size:10px}.acc-input{display:block;width:100%;font-size:19px!important;font-weight:800!important;text-align:center;margin:6px 0}.acc-label{font-size:11px;font-weight:750;color:#b4c4d9;display:block;margin-top:12px}.acc-status{font-size:11px;line-height:1.5;margin:8px 0;color:#fcd34d}.acc-status.saved{color:#86efac}.acc-status.error{color:#fca5a5}.acc-message{padding:12px;border:1px solid #385274;border-radius:10px;margin:10px 0;color:#dbeafe;font-size:13px;line-height:1.5}.acc-actions{display:flex;gap:7px;flex-wrap:wrap;margin-top:10px}.acc-print{display:none}.acc-print table{width:100%;border-collapse:collapse}.acc-print th,.acc-print td{border:1px solid #999;padding:6px;font-size:10px;text-align:left}.acc-print th{background:#eee}.acc-empty{padding:35px;text-align:center;color:#a9bad1}.acc .primary{background:#2563eb}.acc-filter[aria-pressed=true]{background:#23538a;border-color:#60a5fa}
 @media print{@page{size:landscape;margin:12mm}body{background:white!important}body *{visibility:hidden!important}.acc-print,.acc-print *{visibility:visible!important}.acc-print{display:block!important;position:absolute;top:0;left:0;width:100%;color:black;background:white;font-family:Arial,sans-serif}.acc-print tr{break-inside:avoid}.acc-print thead{display:table-header-group}.acc-print h1{font-size:20px}.acc-print p{color:black;font-size:11px}.acc-print th,.acc-print td{color:black!important}.acc-wrap>*:not(.acc-print){display:none!important}}
@@ -23,6 +24,7 @@ export default function InventoryAccuracyPage(){
   const [loading,setLoading]=useState(true),[message,setMessage]=useState("");
   const [search,setSearch]=useState(""),[filter,setFilter]=useState<Filter>("ALL"),[limit,setLimit]=useState(100);
   const [areaOnly,setAreaOnly]=useState(false);
+  const [view,setView]=useState<AccuracyView>("COUNT");
   const [saving,setSaving]=useState<Record<string,boolean>>({}),[editing,setEditing]=useState<Item|null>(null);
   const [bulkSaving,setBulkSaving]=useState(false);
   const [printing,setPrinting]=useState(false);
@@ -66,10 +68,11 @@ export default function InventoryAccuracyPage(){
   useEffect(()=>{const params=new URLSearchParams(window.location.search);setSearch(params.get("reference")||"");setReturnToReorder(params.get("from")==="smart-reorder");void loadArea(params.get("area_id")||undefined);},[loadArea]);
   const selectedArea=areas.find(area=>area.id===areaId)?.name||"Storage area";
   const areaItems=useMemo(()=>items.filter(item=>item.assigned),[items]);
+  const savedItems=useMemo(()=>items.filter(item=>item.assigned&&item.last_verification!==null),[items]);
   const entered=useMemo(()=>items.filter(item=>item.assigned&&item.is_active&&item.on_hand!==null&&drafts[item.item_id]?.value!==undefined&&drafts[item.item_id].value!==""),[items,drafts]);
   const pending=entered.filter(item=>drafts[item.item_id].status!=="saved");
   const busy=bulkSaving||printing||Object.values(saving).some(Boolean);
-  const filtered=useMemo(()=>items.filter(item=>{
+  const filtered=useMemo(()=>view==="SAVED"?savedItems.filter(item=>matchesAccuracySearch(item,search)):items.filter(item=>{
     if(search.trim())return matchesAccuracySearch(item,search);
     if(areaOnly&&!item.assigned)return false;
     const entry=drafts[item.item_id];
@@ -77,7 +80,9 @@ export default function InventoryAccuracyPage(){
     if(filter==="UNSAVED"&&(!entry||entry.value===""||entry.status==="saved"))return false;
     if(filter==="VERIFIED"&&!item.last_verification)return false;
     return true;
-  }),[items,drafts,search,filter,areaOnly]);
+  }),[items,savedItems,drafts,search,filter,areaOnly,view]);
+
+  function changeView(next:AccuracyView){setView(next);setSearch("");setFilter("ALL");setAreaOnly(false);setLimit(100);}
 
   function setCount(item:Item,value:string){
     if(inFlight.current.has(item.item_id)||!item.assigned||!item.is_active||item.on_hand===null)return;
@@ -154,11 +159,30 @@ export default function InventoryAccuracyPage(){
     <section className="acc-hero"><h1>Inventory Accuracy</h1><p>Enter the actual quantity in the displayed unit. Tap the next field, press Enter, or tap Save now to update live on-hand stock. Enter 0 when none remain; leaving a field blank does not change stock.</p><p className="acc-safe">Your entries are retained on this device as you type. <strong>Green “Saved to live inventory”</strong> confirms the database update. Unsaved entries stay visible when you reopen the app; tap Save unsaved counts to finish them.</p></section>
     {message&&<div className="acc-message" role="status">{message}</div>}
     {worksheet&&<div className="acc-message"><a style={{color:"#93c5fd"}} href={worksheet.url} download={worksheet.name} target="_blank" rel="noopener">Open / save count sheet PDF</a><p>{worksheet.name} · Snapshot at download time. Download again for updated counts.</p></div>}
-    <div className="acc-tools"><select aria-label="Area being counted" value={areaId} onChange={event=>void loadArea(event.target.value)} disabled={loading||busy}>{areas.map(area=><option key={area.id} value={area.id}>{area.name}{area.is_main?" · Main":""}</option>)}</select><input className="acc-search" aria-label="Search inventory" value={search} onChange={event=>{setSearch(event.target.value);setFilter("ALL");setAreaOnly(false);setLimit(100);}} placeholder="Search all inventory: name, reference, barcode…"/></div>
+    <div className="acc-tools" role="tablist" aria-label="Inventory Accuracy views" onKeyDown={event=>{
+      if(!["ArrowLeft","ArrowRight","Home","End"].includes(event.key))return;
+      event.preventDefault();const nextView=event.key==="Home"?"COUNT":event.key==="End"?"SAVED":view==="COUNT"?"SAVED":"COUNT";
+      changeView(nextView);event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="tab"]')[nextView==="COUNT"?0:1]?.focus();
+    }}>
+      <button id="accuracy-count-tab" role="tab" aria-selected={view==="COUNT"} aria-controls="accuracy-count-panel" tabIndex={view==="COUNT"?0:-1} className={view==="COUNT"?"primary":""} onClick={()=>changeView("COUNT")}>Count Inventory</button>
+      <button id="accuracy-saved-tab" role="tab" aria-selected={view==="SAVED"} aria-controls="accuracy-saved-panel" tabIndex={view==="SAVED"?0:-1} className={view==="SAVED"?"primary":""} onClick={()=>changeView("SAVED")}>Counted &amp; Saved ({savedItems.length})</button>
+    </div>
+    <div className="acc-tools"><select aria-label="Area being counted" value={areaId} onChange={event=>void loadArea(event.target.value)} disabled={loading||busy}>{areas.map(area=><option key={area.id} value={area.id}>{area.name}{area.is_main?" · Main":""}</option>)}</select><input className="acc-search" aria-label="Search inventory" value={search} onChange={event=>{setSearch(event.target.value);setFilter("ALL");setAreaOnly(false);setLimit(100);}} placeholder={view==="SAVED"?"Search counted & saved items…":"Search all inventory: name, reference, barcode…"}/></div>
     <div className="acc-stats"><div className="acc-stat"><strong>{areaItems.length}</strong><span>Items in area</span></div><div className="acc-stat"><strong>{entered.length}</strong><span>Entered and retained</span></div><div className="acc-stat"><strong>{pending.length}</strong><span>Need saving / review</span></div></div>
-    <div className="acc-tools"><button className="acc-filter" aria-pressed={areaOnly} onClick={()=>{setAreaOnly(value=>!value);setSearch("");setLimit(100);}}>This area only</button>{(["ALL","ENTERED","UNSAVED","VERIFIED"] as Filter[]).map(value=><button className="acc-filter" key={value} aria-pressed={filter===value&&(value!=="ALL"||!areaOnly)} onClick={()=>{setFilter(value);if(value==="ALL")setAreaOnly(false);setSearch("");setLimit(100);}}>{value==="ALL"?"All inventory":value==="ENTERED"?"Entered":value==="UNSAVED"?"Unsaved":"Previously verified"}</button>)}<button className="primary" onClick={()=>void savePending()} disabled={loading||busy||pending.length===0}>Save {pending.length} unsaved counts</button></div>
-    <p>{loading?"Loading live counts…":`${filtered.length} matching items · ${items.length} items in the full catalog. Search includes all areas and inactive items. Print includes assigned items in ${selectedArea}.`}</p>
+    {view==="COUNT"&&<div className="acc-tools"><button className="acc-filter" aria-pressed={areaOnly} onClick={()=>{setAreaOnly(value=>!value);setSearch("");setLimit(100);}}>This area only</button>{(["ALL","ENTERED","UNSAVED","VERIFIED"] as Filter[]).map(value=><button className="acc-filter" key={value} aria-pressed={filter===value&&(value!=="ALL"||!areaOnly)} onClick={()=>{setFilter(value);if(value==="ALL")setAreaOnly(false);setSearch("");setLimit(100);}}>{value==="ALL"?"All inventory":value==="ENTERED"?"Entered":value==="UNSAVED"?"Unsaved":"Previously verified"}</button>)}<button className="primary" onClick={()=>void savePending()} disabled={loading||busy||pending.length===0}>Save {pending.length} unsaved counts</button></div>}
+    <section role="tabpanel" id={view==="SAVED"?"accuracy-saved-panel":"accuracy-count-panel"} aria-labelledby={view==="SAVED"?"accuracy-saved-tab":"accuracy-count-tab"}>
+    <p>{loading?"Loading live counts…":view==="SAVED"?`${filtered.length} counted and saved items in ${selectedArea}. Search stays within saved counts. Print and PDF buttons above include the full inventory sheet.`:`${filtered.length} matching items · ${items.length} items in the full catalog. Search includes all areas and inactive items. Print includes assigned items in ${selectedArea}.`}</p>
     {!loading&&<div className="acc-list">{filtered.slice(0,limit).map(item=>{
+      if(view==="SAVED"&&item.last_verification){
+        const saved=item.last_verification,hasUnsaved=drafts[item.item_id]?.value!==undefined&&drafts[item.item_id].value!==""&&drafts[item.item_id].status!=="saved";
+        return <article className="acc-item saved" key={item.item_id}>
+          <div className="acc-head"><div><div className="acc-name">{item.name}{!item.is_active?" · Inactive":""}</div><div className="acc-meta">{item.vendor||"—"} · Ref: {item.reference_number||"—"}<br/>Count unit: <strong>{item.unit||"Not set"}</strong>{item.shelf?` · Shelf: ${item.shelf}`:""}</div></div><div className="acc-current"><strong>{saved.actual_on_hand}</strong><span>SAVED COUNT · {item.unit||"unit not set"}</span></div></div>
+          <div className="acc-status saved">✓ Counted &amp; saved {new Date(saved.verified_at).toLocaleString()} by {saved.verified_by}</div>
+          <div className="acc-meta">Current live on hand: {item.on_hand??"Unknown"} {item.unit||""}{item.on_hand!==saved.actual_on_hand?" · Stock has changed since this count.":""}</div>
+          {hasUnsaved&&<div className="acc-status">A newer entry on this device still needs saving. The count above is your last saved record.</div>}
+          <div className="acc-actions"><button disabled={busy||loading} onClick={()=>{changeView("COUNT");setSearch(item.reference_number||item.name);}}>Find in counting view</button></div>
+        </article>;
+      }
       const entry=drafts[item.item_id],isSaving=saving[item.item_id],changedSinceSave=entry?.status==="saved"&&Number(entry.value)!==item.on_hand;
       return <article className={`acc-item ${entry?.status||""}`} key={item.item_id}><div className="acc-head"><div><div className="acc-name">{item.name}{!item.is_active?" · Inactive":!item.assigned?" · Not assigned here":""}</div><div className="acc-meta">{item.vendor||"—"} · Ref: {item.reference_number||"—"}<br/>Count unit: <strong>{item.unit||"Not set"}</strong>{item.shelf?` · Shelf: ${item.shelf}`:""}</div></div><div className="acc-current"><strong>{item.assigned?(item.on_hand??"Unknown"):"—"}</strong><span>{item.assigned?"LIVE ON HAND":"NOT ASSIGNED"}</span></div></div>
         <div className="acc-meta">{item.locations.filter(location=>location.area_id!==areaId).map(location=><div key={location.area_id}>Also in {location.area_name}: {location.on_hand??"Unknown"} {item.unit||""}{location.active&&<button disabled={busy} onClick={()=>void loadArea(location.area_id)}>Count there</button>}</div>)}</div>
@@ -170,8 +194,9 @@ export default function InventoryAccuracyPage(){
         {item.last_verification&&<div className="acc-meta">Last verified {new Date(item.last_verification.verified_at).toLocaleString()} by {item.last_verification.verified_by}</div>}
       </article>;
     })}</div>}
-    {!loading&&!filtered.length&&<div className="acc-empty">No items match this view.</div>}
+    {!loading&&!filtered.length&&<div className="acc-empty">{view==="SAVED"?(search.trim()?"No saved counts match your search.":"No counted and saved items in this area yet. Items appear here once their counts save successfully."):"No items match this view."}</div>}
     {filtered.length>limit&&<div className="acc-tools"><button onClick={()=>setLimit(value=>value+100)}>Show 100 more</button></div>}
+    </section>
     <section className="acc-print"><h1>Baxter ASC — Inventory Sheet</h1><p>Area: {selectedArea} · Printed: {printedAt}<br/>Live on hand is the last loaded/saved database count. Unsaved entries are labeled separately and have not updated inventory. A blank actual-count cell means no entry on this device.</p><table><thead><tr>{["Item","Reference","Vendor","Shelf","Unit","Live on hand","Entered actual","Entry status","Last verified","Verified by"].map(title=><th key={title}>{title}</th>)}</tr></thead><tbody>{areaItems.map(item=>{const entry=drafts[item.item_id];return <tr key={item.item_id}><td>{item.name}{!item.is_active?" (inactive)":""}</td><td>{item.reference_number}</td><td>{item.vendor}</td><td>{item.shelf}</td><td>{item.unit||"Not set"}</td><td>{item.on_hand}</td><td>{entry?.value??""}</td><td>{entry?.value!==undefined&&entry.value!==""?entry.status==="saved"?"Saved":"UNSAVED — review":"Not entered"}</td><td>{item.last_verification?new Date(item.last_verification.verified_at).toLocaleString():"Not verified"}</td><td>{item.last_verification?.verified_by||""}</td></tr>;})}</tbody></table></section>
   </div></main></>;
 }
