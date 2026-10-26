@@ -11,7 +11,6 @@ const supabase = createClient(
 
 const ADMIN_EMAILS = ["hogstud800@gmail.com", "brooklyncarter.0716@gmail.com"];
 const PREOP_ONLY_EMAILS = ["andrea.burris88@icloud.com"];
-const KAYA_ONLY_EMAILS = ["kayalivhuebner@gmail.com"];
 
 type Area = { id: string; name: string; total: number; low: number; };
 
@@ -40,6 +39,7 @@ const SKEL_CSS = `
 export default function Home() {
   const router = useRouter();
   const [userEmail, setUserEmail] = useState<string | null>(null);
+  const [userRole, setUserRole] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [areas, setAreas] = useState<Area[]>([]);
   const [pushEnabled, setPushEnabled] = useState(false);
@@ -105,12 +105,14 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => {
+    supabase.auth.getSession().then(async ({ data }) => {
       if (data.session) {
-        const email = data.session.user.email?.toLowerCase() ?? "";
         setUserEmail(data.session.user.email ?? null);
         localStorage.removeItem("asc_readonly");
-        if (KAYA_ONLY_EMAILS.includes(email)) {
+        const response = await fetch("/api/session-role", { headers: { Authorization: `Bearer ${data.session.access_token}` }, cache: "no-store" });
+        const role = response.ok ? (await response.json()).role as string | null : null;
+        setUserRole(role);
+        if (role === "kaya") {
           setLoading(false);
           router.replace("/kaya");
           return;
@@ -122,11 +124,13 @@ export default function Home() {
       const token = localStorage.getItem("asc_session_token");
       const email = localStorage.getItem("asc_user_email");
       if (token && email) {
-        supabase.auth.setSession({ access_token: token, refresh_token: "" }).then(({ data: d }) => {
+        supabase.auth.setSession({ access_token: token, refresh_token: "" }).then(async ({ data: d }) => {
           if (d.session) {
-            const sessionEmail = d.session.user.email?.toLowerCase() ?? "";
             setUserEmail(d.session.user.email ?? null);
-            if (KAYA_ONLY_EMAILS.includes(sessionEmail)) {
+            const response = await fetch("/api/session-role", { headers: { Authorization: `Bearer ${d.session.access_token}` }, cache: "no-store" });
+            const role = response.ok ? (await response.json()).role as string | null : null;
+            setUserRole(role);
+            if (role === "kaya") {
               setLoading(false);
               router.replace("/kaya");
               return;
@@ -171,7 +175,7 @@ export default function Home() {
     router.push("/login");
   }
 
-  const isAdmin = ADMIN_EMAILS.includes(userEmail?.toLowerCase() ?? "");
+  const isAdmin = userRole === "admin" || ADMIN_EMAILS.includes(userEmail?.toLowerCase() ?? "");
   const isPreOpOnly = PREOP_ONLY_EMAILS.includes(userEmail?.toLowerCase() ?? "");
 
   if (loading) {
