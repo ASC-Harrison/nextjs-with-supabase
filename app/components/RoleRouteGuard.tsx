@@ -4,7 +4,6 @@ import { useEffect } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { createClient } from "@supabase/supabase-js";
 
-const KAYA_EMAIL = "kayalivhuebner@gmail.com";
 const KAYA_ALLOWED_ROUTES = ["/", "/kaya", "/order-history", "/message-kaya", "/login", "/forgot-password", "/reset-password"];
 
 const supabase = createClient(
@@ -25,27 +24,22 @@ export default function RoleRouteGuard() {
   useEffect(() => {
     let active = true;
 
-    async function enforceKayaAccess() {
+    async function enforceRoleAccess() {
       const { data } = await supabase.auth.getSession();
       if (!active) return;
-      const isKaya = data.session?.user.email?.toLowerCase() === KAYA_EMAIL;
-      if (isKaya && !isKayaRouteAllowed(pathname)) {
-        router.replace("/kaya");
-      }
-      if (data.session && pathname!=="/viewer") {
+      if (data.session) {
         const response=await fetch("/api/session-role",{headers:{Authorization:`Bearer ${data.session.access_token}`},cache:"no-store"});
-        if(response.ok&&(await response.json()).role==="viewer"&&active)router.replace("/viewer");
+        if (!response.ok || !active) return;
+        const role=(await response.json()).role;
+        if(role==="kaya"&&!isKayaRouteAllowed(pathname))router.replace("/kaya");
+        else if(role==="viewer"&&pathname!=="/viewer")router.replace("/viewer");
       }
     }
 
-    void enforceKayaAccess();
+    void enforceRoleAccess();
     const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
       if (!active) return;
-      const isKaya = session?.user.email?.toLowerCase() === KAYA_EMAIL;
-      if (isKaya && !isKayaRouteAllowed(pathname)) {
-        router.replace("/kaya");
-      }
-      if(session&&pathname!=="/viewer")setTimeout(()=>{if(active)void enforceKayaAccess();},0);
+      if(session)setTimeout(()=>{if(active)void enforceRoleAccess();},0);
     });
 
     return () => {
