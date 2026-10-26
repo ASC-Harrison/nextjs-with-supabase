@@ -4,7 +4,6 @@ import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { createClient } from "@supabase/supabase-js";
 
-const KAYA_EMAIL = "kayalivhuebner@gmail.com";
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
@@ -46,15 +45,23 @@ export default function AppBottomNav() {
 
   useEffect(() => {
     let active = true;
-    supabase.auth.getSession().then(({ data }) => {
+    async function syncRole(session: Awaited<ReturnType<typeof supabase.auth.getSession>>["data"]["session"]) {
       if (!active) return;
-      setIsKayaOnly(data.session?.user.email?.toLowerCase() === KAYA_EMAIL);
+      if (!session) {
+        setIsKayaOnly(false);
+        setAuthChecked(true);
+        return;
+      }
+      const response = await fetch("/api/session-role", { headers: { Authorization: `Bearer ${session.access_token}` }, cache: "no-store" });
+      if (!active) return;
+      setIsKayaOnly(response.ok && (await response.json()).role === "kaya");
       setAuthChecked(true);
+    }
+    supabase.auth.getSession().then(({ data }) => {
+      void syncRole(data.session);
     });
     const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (!active) return;
-      setIsKayaOnly(session?.user.email?.toLowerCase() === KAYA_EMAIL);
-      setAuthChecked(true);
+      setTimeout(() => { if (active) void syncRole(session); }, 0);
     });
     return () => {
       active = false;
