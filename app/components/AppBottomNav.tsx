@@ -45,6 +45,7 @@ export default function AppBottomNav() {
 
   useEffect(() => {
     let active = true;
+    // Use the live database role so an account can be promoted without another code change.
     async function syncRole(session: Awaited<ReturnType<typeof supabase.auth.getSession>>["data"]["session"]) {
       if (!active) return;
       if (!session) {
