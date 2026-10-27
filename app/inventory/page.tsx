@@ -657,8 +657,8 @@ export default function InventoryPage() {
   return (
     <>
       <style dangerouslySetInnerHTML={{__html:PREMIUM_CSS}} />
-      <div className="p-root">
-        <div className="p-wrap">
+      <div className="p-root" style={tab==="Order Drafts"?{minHeight:"auto"}:undefined}>
+        <div className="p-wrap" style={tab==="Order Drafts"?{paddingBottom:0}:undefined}>
           <button onClick={()=>router.push("/")} className="back-btn">← Back</button>
           <div className="hdr-card">
             <div className="fxb">
