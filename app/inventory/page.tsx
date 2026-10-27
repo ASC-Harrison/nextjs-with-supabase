@@ -6,7 +6,7 @@ import type { BrowserMultiFormatReader } from "@zxing/browser";
 import { createClient } from "@supabase/supabase-js";
 import { useSessionTimeout } from "@/lib/use-session-timeout";
 
-type Tab        = "Transaction" | "Totals" | "Sutures" | "Audit" | "Settings";
+type Tab        = "Transaction" | "Totals" | "Sutures" | "Audit" | "Settings" | "Order Drafts";
 type Mode       = "USE" | "RESTOCK";
 type LookupMode = "BARCODE" | "REF" | "NAME";
 type Area = { id: string; name: string };
@@ -387,6 +387,32 @@ export default function InventoryPage() {
   const [orderReqDone, setOrderReqDone] = useState(false);
   const [orderReqSearch, setOrderReqSearch] = useState("");
   const [orderReqLowOnly, setOrderReqLowOnly] = useState(false);
+  const [draftKey,setDraftKey]=useState("");
+  const [draftReady,setDraftReady]=useState(false);
+  const [draftSaveError,setDraftSaveError]=useState("");
+  useEffect(()=>{
+    let active=true;
+    void supabase.auth.getSession().then(({data})=>{
+      if(!active||!data.session)return;
+      const key="asc-order-draft-v1:"+data.session.user.id;
+      try{
+        const saved=JSON.parse(localStorage.getItem(key)||"null");
+        if(saved&&typeof saved==="object"){
+          setOrderReqItems(saved.items||{});
+          setOrderReqNotes(saved.notes||{});
+        }
+        setDraftKey(key);setDraftReady(true);
+      }catch{setDraftSaveError("Could not read this device’s saved draft. Do not close the app until this is resolved.");}
+    });
+    return()=>{active=false;};
+  },[]);
+  useEffect(()=>{
+    if(!draftReady||!draftKey)return;
+    try{
+      localStorage.setItem(draftKey,JSON.stringify({items:orderReqItems,notes:orderReqNotes}));
+      setDraftSaveError("");
+    }catch{setDraftSaveError("Draft could not be saved on this device. Keep this page open.");}
+  },[draftKey,draftReady,orderReqItems,orderReqNotes]);
   const [namePromptOpen, setNamePromptOpen] = useState(false);
   const [nameInput, setNameInput] = useState("");
   const READONLY_EMAILS: string[] = [];
@@ -660,6 +686,7 @@ export default function InventoryPage() {
               <TabBtn active={tab==="Transaction"} onClick={()=>{setTab("Transaction");setTabMenuOpen(false);}}>Tx</TabBtn>
               <TabBtn active={tab==="Totals"} onClick={()=>{setTab("Totals");setTabMenuOpen(false);}}>Totals</TabBtn>
               <TabBtn active={tab==="Sutures"} onClick={()=>{setTab("Sutures");setTabMenuOpen(false);void loadTotals(false);}}>Sutures</TabBtn>
+              {!isReadOnly&&<TabBtn active={tab==="Order Drafts"} onClick={()=>{setTab("Order Drafts");setOrderReqDone(false);setTabMenuOpen(false);void loadTotals(false);}}>Order Drafts ({Object.keys(orderReqItems).length})</TabBtn>}
               <TabBtn active={false} onClick={()=>{setTabMenuOpen(false);router.push("/chat");}}>Chat</TabBtn>
               <TabBtn active={tab==="Audit"} onClick={()=>{setTab("Audit");setTabMenuOpen(false);}}>Audit</TabBtn>
               <TabBtn active={tab==="Settings"} onClick={()=>{setTab("Settings");setTabMenuOpen(false);}}>Settings</TabBtn>
@@ -1058,7 +1085,8 @@ export default function InventoryPage() {
                   setQuickOrderNote("");
                   setOrderReqDone(false);
                   setTotalsEditOpen(false);
-                  setOrderReqOpen(true);
+                  setTab("Order Drafts");
+                  setOrderReqOpen(false);
                 }}
                 className="btn btn-ac s0"
               >
@@ -1159,7 +1187,7 @@ export default function InventoryPage() {
               autoFocus
               onKeyDown={e=>{
                 if(e.key==="Enter"){
-                  if(orderPinInput===ORDER_PIN){setOrderPinOpen(false);setOrderReqItems({});setOrderReqNotes({});setOrderReqDone(false);setOrderReqSearch("");setOrderReqLowOnly(false);setOrderReqOpen(true);}
+                  if(orderPinInput===ORDER_PIN){setOrderPinOpen(false);setOrderReqDone(false);setOrderReqSearch("");setOrderReqLowOnly(false);setOrderReqOpen(true);}
                   else setOrderPinError(true);
                 }
               }}
@@ -1168,7 +1196,7 @@ export default function InventoryPage() {
             <div className="modal-footer">
               <button onClick={()=>setOrderPinOpen(false)} className="btn btn-gh" style={{flex:1}}>Cancel</button>
               <button onClick={()=>{
-                if(orderPinInput===ORDER_PIN){setOrderPinOpen(false);setOrderReqItems({});setOrderReqNotes({});setOrderReqDone(false);setOrderReqSearch("");setOrderReqLowOnly(false);setOrderReqOpen(true);}
+                if(orderPinInput===ORDER_PIN){setOrderPinOpen(false);setOrderReqDone(false);setOrderReqSearch("");setOrderReqLowOnly(false);setOrderReqOpen(true);}
                 else setOrderPinError(true);
               }} className="btn btn-ac" style={{flex:1}}>Submit</button>
             </div>
@@ -1176,10 +1204,14 @@ export default function InventoryPage() {
         </div>
       )}
 
-      {orderReqOpen && (
-        <div className="modal-ov">
+      {(orderReqOpen||tab==="Order Drafts") && (
+        <div className={orderReqOpen?"modal-ov":""} style={orderReqOpen?undefined:{maxWidth:760,margin:"16px auto",padding:16}}>
           <div className="modal anim" style={{maxHeight:"90vh",overflowY:"auto"}}>
-            <div className="modal-title">📦 Request Order</div>
+            <div className="modal-title">{orderReqOpen?"➕ Add Items to Draft":"📋 Order Drafts"}</div>
+            <p style={{fontSize:13,color:"var(--text2)"}}>Draft items are not pending orders. No email is sent until you choose Send for Ordering. Drafts are saved on this device for your signed-in account.</p>
+            {draftSaveError&&<p role="alert" style={{color:"#fca5a5"}}>{draftSaveError}</p>}
+            {!draftReady&&<p role="status">Loading saved draft…</p>}
+            {!orderReqOpen&&<button className="btn btn-ac" disabled={!draftReady} onClick={()=>{setOrderReqSearch("");setOrderReqLowOnly(false);setOrderReqOpen(true);}}>➕ Add Items</button>}
             {orderReqDone ? (
               <div style={{textAlign:"center",padding:"24px 0"}}>
                 <div style={{fontSize:48,marginBottom:12}}>✅</div>
@@ -1205,6 +1237,7 @@ export default function InventoryPage() {
                 <div style={{display:"flex",flexDirection:"column",gap:10,marginBottom:16}}>
                   {totals
                     .filter(r=>!!r.is_active)
+                    .filter(r=>orderReqOpen||orderReqItems[r.item_id]!==undefined)
                     .filter(r=>{
                       const isLow=(r.low_level??0)>0&&(r.total_on_hand??0)<=(r.low_level??0);
                       if(orderReqLowOnly&&!isLow)return false;
@@ -1278,9 +1311,9 @@ export default function InventoryPage() {
                   })}
                 </div>
                 <div style={{position:"sticky",bottom:0,background:"var(--card)",paddingTop:14,borderTop:"1px solid var(--border)",display:"flex",gap:10}}>
-                  <button onClick={()=>{setOrderReqOpen(false);setOrderReqItems({});setOrderReqNotes({});}} className="btn btn-gh" style={{flex:1}}>Cancel</button>
+                  <button disabled={!draftReady} onClick={()=>{setOrderReqOpen(false);setOrderReqSearch("");setOrderReqLowOnly(false);setTab("Order Drafts");}} className="btn btn-gh" style={{flex:1}}>Save Draft / Back to List</button>
                   <button
-                    disabled={orderReqSending||Object.keys(orderReqItems).length===0}
+                    disabled={orderReqOpen||!draftReady||!!draftSaveError||orderReqSending||Object.keys(orderReqItems).length===0}
                     className="btn btn-ac"
                     style={{flex:1}}
                     onClick={async()=>{
@@ -1303,7 +1336,7 @@ export default function InventoryPage() {
                       finally{setOrderReqSending(false);}
                     }}
                   >
-                    {orderReqSending?"Sending…":`Send Request (${Object.keys(orderReqItems).length} items)`}
+                    {orderReqSending?"Sending…":`Send for Ordering (${Object.keys(orderReqItems).length} items)`}
                   </button>
                 </div>
               </>
