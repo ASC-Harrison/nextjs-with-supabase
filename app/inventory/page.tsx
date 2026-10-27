@@ -1078,19 +1078,18 @@ export default function InventoryPage() {
                   if(q===null||q<=0){alert("Enter a quantity to order.");return;}
                   const notedQty=quantityMentionInNote(quickOrderNote);
                   if(notedQty!==null&&notedQty!==q){alert(`The Quantity box says ${q} ${totalsEditRow.unit||"units"}, but your note says ${notedQty} cases/boxes. Change the Quantity box so they match before sending.`);return;}
-                  if(hasOpenOrder(totalsEditRow)){const remaining=openOrderRemaining(totalsEditRow);const detail=remaining!==null?`There are still ${remaining} ${totalsEditRow.unit||"unit"}${remaining===1?"":"s"} expected.`:"This item already has an open order.";if(!confirm(`⚠️ ${totalsEditRow.name} is already ${totalsEditRow.order_status}.\\n\\n${detail}\\n\\nDo you intentionally want to request ${q} more?`))return;}
                   setOrderReqItems((current)=>({...current,[totalsEditRow.item_id]:q}));
                   setOrderReqNotes((current)=>({...current,[totalsEditRow.item_id]:quickOrderNote.trim()}));
                   setQuickOrderQty("");
                   setQuickOrderNote("");
                   setOrderReqDone(false);
                   setTotalsEditOpen(false);
-                  setTab("Order Drafts");
                   setOrderReqOpen(false);
+                  setStatus("✓ Added to List — review it later in Order Drafts.");
                 }}
                 className="btn btn-ac s0"
               >
-                ➕ Add to Order List
+                ➕ Add to List
               </button>
             </div>
           </div>
