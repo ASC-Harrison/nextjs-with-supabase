@@ -1090,7 +1090,7 @@ export default function InventoryPage() {
                 }}
                 className="btn btn-ac s0"
               >
-                {hasOpenOrder(totalsEditRow)?"⚠️ Add More to List":"➕ Add to Order List"}
+                ➕ Add to Order List
               </button>
             </div>
           </div>
