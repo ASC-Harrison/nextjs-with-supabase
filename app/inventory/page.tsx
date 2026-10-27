@@ -334,7 +334,6 @@ export default function InventoryPage() {
   const [totalsEditOpen,setTotalsEditOpen]=useState(false);
   const [quickOrderQty,setQuickOrderQty]=useState("");
   const [quickOrderNote,setQuickOrderNote]=useState("");
-  const [quickOrderSending,setQuickOrderSending]=useState(false);
   const [totalsEditRow,setTotalsEditRow]=useState<BuildingTotalRow|null>(null);
   const [setOnHandInput,setSetOnHandInput]=useState<string>("");
   const [deltaInput,setDeltaInput]=useState<string>("");
@@ -1047,33 +1046,23 @@ export default function InventoryPage() {
             <div className="fx mt2">
               <input value={quickOrderQty} onChange={(e)=>setQuickOrderQty(e.target.value.replace(/\D/g,""))} inputMode="numeric" className="inp" placeholder="Qty to order" style={{flex:1,fontSize:16,fontWeight:800,textAlign:"center"}} />
               <button
-                onClick={async()=>{
+                onClick={()=>{
                   const q=parseIntSafe(quickOrderQty);
                   if(q===null||q<=0){alert("Enter a quantity to order.");return;}
                   const notedQty=quantityMentionInNote(quickOrderNote);
                   if(notedQty!==null&&notedQty!==q){alert(`The Quantity box says ${q} ${totalsEditRow.unit||"units"}, but your note says ${notedQty} cases/boxes. Change the Quantity box so they match before sending.`);return;}
                   if(hasOpenOrder(totalsEditRow)){const remaining=openOrderRemaining(totalsEditRow);const detail=remaining!==null?`There are still ${remaining} ${totalsEditRow.unit||"unit"}${remaining===1?"":"s"} expected.`:"This item already has an open order.";if(!confirm(`⚠️ ${totalsEditRow.name} is already ${totalsEditRow.order_status}.\\n\\n${detail}\\n\\nDo you intentionally want to request ${q} more?`))return;}
-                  setQuickOrderSending(true);
-                  try{
-                    const res=await fetchWithRetry("/api/order-request",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({items:[{name:totalsEditRow.name,item_id:totalsEditRow.item_id,reference_number:totalsEditRow.reference_number||null,vendor:totalsEditRow.vendor||null,unit:totalsEditRow.unit||null,qty:q,alert_note:totalsEditRow.alert_note||totalsEditRow.notes||null,request_note:quickOrderNote.trim()||null}],requested_by:(staffName||"").trim()||"Staff"})});
-                    const json=await res.json();
-                    if(!json.ok)throw new Error(json.error);
-                    const orderedAt=new Date().toISOString();
-                    const requestedBy=(staffName||"").trim()||"Staff";
-                    setQuickOrderQty("");
-                    setQuickOrderNote("");
-                    setTotalsEditRow((current)=>current?{...current,order_status:"PENDING",ordered_at:orderedAt,open_order_qty:q,open_order_received:0,open_order_requested_by:requestedBy}:current);
-                    setTotals((current)=>current.map((row)=>row.item_id===totalsEditRow.item_id?{...row,order_status:"PENDING",ordered_at:orderedAt,open_order_qty:q,open_order_received:0,open_order_requested_by:requestedBy}:row));
-                    alert(`✅ Order request sent for ${q} × ${totalsEditRow.name}`);
-                  }catch(e:any){
-                    alert(e?.name==="AbortError"?"Request timed out — try again.":(e?.message??"Failed to send order request"));
-                  }
-                  setQuickOrderSending(false);
+                  setOrderReqItems((current)=>({...current,[totalsEditRow.item_id]:q}));
+                  setOrderReqNotes((current)=>({...current,[totalsEditRow.item_id]:quickOrderNote.trim()}));
+                  setQuickOrderQty("");
+                  setQuickOrderNote("");
+                  setOrderReqDone(false);
+                  setTotalsEditOpen(false);
+                  setOrderReqOpen(true);
                 }}
-                disabled={quickOrderSending}
                 className="btn btn-ac s0"
               >
-                {quickOrderSending?"Sending…":hasOpenOrder(totalsEditRow)?"⚠️ Request More Anyway":"📤 Send Order"}
+                {hasOpenOrder(totalsEditRow)?"⚠️ Add More to List":"➕ Add to Order List"}
               </button>
             </div>
           </div>
@@ -1195,7 +1184,7 @@ export default function InventoryPage() {
               <div style={{textAlign:"center",padding:"24px 0"}}>
                 <div style={{fontSize:48,marginBottom:12}}>✅</div>
                 <div style={{fontSize:16,fontWeight:800,color:"var(--text)"}}>Order Request Sent!</div>
-                <div style={{fontSize:13,color:"var(--text2)",marginTop:8}}>Email sent to both contacts.</div>
+                <div style={{fontSize:13,color:"var(--text2)",marginTop:8}}>One combined email was sent to the ordering team.</div>
                 <button onClick={()=>{setOrderReqOpen(false);setOrderReqItems({});setOrderReqNotes({});}} className="btn btn-ac btn-full" style={{marginTop:20}}>Done</button>
               </div>
             ) : (
