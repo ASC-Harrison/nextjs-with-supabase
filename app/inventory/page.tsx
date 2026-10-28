@@ -6,7 +6,7 @@ import type { BrowserMultiFormatReader } from "@zxing/browser";
 import { createClient } from "@supabase/supabase-js";
 import { useSessionTimeout } from "@/lib/use-session-timeout";
 
-type Tab        = "Transaction" | "Totals" | "Sutures" | "Audit" | "Settings" | "Order Drafts";
+type Tab        = "Transaction" | "Totals" | "Sutures" | "Audit" | "Settings" | "Order Drafts" | "Arthrex Ankle";
 type Mode       = "USE" | "RESTOCK";
 type LookupMode = "BARCODE" | "REF" | "NAME";
 type Area = { id: string; name: string };
@@ -328,6 +328,15 @@ export default function InventoryPage() {
   const [totalsLoading,setTotalsLoading]=useState(false);
   const [totalsError,setTotalsError]=useState("");
   const [totalsSearch,setTotalsSearch]=useState("");
+  const [ankleForm,setAnkleForm]=useState(false);
+  const [ankleExisting,setAnkleExisting]=useState(false);
+  const [ankleSearch,setAnkleSearch]=useState("");
+  const [ankleName,setAnkleName]=useState("");
+  const [ankleRef,setAnkleRef]=useState("");
+  const [anklePar,setAnklePar]=useState("");
+  const [ankleNotes,setAnkleNotes]=useState("");
+  const [ankleSaving,setAnkleSaving]=useState(false);
+  const [ankleMessage,setAnkleMessage]=useState("");
   const [sutureView,setSutureView]=useState<"ALL"|"ATTENTION">("ALL");
   const [totalsLowOnly,setTotalsLowOnly]=useState(false);
   const [totalsShowInactive,setTotalsShowInactive]=useState(false);
@@ -685,6 +694,7 @@ export default function InventoryPage() {
             <div id="inventory-tabs" className={`tab-bar ${tabMenuOpen?"open":""}`}>
               <TabBtn active={tab==="Transaction"} onClick={()=>{setTab("Transaction");setTabMenuOpen(false);}}>Tx</TabBtn>
               <TabBtn active={tab==="Totals"} onClick={()=>{setTab("Totals");setTabMenuOpen(false);}}>Totals</TabBtn>
+              <TabBtn active={tab==="Arthrex Ankle"} onClick={()=>{setTab("Arthrex Ankle");setTabMenuOpen(false);void loadTotals();}}>Arthrex Ankle</TabBtn>
               <TabBtn active={tab==="Sutures"} onClick={()=>{setTab("Sutures");setTabMenuOpen(false);void loadTotals(false);}}>Sutures</TabBtn>
               {!isReadOnly&&<TabBtn active={tab==="Order Drafts"} onClick={()=>{setTab("Order Drafts");setOrderReqDone(false);setTabMenuOpen(false);void loadTotals(false);}}>Order Drafts ({Object.keys(orderReqItems).length})</TabBtn>}
               <TabBtn active={false} onClick={()=>{setTabMenuOpen(false);router.push("/chat");}}>Chat</TabBtn>
@@ -692,6 +702,51 @@ export default function InventoryPage() {
               <TabBtn active={tab==="Settings"} onClick={()=>{setTab("Settings");setTabMenuOpen(false);}}>Settings</TabBtn>
             </div>
           </div>
+
+          {tab==="Arthrex Ankle" && (
+            <section className="c-card anim">
+              <div className="tot-title">Arthrex Ankle Set</div>
+              <p className="s-desc">Implants assigned to this set. Counts use the same live building inventory—not a separate stock balance. Category: Arthrex Ankle.</p>
+              <div className="fx" style={{flexWrap:"wrap",marginBottom:12}}>
+                {!isReadOnly&&<><button className="btn btn-ac" onClick={()=>{setAnkleForm(v=>!v);setAnkleMessage("");}}>➕ Add Implant</button><button className="btn btn-gh" onClick={()=>setAnkleExisting(v=>!v)}>{ankleExisting?"Show Set Only":"Find Existing Inventory"}</button></>}
+                <button className="btn btn-gh" onClick={()=>void loadTotals()}>Refresh</button>
+              </div>
+              {ankleMessage&&<p role="status">{ankleMessage}</p>}
+              {totalsError&&<p role="alert" style={{color:"#fca5a5"}}>{totalsError}</p>}
+              {ankleForm&&!isReadOnly&&<form className="c-panel" onSubmit={async(e)=>{
+                e.preventDefault();if(ankleSaving||!ankleName.trim())return;
+                setAnkleSaving(true);setAnkleMessage("");
+                try{
+                  const res=await fetch("/api/items/create-item",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({name:ankleName.trim(),reference_number:ankleRef.trim()||null,vendor:"Arthrex",category:"Arthrex Ankle",unit:"EA",par_level:Number(anklePar||0),low_level:0,notes:ankleNotes.trim()||null,supply_source:"VENDOR"})});
+                  const json=await res.json();if(!res.ok||!json.ok)throw new Error(json.error||"Could not save implant.");
+                  setAnkleName("");setAnkleRef("");setAnklePar("");setAnkleNotes("");setAnkleForm(false);
+                  setAnkleMessage("Implant saved. Tap it below to enter the actual on-hand count and other details.");
+                  await loadTotals();
+                }catch(err:any){setAnkleMessage(err?.message||"Could not save implant.");}
+                finally{setAnkleSaving(false);}
+              }}>
+                <label className="field"><span className="f-lbl">Implant Name / Size *</span><input required maxLength={200} className="inp" value={ankleName} onChange={e=>setAnkleName(e.target.value)} placeholder="Enter the implant and size from its label" /></label>
+                <label className="field"><span className="f-lbl">Reference / Catalog Number</span><input className="inp" value={ankleRef} onChange={e=>setAnkleRef(e.target.value)} placeholder="AR-…" /></label>
+                <label className="field"><span className="f-lbl">Par (Each)</span><input className="inp" type="number" min="0" step="1" value={anklePar} onChange={e=>setAnklePar(e.target.value)} /></label>
+                <label className="field"><span className="f-lbl">Notes</span><textarea className="inp" value={ankleNotes} onChange={e=>setAnkleNotes(e.target.value)} /></label>
+                <p className="s-desc">Saved as Arthrex · Arthrex Ankle · EA. Starts at zero; enter the verified count in its editor.</p>
+                <button type="submit" disabled={ankleSaving} className="btn btn-ac">{ankleSaving?"Saving…":"Save Implant"}</button>
+              </form>}
+              <label><span className="f-lbl">{ankleExisting?"Search All Active Inventory":"Search This Set"}</span><input className="inp mb3" value={ankleSearch} onChange={e=>setAnkleSearch(e.target.value)} placeholder="Search name, size, or reference number…" /></label>
+              {ankleExisting&&<p className="s-desc">Tap an existing item to open its editor with category “Arthrex Ankle” selected. Save item details to include it in this set without duplicating its stock.</p>}
+              <div className="sp dashboard-grid inventory-grid">
+                {totalsLoading&&<p role="status">Loading inventory…</p>}
+                {totals.filter(r=>r.is_active&&(ankleExisting||(r.category||"").trim().toLowerCase()==="arthrex ankle")).filter(r=>!ankleSearch.trim()||[r.name,r.reference_number,r.vendor].some(v=>(v||"").toLowerCase().includes(ankleSearch.trim().toLowerCase()))).map(r=>(
+                  <button key={r.item_id} className="item-card ok" onClick={()=>{openTotalsEditor(r);if(ankleExisting&&!isReadOnly)setCategoryInput("Arthrex Ankle");}}>
+                    <div className="i-name">{r.name}</div><div className="i-meta">Ref: {r.reference_number||"—"} · {r.vendor||"—"}</div>
+                    <div className="i-status">On hand: {r.total_on_hand??0} {r.unit||"EA"} · Par: {r.par_level??0}</div>
+                    <div className="edit-hint">{isReadOnly?"View item details":"Tap to update count and item details"}</div>
+                  </button>
+                ))}
+                {!totalsLoading&&!totals.some(r=>r.is_active&&(ankleExisting||(r.category||"").trim().toLowerCase()==="arthrex ankle")&&(!ankleSearch.trim()||[r.name,r.reference_number,r.vendor].some(v=>(v||"").toLowerCase().includes(ankleSearch.trim().toLowerCase()))))&&<p>No implants found. {isReadOnly?"":"Use Add Implant or Find Existing Inventory to build this set."}</p>}
+              </div>
+            </section>
+          )}
 
           {tab==="Transaction" && (
             <div className="c-card anim">
