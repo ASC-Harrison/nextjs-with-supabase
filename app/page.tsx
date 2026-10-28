@@ -454,6 +454,7 @@ export default function Home() {
                 ["🎯","Inventory Accuracy","/recount"],
                 ["📦","Box Notes","/box-notes"],
                 ["➕","Add Items","/items"],
+                ["🦴","Arthrex Ankle","/inventory#arthrex-ankle"],
                 ["📊","Reports","/reports"],
                 ["💵","Cost Savings","/cost-savings"],
                 ["💳","Order Spending","/order-spending"],
