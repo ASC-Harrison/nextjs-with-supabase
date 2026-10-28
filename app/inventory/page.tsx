@@ -515,6 +515,19 @@ export default function InventoryPage() {
       setTotalsLoading(false);
     }
   }
+  useEffect(()=>{
+    const openWorkspaceSection=()=>{
+      if(window.location.hash==="#arthrex-ankle"){
+        setTab("Arthrex Ankle");
+        setTabMenuOpen(false);
+        void loadTotals();
+      }
+    };
+    openWorkspaceSection();
+    window.addEventListener("hashchange",openWorkspaceSection);
+    return ()=>window.removeEventListener("hashchange",openWorkspaceSection);
+  },[]); // eslint-disable-line react-hooks/exhaustive-deps
+
   useEffect(()=>{if(tab!=="Totals")return;if(totals.length===0)loadTotals(false);},[tab]);// eslint-disable-line
 
   useEffect(()=>{
@@ -694,7 +707,6 @@ export default function InventoryPage() {
             <div id="inventory-tabs" className={`tab-bar ${tabMenuOpen?"open":""}`}>
               <TabBtn active={tab==="Transaction"} onClick={()=>{setTab("Transaction");setTabMenuOpen(false);}}>Tx</TabBtn>
               <TabBtn active={tab==="Totals"} onClick={()=>{setTab("Totals");setTabMenuOpen(false);}}>Totals</TabBtn>
-              <TabBtn active={tab==="Arthrex Ankle"} onClick={()=>{setTab("Arthrex Ankle");setTabMenuOpen(false);void loadTotals();}}>Arthrex Ankle</TabBtn>
               <TabBtn active={tab==="Sutures"} onClick={()=>{setTab("Sutures");setTabMenuOpen(false);void loadTotals(false);}}>Sutures</TabBtn>
               {!isReadOnly&&<TabBtn active={tab==="Order Drafts"} onClick={()=>{setTab("Order Drafts");setOrderReqDone(false);setTabMenuOpen(false);void loadTotals(false);}}>Order Drafts ({Object.keys(orderReqItems).length})</TabBtn>}
               <TabBtn active={false} onClick={()=>{setTabMenuOpen(false);router.push("/chat");}}>Chat</TabBtn>
