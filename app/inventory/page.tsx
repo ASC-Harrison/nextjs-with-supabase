@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import type { BrowserMultiFormatReader } from "@zxing/browser";
 import { createClient } from "@supabase/supabase-js";
 import { useSessionTimeout } from "@/lib/use-session-timeout";
+import { useCloudOrderDraft } from "@/lib/useCloudOrderDraft";
+import { draftFields } from "@/lib/orderDraftSync";
 
 type Tab        = "Transaction" | "Totals" | "Sutures" | "Audit" | "Settings" | "Order Drafts" | "Arthrex Ankle";
 type Mode       = "USE" | "RESTOCK";
@@ -390,38 +392,11 @@ export default function InventoryPage() {
   const [orderPinError, setOrderPinError] = useState(false);
   const ORDER_PIN = "1620";
   const [orderReqOpen, setOrderReqOpen] = useState(false);
-  const [orderReqItems, setOrderReqItems] = useState<Record<string,number|string>>({});
-  const [orderReqNotes, setOrderReqNotes] = useState<Record<string,string>>({});
+  const {items:orderReqItems,notes:orderReqNotes,review:draftReview,setItems:setOrderReqItems,setNotes:setOrderReqNotes,ready:draftReady,error:draftSaveError,syncing:draftSyncing,lastSynced:draftLastSynced,flush:syncDraft,confirmItem:confirmDraftItem,removeSent:removeSentDraft}=useCloudOrderDraft(supabase);
   const [orderReqSending, setOrderReqSending] = useState(false);
   const [orderReqDone, setOrderReqDone] = useState(false);
   const [orderReqSearch, setOrderReqSearch] = useState("");
   const [orderReqLowOnly, setOrderReqLowOnly] = useState(false);
-  const [draftKey,setDraftKey]=useState("");
-  const [draftReady,setDraftReady]=useState(false);
-  const [draftSaveError,setDraftSaveError]=useState("");
-  useEffect(()=>{
-    let active=true;
-    void supabase.auth.getSession().then(({data})=>{
-      if(!active||!data.session)return;
-      const key="asc-order-draft-v1:"+data.session.user.id;
-      try{
-        const saved=JSON.parse(localStorage.getItem(key)||"null");
-        if(saved&&typeof saved==="object"){
-          setOrderReqItems(saved.items||{});
-          setOrderReqNotes(saved.notes||{});
-        }
-        setDraftKey(key);setDraftReady(true);
-      }catch{setDraftSaveError("Could not read this device’s saved draft. Do not close the app until this is resolved.");}
-    });
-    return()=>{active=false;};
-  },[]);
-  useEffect(()=>{
-    if(!draftReady||!draftKey)return;
-    try{
-      localStorage.setItem(draftKey,JSON.stringify({items:orderReqItems,notes:orderReqNotes}));
-      setDraftSaveError("");
-    }catch{setDraftSaveError("Draft could not be saved on this device. Keep this page open.");}
-  },[draftKey,draftReady,orderReqItems,orderReqNotes]);
   const [namePromptOpen, setNamePromptOpen] = useState(false);
   const [nameInput, setNameInput] = useState("");
   const READONLY_EMAILS: string[] = [];
@@ -1141,6 +1116,7 @@ export default function InventoryPage() {
               <input value={quickOrderQty} onChange={(e)=>setQuickOrderQty(e.target.value.replace(/\D/g,""))} inputMode="numeric" className="inp" placeholder="Qty to order" style={{flex:1,fontSize:16,fontWeight:800,textAlign:"center"}} />
               <button
                 onClick={()=>{
+                  if(!draftReady){alert("Please wait for your saved order draft to load.");return;}
                   const q=parseIntSafe(quickOrderQty);
                   if(q===null||q<=0){alert("Enter a quantity to order.");return;}
                   const notedQty=quantityMentionInNote(quickOrderNote);
@@ -1152,7 +1128,7 @@ export default function InventoryPage() {
                   setOrderReqDone(false);
                   setTotalsEditOpen(false);
                   setOrderReqOpen(false);
-                  setStatus("✓ Added to List — review it later in Order Drafts.");
+                  setStatus("✓ Added to List — syncing to your account. Review it later in Order Drafts.");
                 }}
                 className="btn btn-ac s0"
               >
@@ -1274,16 +1250,21 @@ export default function InventoryPage() {
         <div className={orderReqOpen?"modal-ov":""} style={orderReqOpen?undefined:{maxWidth:760,margin:"16px auto",padding:16}}>
           <div className="modal anim" style={{maxHeight:"90vh",overflowY:"auto"}}>
             <div className="modal-title">{orderReqOpen?"➕ Add Items to Draft":"📋 Order Drafts"}</div>
-            <p style={{fontSize:13,color:"var(--text2)"}}>Draft items are not pending orders. No email is sent until you choose Send for Ordering. Drafts are saved on this device for your signed-in account.</p>
+            <p style={{fontSize:13,color:"var(--text2)"}}>Draft items are not pending orders. No email is sent until you choose Send for Ordering. Drafts sync across devices signed into the same account. Open this updated app on each device once to combine its old saved list. Overlapping items are not added twice; different quantities are flagged for review.</p>
             {draftSaveError&&<p role="alert" style={{color:"#fca5a5"}}>{draftSaveError}</p>}
             {!draftReady&&<p role="status">Loading saved draft…</p>}
+            <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap",marginBottom:12}}>
+              <span role="status" style={{fontSize:12,color:"var(--text2)"}}>{draftSyncing?"Syncing account draft…":draftLastSynced?"Account synced at "+draftLastSynced:"Waiting for account sync"}</span>
+              <button className="btn btn-gh" disabled={!draftReady||draftSyncing} onClick={()=>{void syncDraft().catch(()=>{});}}>Sync Now</button>
+            </div>
+            {Object.values(draftReview).some(Boolean)&&<p role="alert" style={{color:"#fcd34d"}}>Some items had different quantities or notes across devices. The larger quantity was kept, not added together. Review each flagged item and confirm it before sending.</p>}
             {!orderReqOpen&&<button className="btn btn-ac" disabled={!draftReady} onClick={()=>{setOrderReqSearch("");setOrderReqLowOnly(false);setOrderReqOpen(true);}}>➕ Add Items</button>}
             {orderReqDone ? (
               <div style={{textAlign:"center",padding:"24px 0"}}>
                 <div style={{fontSize:48,marginBottom:12}}>✅</div>
                 <div style={{fontSize:16,fontWeight:800,color:"var(--text)"}}>Order Request Sent!</div>
                 <div style={{fontSize:13,color:"var(--text2)",marginTop:8}}>One combined email was sent to the ordering team.</div>
-                <button onClick={()=>{setOrderReqOpen(false);setOrderReqItems({});setOrderReqNotes({});}} className="btn btn-ac btn-full" style={{marginTop:20}}>Done</button>
+                <button onClick={()=>{setOrderReqOpen(false);setOrderReqDone(false);}} className="btn btn-ac btn-full" style={{marginTop:20}}>Done</button>
               </div>
             ) : (
               <>
@@ -1302,7 +1283,7 @@ export default function InventoryPage() {
                 />
                 <div style={{display:"flex",flexDirection:"column",gap:10,marginBottom:16}}>
                   {totals
-                    .filter(r=>!!r.is_active)
+                    .filter(r=>!!r.is_active||orderReqItems[r.item_id]!==undefined)
                     .filter(r=>orderReqOpen||orderReqItems[r.item_id]!==undefined)
                     .filter(r=>{
                       const isLow=(r.low_level??0)>0&&(r.total_on_hand??0)<=(r.low_level??0);
@@ -1355,6 +1336,10 @@ export default function InventoryPage() {
                             </div>
                           </div>
                         </label>
+                        {checked&&draftReview[r.item_id]&&<div role="alert" style={{color:"#fcd34d",fontSize:12,marginTop:10}}>
+                          Different device values were merged. Check this quantity and all notes.
+                          <button className="btn btn-gh" disabled={draftSyncing} onClick={()=>confirmDraftItem(r.item_id)}>Confirm this quantity and note</button>
+                        </div>}
                         {checked && (
                           <div style={{display:"flex",flexDirection:"column",gap:8,marginTop:10,paddingLeft:26}}>
                             <div style={{display:"flex",alignItems:"center",gap:8}}>
@@ -1383,22 +1368,34 @@ export default function InventoryPage() {
                     className="btn btn-ac"
                     style={{flex:1}}
                     onClick={async()=>{
-                      const selectedRows=totals.filter(r=>orderReqItems[r.item_id]!==undefined);
-                      if(!selectedRows.length)return;
-                      for(const row of selectedRows){
-                        const requestedQty=Number(orderReqItems[row.item_id]);
-                        if(!Number.isFinite(requestedQty)||requestedQty<=0){alert(`Enter a quantity for ${row.name}.`);return;}
-                        const notedQty=quantityMentionInNote(orderReqNotes[row.item_id]||"");
-                        if(notedQty!==null&&notedQty!==requestedQty){alert(`${row.name}: the Quantity box says ${requestedQty} ${row.unit||"units"}, but the note says ${notedQty} cases/boxes. Change the Quantity box so they match before sending.`);return;}
-                      }
-                      const selectedItems=selectedRows.map(r=>({name:r.name,item_id:r.item_id,reference_number:r.reference_number||null,vendor:r.vendor||null,unit:r.unit||null,qty:Number(orderReqItems[r.item_id]),alert_note:r.alert_note||r.notes||null,request_note:orderReqNotes[r.item_id]?.trim()||null}));
                       setOrderReqSending(true);
                       try{
+                        const snapshot=await syncDraft();
+                        const synced=draftFields(snapshot.entries);
+                        // Never send items newly imported from another device without showing them first.
+                        if(JSON.stringify(synced.items)!==JSON.stringify(orderReqItems)||JSON.stringify(synced.notes)!==JSON.stringify(orderReqNotes)){
+                          alert("Your account list has updated from another device. Review the combined list, then press Send for Ordering again.");return;
+                        }
+                        if(Object.values(synced.review).some(Boolean)){alert("Review and confirm the flagged merged items before sending.");return;}
+                        const selectedRows=totals.filter(r=>synced.items[r.item_id]!==undefined);
+                        if(selectedRows.length!==Object.keys(synced.items).length){void loadTotals();alert("Some saved draft items need refreshed inventory details. Nothing was sent. Refresh and review the list.");return;}
+                        if(!selectedRows.length)return;
+                        for(const row of selectedRows){
+                          const requestedQty=Number(synced.items[row.item_id]);
+                          if(!Number.isInteger(requestedQty)||requestedQty<=0){alert(`Enter a quantity for ${row.name}.`);return;}
+                          const notedQty=quantityMentionInNote(synced.notes[row.item_id]||"");
+                          if(notedQty!==null&&notedQty!==requestedQty){alert(`${row.name}: the quantity and note do not match. Please correct them before sending.`);return;}
+                        }
+                        const selectedItems=selectedRows.map(r=>({name:r.name,item_id:r.item_id,reference_number:r.reference_number||null,vendor:r.vendor||null,unit:r.unit||null,qty:Number(synced.items[r.item_id]),alert_note:r.alert_note||r.notes||null,request_note:synced.notes[r.item_id]?.trim()||null}));
                         const res=await fetch("/api/order-request",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({items:selectedItems,requested_by:(staffName||"").trim()||"Staff"})});
                         const json=await res.json();
                         if(!json.ok){alert(`Failed to send: ${json.error}`);}
-                        else{setOrderReqItems({});setOrderReqNotes({});setOrderReqDone(true);void loadTotals();}
-                      }catch(e:any){alert(`Error: ${e?.message}`);}
+                        else{
+                          // Clear only the submitted values; preserve newer edits from other devices.
+                          try{await removeSentDraft(snapshot.entries);}catch{alert("Order request was sent, but draft cleanup is still syncing. Do not resend; tap Sync Now.");}
+                          setOrderReqDone(true);void loadTotals();
+                        }
+                      }catch(e:any){alert(`Nothing was sent: ${e?.message||"Draft sync failed"}`);}
                       finally{setOrderReqSending(false);}
                     }}
                   >
