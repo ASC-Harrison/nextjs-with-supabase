@@ -1204,7 +1204,29 @@ export default function InventoryPage() {
             </div>
           </div>
           <div className="c-panel">
-            <div className="s-title">Small correction (add or subtract from current)</div>
+            <div className="s-title">Quick inventory change</div>
+            <div className="mt2" style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+              <button
+                disabled={totalsSavingItemId===totalsEditRow.item_id||Number(totalsEditRow.total_on_hand||0)<=0}
+                onClick={()=>void doTotalsAdjust(totalsEditRow,-1)}
+                className="btn btn-gh"
+                style={{minHeight:54,fontSize:16,fontWeight:900}}
+                aria-label={`Take one ${totalsEditRow.name} out of inventory`}
+              >
+                − Take Out 1
+              </button>
+              <button
+                disabled={totalsSavingItemId===totalsEditRow.item_id}
+                onClick={()=>void doTotalsAdjust(totalsEditRow,1)}
+                className="btn btn-ac"
+                style={{minHeight:54,fontSize:16,fontWeight:900}}
+                aria-label={`Add one ${totalsEditRow.name} to inventory`}
+              >
+                + Add 1
+              </button>
+            </div>
+            <div style={{fontSize:11,color:"var(--text3)",marginTop:7}}>Each tap saves the new on-hand amount immediately.</div>
+            <div className="s-title" style={{marginTop:16}}>Other correction amount</div>
             <div className="fx mt2">
               <input value={deltaInput} onChange={(e)=>setDeltaInput(e.target.value.replace(/[^\d-]/g,"").slice(0,7))} inputMode="numeric" className="inp" placeholder="e.g. -3 or 5" style={{flex:1,fontSize:18,fontWeight:800,textAlign:"center"}} />
               <button disabled={totalsSavingItemId===totalsEditRow.item_id} onClick={async()=>{const d=parseIntSafe(deltaInput);if(d===null||d===0)return alert("Enter a non-zero number, like -3 to subtract 3, or 5 to add 5.");await doTotalsAdjust(totalsEditRow,d);setDeltaInput("");}} className="btn btn-ac s0">{totalsSavingItemId===totalsEditRow.item_id?"Saving…":"Apply"}</button>
