@@ -152,6 +152,7 @@ const CSS = `
 export default function OrderHistoryPage() {
   const router = useRouter();
   const [isKaya, setIsKaya] = useState<boolean | null>(null);
+  const [isAndrea, setIsAndrea] = useState(false);
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -202,7 +203,13 @@ export default function OrderHistoryPage() {
       if (refreshTimer) clearTimeout(refreshTimer);
       refreshTimer = setTimeout(loadHistory, 250);
     };
-    void supabase.auth.getSession().then(({data})=>setIsKaya(data.session?.user.email?.toLowerCase()==="kayalivhuebner@gmail.com"));
+    void supabase.auth.getSession().then(({data})=>{
+      const email=data.session?.user.email?.toLowerCase()||"";
+      setIsKaya(email==="kayalivhuebner@gmail.com");
+      const isAndreaAccount=email==="andrea.burris88@icloud.com";
+      setIsAndrea(isAndreaAccount);
+      if(isAndreaAccount){setOrderView("ORDERS");setStatusFilter("PENDING");}
+    });
     loadHistory();
     const channel = supabase
       .channel("order-history-live-sync")
@@ -838,7 +845,8 @@ This does NOT add ${qtyThisDelivery} to the inventory count. Use “Add to Inven
             </div>
           ), document.body)}
           <button onClick={() => router.push(isKaya?"/kaya":"/")} className="back-btn">← Back</button>
-          {isKaya===false&&<button onClick={() => router.push("/order-spending")} className="back-btn" style={{marginLeft:8}}>💵 Order Spending</button>}
+          {isAndrea&&<div style={{margin:"0 0 12px",padding:"10px 12px",borderRadius:10,background:"rgba(245,158,11,.1)",border:"1px solid rgba(245,158,11,.25)",color:"#fde68a",fontSize:12,fontWeight:750}}>Andrea ordering coverage: review Pending items and use <strong>Mark Ordered</strong> after placing each order.</div>}
+          {isKaya===false&&!isAndrea&&<button onClick={() => router.push("/order-spending")} className="back-btn" style={{marginLeft:8}}>💵 Order Spending</button>}
 
           <div className="header">
             <div className="header-title">📋 Order History</div>
@@ -890,7 +898,7 @@ This does NOT add ${qtyThisDelivery} to the inventory count. Use “Add to Inven
             </select>
           </div>
 
-          {isKaya===false && orderView === "ORDERS" && statusFilter === "PENDING" && totalPending > 0 && (
+          {isKaya===false && !isAndrea && orderView === "ORDERS" && statusFilter === "PENDING" && totalPending > 0 && (
             <div className="pending-reminder-panel">
               <div className="pending-reminder-copy"><strong>{totalPending} Pending item{totalPending === 1 ? "" : "s"}</strong><br />Send Kaya one email containing the complete list.</div>
               <button type="button" className="reminder-btn" disabled={pendingReminderSending} onClick={sendPendingReminder}>
@@ -1023,7 +1031,7 @@ This does NOT add ${qtyThisDelivery} to the inventory count. Use “Add to Inven
                             {updatingOrderId === order.id ? "Saving…" : "✅ Mark Ordered"}
                           </button>
                         )}
-                        {isKaya===false && order.status === "PENDING" && (
+                        {isKaya===false && !isAndrea && order.status === "PENDING" && (
                           <button
                             type="button"
                             className="cancel-order-btn"
@@ -1033,7 +1041,7 @@ This does NOT add ${qtyThisDelivery} to the inventory count. Use “Add to Inven
                             {updatingOrderId === order.id ? "Canceling…" : "🚫 Cancel Order & Notify Kaya"}
                           </button>
                         )}
-                        {isKaya===false && order.status !== "PENDING" && followUpId !== order.id && (
+                        {isKaya===false && !isAndrea && order.status !== "PENDING" && followUpId !== order.id && (
                           <button
                             type="button"
                             className="followup-btn"
@@ -1043,7 +1051,7 @@ This does NOT add ${qtyThisDelivery} to the inventory count. Use “Add to Inven
                             💬 Follow Up With Kaya
                           </button>
                         )}
-                        {isKaya===false&&<button
+                        {isKaya===false&&!isAndrea&&<button
                           type="button"
                           className="receive-btn"
                           disabled={updatingOrderId === order.id}
@@ -1051,7 +1059,7 @@ This does NOT add ${qtyThisDelivery} to the inventory count. Use “Add to Inven
                         >
                           📦 Add to Inventory
                         </button>}
-                        {isKaya===false&&<button
+                        {isKaya===false&&!isAndrea&&<button
                           type="button"
                           className="received-only-btn"
                           disabled={updatingOrderId === order.id}
@@ -1059,15 +1067,15 @@ This does NOT add ${qtyThisDelivery} to the inventory count. Use “Add to Inven
                         >
                           {updatingOrderId === order.id ? "Saving…" : "✅ Received Only"}
                         </button>}
-                        {isKaya===false&&<button type="button" className="issue-btn" disabled={issueSaving} onClick={()=>{setIssueOrder(order);setIssueNote("");}}>⚠️ Move to Issues</button>}
+                        {isKaya===false&&!isAndrea&&<button type="button" className="issue-btn" disabled={issueSaving} onClick={()=>{setIssueOrder(order);setIssueNote("");}}>⚠️ Move to Issues</button>}
                       </div>
                     )}
-                    {isKaya===false && order.status === "ISSUE" && (
+                    {isKaya===false && !isAndrea && order.status === "ISSUE" && (
                       <div className="order-actions">
                         <button type="button" className="resolve-issue-btn" disabled={issueSaving} onClick={()=>resolveIssue(order)}>{issueSaving ? "Saving…" : "✓ Resolve / Move Back"}</button>
                       </div>
                     )}
-                    {isKaya===false && order.status === "RECEIVED" && (
+                    {isKaya===false && !isAndrea && order.status === "RECEIVED" && (
                       <div className="order-actions" style={{gridTemplateColumns:"1fr"}}>
                         <button
                           type="button"
