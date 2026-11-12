@@ -276,6 +276,10 @@ export default function Home() {
             🧪 Pre-Op Testing
           </button>
 
+          <button onClick={() => router.push("/order-history?view=pending")} style={{ display:"block", width:"100%", borderRadius:14, padding:16, fontSize:15, fontWeight:800, border:"1px solid rgba(245,158,11,0.38)", cursor:"pointer", textAlign:"center", fontFamily:"inherit", background:"rgba(245,158,11,0.16)", color:"#fde68a", marginBottom:8 }}>
+            📋 Orders to Place · View & Mark Ordered
+          </button>
+
           <button onClick={() => router.push("/kaya")} style={{ display:"block", width:"100%", borderRadius:14, padding:16, fontSize:15, fontWeight:700, border:"1px solid rgba(190,18,60,0.3)", cursor:"pointer", textAlign:"center", fontFamily:"inherit", background:"rgba(157,34,53,0.18)", color:"#fecaca", marginBottom:16 }}>
             📦 Kaya Restock Requests
           </button>
