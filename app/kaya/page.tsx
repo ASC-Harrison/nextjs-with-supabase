@@ -29,6 +29,8 @@ type RestockRequest = {
   id: string;
   item_id: string | null;
   item_name: string;
+  reference_number: string | null;
+  vendor: string | null;
   requested_by: string;
   requested_from: string;
   status: string;
@@ -78,6 +80,7 @@ const CSS = `
   .k-request-row{display:flex;align-items:center;justify-content:space-between;gap:9px;padding:8px 0;border-bottom:1px solid rgba(148,163,184,.09)}
   .k-request-row:last-child{border-bottom:0}
   .k-request-name{font-size:11px;font-weight:800;color:#e2e8f0;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .k-request-ref{font-size:9px;font-weight:800;color:#fde68a;margin-top:3px}
   .k-status{font-size:8px;font-weight:900;white-space:nowrap;border-radius:999px;padding:4px 7px;background:rgba(148,163,184,.08)}
   .k-tools{position:sticky;top:73px;z-index:25;margin:12px 0;padding:10px;background:rgba(15,23,42,.93);border:1px solid rgba(248,113,113,.15);border-radius:15px;backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px)}
   .k-search{width:100%;border:1px solid #334155;background:#0b1323;color:#f8fafc;border-radius:11px;padding:12px;font:14px inherit;outline:none}
@@ -320,7 +323,10 @@ export default function KayaRestockPage() {
                 const status = statusDetails(request.status);
                 return (
                   <div className="k-request-row" key={request.id}>
-                    <div className="k-request-name">{request.item_name}</div>
+                    <div style={{minWidth:0}}>
+                      <div className="k-request-name">{request.item_name}</div>
+                      <div className="k-request-ref">Ref: {request.reference_number || "Not set"}</div>
+                    </div>
                     <div className="k-status" style={{ color: status.color }}>{status.label}</div>
                   </div>
                 );
