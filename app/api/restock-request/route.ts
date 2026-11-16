@@ -24,7 +24,7 @@ function getServiceClient() {
   return createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
 }
 
-async function sendRestockPush(supabase: ReturnType<typeof getServiceClient>, payload: { item_name: string; requested_by: string; requested_from: string }) {
+async function sendRestockPush(supabase: ReturnType<typeof getServiceClient>, payload: { item_name: string; reference_number: string | null; requested_by: string; requested_from: string }) {
   const publicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY || "BMSdz66vdOV6IRhh5ObmNo8hnU8YlznA3mTxP22SG1JmRrSEhyeurlf5g2qKezphEc76qAjfIkBD9vI2PY9PNJI";
   const privateKey = process.env.VAPID_PRIVATE_KEY;
   const subject = process.env.VAPID_SUBJECT || "mailto:hogstud800@gmail.com";
@@ -49,7 +49,7 @@ async function sendRestockPush(supabase: ReturnType<typeof getServiceClient>, pa
   let failed = 0;
   const body = JSON.stringify({
     title: "🔔 Restock Requested",
-    body: `${payload.item_name} requested by ${payload.requested_by} from ${payload.requested_from}`,
+    body: `${payload.item_name} · Ref: ${payload.reference_number || "Not set"} · requested by ${payload.requested_by} from ${payload.requested_from}`,
     url: "/restock-requests",
     tag: `restock-${Date.now()}`,
   });
@@ -95,8 +95,24 @@ export async function GET(req: Request) {
 
     const itemIds = Array.from(new Set((data ?? []).map((request) => request.item_id).filter(Boolean)));
     const mainOnHandByItem = new Map<string, number>();
+    const referenceByItem = new Map<string, string | null>();
+    const vendorByItem = new Map<string, string | null>();
 
     if (itemIds.length > 0) {
+      const { data: itemRows, error: itemError } = await supabase
+        .from("items")
+        .select("id,reference_number,vendor")
+        .in("id", itemIds);
+
+      if (itemError) {
+        return NextResponse.json({ ok: false, error: itemError.message });
+      }
+
+      for (const row of itemRows ?? []) {
+        referenceByItem.set(row.id, row.reference_number || null);
+        vendorByItem.set(row.id, row.vendor || null);
+      }
+
       const { data: inventoryRows, error: inventoryError } = await supabase
         .from("storage_inventory")
         .select("item_id,on_hand")
@@ -114,6 +130,8 @@ export async function GET(req: Request) {
 
     const enriched = (data ?? []).map((request) => ({
       ...request,
+      reference_number: request.item_id ? (referenceByItem.get(request.item_id) ?? null) : null,
+      vendor: request.item_id ? (vendorByItem.get(request.item_id) ?? null) : null,
       main_on_hand: request.item_id ? (mainOnHandByItem.get(request.item_id) ?? 0) : null,
     }));
 
@@ -135,6 +153,15 @@ export async function POST(req: Request) {
     const supabase = getServiceClient();
     const from = role === "kaya" ? KAYA_AREA : (requested_from || "Pre-Op/PACU");
     const requester = role === "kaya" ? (userEmail || "Kaya") : requested_by;
+    let referenceNumber: string | null = null;
+    if (item_id) {
+      const { data: item } = await supabase
+        .from("items")
+        .select("reference_number")
+        .eq("id", item_id)
+        .maybeSingle();
+      referenceNumber = item?.reference_number || null;
+    }
     const { error } = await supabase.from("restock_requests").insert({
       item_id: item_id || null,
       item_name,
@@ -146,7 +173,7 @@ export async function POST(req: Request) {
     if (error) return NextResponse.json({ ok: false, error: error.message });
 
     // A notification failure must never prevent the restock request itself from being saved.
-    const push = await sendRestockPush(supabase, { item_name, requested_by: requester, requested_from: from });
+    const push = await sendRestockPush(supabase, { item_name, reference_number: referenceNumber, requested_by: requester, requested_from: from });
     return NextResponse.json({ ok: true, push });
   } catch (error: unknown) {
     return NextResponse.json({ ok: false, error: errorMessage(error) });
