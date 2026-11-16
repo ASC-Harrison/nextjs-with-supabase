@@ -52,6 +52,9 @@ const CSS = `
   .btn-purple{background:linear-gradient(135deg,#7c3aed,#9333ea);color:#fff;border:1px solid rgba(216,180,254,0.35);box-shadow:0 6px 18px rgba(124,58,237,0.2);}
   .btn-order{background:linear-gradient(135deg,#9d2235,#be123c);color:#fff;border:1px solid rgba(254,202,202,.35);box-shadow:0 6px 18px rgba(157,34,53,.2);}
   .btn-order.added{background:rgba(16,185,129,.16);color:#6ee7b7;border-color:rgba(16,185,129,.3);box-shadow:none;}
+  .order-add{display:flex;align-items:flex-end;gap:8px;flex-wrap:wrap;width:100%;padding:9px;background:rgba(200,16,46,.06);border:1px solid rgba(248,113,113,.16);border-radius:11px;}
+  .order-qty-label{font-size:9px;font-weight:900;color:#fecaca;text-transform:uppercase;letter-spacing:.45px;margin-bottom:4px;}
+  .order-add .btn-order{min-height:36px;flex:1;min-width:170px;}
   .btn:disabled{opacity:0.45;cursor:not-allowed;box-shadow:none;}
   .btn-row{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;}
   .takeout{margin-top:12px;padding:12px;background:#101827;border:1px solid rgba(168,85,247,0.28);border-radius:12px;}
@@ -84,6 +87,7 @@ export default function RestockRequestsPage() {
   const [quantities, setQuantities] = useState<Record<string, number>>({});
   const [takeOutMessages, setTakeOutMessages] = useState<Record<string, string>>({});
   const [addingToOrderList, setAddingToOrderList] = useState<string | null>(null);
+  const [orderQuantities, setOrderQuantities] = useState<Record<string, number>>({});
 
   useEffect(() => {
     supabase.auth.getSession().then(({data}) => {
@@ -185,6 +189,11 @@ export default function RestockRequestsPage() {
     }
   }
 
+  function setOrderQuantity(requestId: string, next: number) {
+    const safe = Math.min(1000000, Math.max(1, Math.trunc(Number(next) || 1)));
+    setOrderQuantities(current => ({ ...current, [requestId]: safe }));
+  }
+
   async function addToOrderList(request: Request) {
     if (!request.item_id) {
       alert("This request is not linked to an inventory item, so it cannot be added to the order list.");
@@ -194,15 +203,16 @@ export default function RestockRequestsPage() {
       alert(`${request.item_name} is already on the shared order list.`);
       return;
     }
+    const qty = orderQuantities[request.id] ?? 1;
     setAddingToOrderList(request.id);
     try {
-      orderDraft.setItems(current => ({ ...current, [request.item_id]: 1 }));
+      orderDraft.setItems(current => ({ ...current, [request.item_id]: qty }));
       orderDraft.setNotes(current => ({
         ...current,
         [request.item_id]: current[request.item_id] || `Added from restock request by ${request.requested_by} from ${request.requested_from}.`,
       }));
       await orderDraft.flush();
-      alert(`✅ ${request.item_name} (Ref: ${request.reference_number || "Not set"}) was added to the shared order list.`);
+      alert(`✅ ${qty} × ${request.item_name} (Ref: ${request.reference_number || "Not set"}) was added to the shared order list.`);
     } catch (error) {
       alert(error instanceof Error ? error.message : "Could not add this item to the order list.");
     } finally {
@@ -305,14 +315,24 @@ export default function RestockRequestsPage() {
                         {takeOutMessages[r.id] && <div className="takeout-msg">{takeOutMessages[r.id]}</div>}
                       </div>
                       <div className="btn-row">
-                        <button
-                          type="button"
-                          className={`btn btn-order ${orderDraft.items[r.item_id] !== undefined ? "added" : ""}`}
-                          disabled={!orderDraft.ready || orderDraft.syncing || addingToOrderList === r.id || orderDraft.items[r.item_id] !== undefined}
-                          onClick={() => void addToOrderList(r)}
-                        >
-                          {addingToOrderList === r.id ? "Adding…" : orderDraft.items[r.item_id] !== undefined ? "✓ On Order List" : "🛒 Add to Order List"}
-                        </button>
+                        <div className="order-add">
+                          <div>
+                            <div className="order-qty-label">Quantity to order</div>
+                            <div className="qty-control">
+                              <button type="button" className="qty-btn" disabled={(orderQuantities[r.id] ?? 1) <= 1 || orderDraft.items[r.item_id] !== undefined} onClick={() => setOrderQuantity(r.id, (orderQuantities[r.id] ?? 1) - 1)}>−</button>
+                              <input className="qty-input" type="number" min={1} max={1000000} inputMode="numeric" value={orderQuantities[r.id] ?? 1} disabled={orderDraft.items[r.item_id] !== undefined} onChange={event => setOrderQuantity(r.id, Number(event.target.value))} aria-label={`Quantity of ${r.item_name} to order`} />
+                              <button type="button" className="qty-btn" disabled={orderDraft.items[r.item_id] !== undefined} onClick={() => setOrderQuantity(r.id, (orderQuantities[r.id] ?? 1) + 1)}>+</button>
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            className={`btn btn-order ${orderDraft.items[r.item_id] !== undefined ? "added" : ""}`}
+                            disabled={!orderDraft.ready || orderDraft.syncing || addingToOrderList === r.id || orderDraft.items[r.item_id] !== undefined}
+                            onClick={() => void addToOrderList(r)}
+                          >
+                            {addingToOrderList === r.id ? "Adding…" : orderDraft.items[r.item_id] !== undefined ? `✓ ${orderDraft.items[r.item_id]} On Order List` : `🛒 Add ${orderQuantities[r.id] ?? 1} to Order List`}
+                          </button>
+                        </div>
                         {r.status !== "IN_ROUTE" && (
                           <button onClick={() => setStatus(r.id, "IN_ROUTE")} disabled={updating===r.id} className="btn btn-blue">🚚 In Route</button>
                         )}
@@ -339,14 +359,24 @@ export default function RestockRequestsPage() {
                         {r.resolved_at ? formatTime(r.resolved_at) : ""}
                       </div>
                       <div className="btn-row">
-                        <button
-                          type="button"
-                          className={`btn btn-order ${orderDraft.items[r.item_id] !== undefined ? "added" : ""}`}
-                          disabled={!orderDraft.ready || orderDraft.syncing || addingToOrderList === r.id || orderDraft.items[r.item_id] !== undefined}
-                          onClick={() => void addToOrderList(r)}
-                        >
-                          {addingToOrderList === r.id ? "Adding…" : orderDraft.items[r.item_id] !== undefined ? "✓ On Order List" : "🛒 Add to Order List"}
-                        </button>
+                        <div className="order-add">
+                          <div>
+                            <div className="order-qty-label">Quantity to order</div>
+                            <div className="qty-control">
+                              <button type="button" className="qty-btn" disabled={(orderQuantities[r.id] ?? 1) <= 1 || orderDraft.items[r.item_id] !== undefined} onClick={() => setOrderQuantity(r.id, (orderQuantities[r.id] ?? 1) - 1)}>−</button>
+                              <input className="qty-input" type="number" min={1} max={1000000} inputMode="numeric" value={orderQuantities[r.id] ?? 1} disabled={orderDraft.items[r.item_id] !== undefined} onChange={event => setOrderQuantity(r.id, Number(event.target.value))} aria-label={`Quantity of ${r.item_name} to order`} />
+                              <button type="button" className="qty-btn" disabled={orderDraft.items[r.item_id] !== undefined} onClick={() => setOrderQuantity(r.id, (orderQuantities[r.id] ?? 1) + 1)}>+</button>
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            className={`btn btn-order ${orderDraft.items[r.item_id] !== undefined ? "added" : ""}`}
+                            disabled={!orderDraft.ready || orderDraft.syncing || addingToOrderList === r.id || orderDraft.items[r.item_id] !== undefined}
+                            onClick={() => void addToOrderList(r)}
+                          >
+                            {addingToOrderList === r.id ? "Adding…" : orderDraft.items[r.item_id] !== undefined ? `✓ ${orderDraft.items[r.item_id]} On Order List` : `🛒 Add ${orderQuantities[r.id] ?? 1} to Order List`}
+                          </button>
+                        </div>
                         <button onClick={() => setStatus(r.id, "RESTOCKED")} disabled={updating===r.id} className="btn btn-green">✅ Now Restocked</button>
                       </div>
                     </div>
