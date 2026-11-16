@@ -104,6 +104,7 @@ const CSS = `
   .tl-card.ISSUE{border-color:rgba(249,115,22,0.45);}
   .tl-card.CANCELLED{border-color:rgba(148,163,184,0.3);opacity:.82;}
   .tl-name{font-size:14px;font-weight:800;color:#f0f6ff;word-break:break-word;margin-bottom:4px;}
+  .tl-ref{display:inline-flex;margin:0 0 7px;padding:4px 8px;border-radius:7px;background:rgba(245,158,11,.12);border:1px solid rgba(245,158,11,.28);color:#fde68a;font-size:11px;font-weight:900;letter-spacing:.15px;}
   .tl-meta{font-size:11px;color:#64748b;line-height:1.6;}
   .badge{display:inline-flex;align-items:center;padding:2px 8px;border-radius:9999px;font-size:10px;font-weight:800;}
   .badge-pending{background:rgba(245,158,11,0.15);color:#fcd34d;border:1px solid rgba(245,158,11,0.3);}
@@ -923,8 +924,9 @@ This does NOT add ${qtyThisDelivery} to the inventory count. Use “Add to Inven
                       <div className="tl-name">{order.item_name}</div>
                       <span className={getBadgeClass(order.status)}>{order.status}</span>
                     </div>
+                    <div className="tl-ref">Reference #: {order.reference_number || "Not set"}</div>
                     <div className="tl-meta">
-                      {order.vendor || "—"} · {order.reference_number ? `Ref: ${order.reference_number}` : "No ref"} · {order.unit || "—"}<br />
+                      {order.vendor || "—"} · {order.unit || "—"}<br />
                       <strong style={{ color:"#f0f6ff" }}>Requested by: {order.requested_by}</strong> · {formatDate(order.created_at)}<br />
                       Qty Requested: <strong style={{ color:"#f0f6ff" }}>{order.qty_requested}</strong>
                       {order.qty_actual_ordered && (
