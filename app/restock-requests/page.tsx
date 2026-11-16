@@ -13,6 +13,8 @@ type Request = {
   id: string;
   item_id: string;
   item_name: string;
+  reference_number: string | null;
+  vendor: string | null;
   requested_by: string;
   requested_from: string;
   status: string;
@@ -39,6 +41,7 @@ const CSS = `
   .req-card.done{border-color:rgba(16,185,129,0.3);opacity:0.6;}
   .req-card.oos{border-color:rgba(239,68,68,0.3);opacity:0.7;}
   .req-name{font-size:14px;font-weight:800;color:#f0f6ff;margin-bottom:4px;}
+  .req-ref{display:inline-block;margin:1px 0 6px;padding:4px 8px;border-radius:7px;background:rgba(245,158,11,.12);border:1px solid rgba(245,158,11,.28);color:#fde68a;font-size:11px;font-weight:900;letter-spacing:.15px;}
   .req-meta{font-size:11px;color:#64748b;line-height:1.6;}
   .btn{border-radius:10px;padding:8px 14px;font-size:12px;font-weight:800;cursor:pointer;border:none;font-family:inherit;}
   .btn-green{background:rgba(16,185,129,0.2);color:#6ee7b7;border:1px solid rgba(16,185,129,0.3);}
@@ -226,6 +229,7 @@ export default function RestockRequestsPage() {
                       {r.status === "IN_ROUTE" && <span className="badge badge-route">🚚 IN ROUTE</span>}
                       {r.status === "DELAYED" && <span className="badge badge-delay">⏳ DELAYED</span>}
                       <div className="req-name">{r.item_name}</div>
+                      <div className="req-ref">Reference #: {r.reference_number || "Not set"}</div>
                       <div className="req-meta">
                         Requested by {r.requested_by} from {r.requested_from}<br/>
                         {formatTime(r.created_at)}
@@ -291,6 +295,7 @@ export default function RestockRequestsPage() {
                   {oos.slice(0,10).map(r => (
                     <div key={r.id} className="req-card oos">
                       <div className="req-name">{r.item_name}</div>
+                      <div className="req-ref">Reference #: {r.reference_number || "Not set"}</div>
                       <div className="req-meta">
                         Requested by {r.requested_by} · Marked out of stock by {r.resolved_by}<br/>
                         {r.resolved_at ? formatTime(r.resolved_at) : ""}
@@ -309,6 +314,7 @@ export default function RestockRequestsPage() {
                   {done.slice(0,20).map(r => (
                     <div key={r.id} className="req-card done">
                       <div className="req-name">{r.item_name}</div>
+                      <div className="req-ref">Reference #: {r.reference_number || "Not set"}</div>
                       <div className="req-meta">
                         Requested by {r.requested_by} · Restocked by {r.resolved_by}<br/>
                         {r.resolved_at ? formatTime(r.resolved_at) : ""}
