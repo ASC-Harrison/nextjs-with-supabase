@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@supabase/supabase-js";
+import { useCloudOrderDraft } from "@/lib/useCloudOrderDraft";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -49,6 +50,8 @@ const CSS = `
   .btn-red{background:rgba(239,68,68,0.15);color:#fca5a5;border:1px solid rgba(239,68,68,0.3);}
   .btn-orange{background:rgba(245,158,11,0.16);color:#fcd34d;border:1px solid rgba(245,158,11,0.35);}
   .btn-purple{background:linear-gradient(135deg,#7c3aed,#9333ea);color:#fff;border:1px solid rgba(216,180,254,0.35);box-shadow:0 6px 18px rgba(124,58,237,0.2);}
+  .btn-order{background:linear-gradient(135deg,#9d2235,#be123c);color:#fff;border:1px solid rgba(254,202,202,.35);box-shadow:0 6px 18px rgba(157,34,53,.2);}
+  .btn-order.added{background:rgba(16,185,129,.16);color:#6ee7b7;border-color:rgba(16,185,129,.3);box-shadow:none;}
   .btn:disabled{opacity:0.45;cursor:not-allowed;box-shadow:none;}
   .btn-row{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;}
   .takeout{margin-top:12px;padding:12px;background:#101827;border:1px solid rgba(168,85,247,0.28);border-radius:12px;}
@@ -72,6 +75,7 @@ const CSS = `
 
 export default function RestockRequestsPage() {
   const router = useRouter();
+  const orderDraft = useCloudOrderDraft(supabase);
   const [requests, setRequests] = useState<Request[]>([]);
   const [loading, setLoading] = useState(true);
   const [staffName, setStaffName] = useState("Admin");
@@ -79,6 +83,7 @@ export default function RestockRequestsPage() {
   const [takingOut, setTakingOut] = useState<string | null>(null);
   const [quantities, setQuantities] = useState<Record<string, number>>({});
   const [takeOutMessages, setTakeOutMessages] = useState<Record<string, string>>({});
+  const [addingToOrderList, setAddingToOrderList] = useState<string | null>(null);
 
   useEffect(() => {
     supabase.auth.getSession().then(({data}) => {
@@ -180,6 +185,31 @@ export default function RestockRequestsPage() {
     }
   }
 
+  async function addToOrderList(request: Request) {
+    if (!request.item_id) {
+      alert("This request is not linked to an inventory item, so it cannot be added to the order list.");
+      return;
+    }
+    if (orderDraft.items[request.item_id] !== undefined) {
+      alert(`${request.item_name} is already on the shared order list.`);
+      return;
+    }
+    setAddingToOrderList(request.id);
+    try {
+      orderDraft.setItems(current => ({ ...current, [request.item_id]: 1 }));
+      orderDraft.setNotes(current => ({
+        ...current,
+        [request.item_id]: current[request.item_id] || `Added from restock request by ${request.requested_by} from ${request.requested_from}.`,
+      }));
+      await orderDraft.flush();
+      alert(`✅ ${request.item_name} (Ref: ${request.reference_number || "Not set"}) was added to the shared order list.`);
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "Could not add this item to the order list.");
+    } finally {
+      setAddingToOrderList(null);
+    }
+  }
+
   function formatTime(ts: string) {
     return new Date(ts).toLocaleString("en-US", { month:"short", day:"numeric", hour:"2-digit", minute:"2-digit" });
   }
@@ -275,6 +305,14 @@ export default function RestockRequestsPage() {
                         {takeOutMessages[r.id] && <div className="takeout-msg">{takeOutMessages[r.id]}</div>}
                       </div>
                       <div className="btn-row">
+                        <button
+                          type="button"
+                          className={`btn btn-order ${orderDraft.items[r.item_id] !== undefined ? "added" : ""}`}
+                          disabled={!orderDraft.ready || orderDraft.syncing || addingToOrderList === r.id || orderDraft.items[r.item_id] !== undefined}
+                          onClick={() => void addToOrderList(r)}
+                        >
+                          {addingToOrderList === r.id ? "Adding…" : orderDraft.items[r.item_id] !== undefined ? "✓ On Order List" : "🛒 Add to Order List"}
+                        </button>
                         {r.status !== "IN_ROUTE" && (
                           <button onClick={() => setStatus(r.id, "IN_ROUTE")} disabled={updating===r.id} className="btn btn-blue">🚚 In Route</button>
                         )}
@@ -301,6 +339,14 @@ export default function RestockRequestsPage() {
                         {r.resolved_at ? formatTime(r.resolved_at) : ""}
                       </div>
                       <div className="btn-row">
+                        <button
+                          type="button"
+                          className={`btn btn-order ${orderDraft.items[r.item_id] !== undefined ? "added" : ""}`}
+                          disabled={!orderDraft.ready || orderDraft.syncing || addingToOrderList === r.id || orderDraft.items[r.item_id] !== undefined}
+                          onClick={() => void addToOrderList(r)}
+                        >
+                          {addingToOrderList === r.id ? "Adding…" : orderDraft.items[r.item_id] !== undefined ? "✓ On Order List" : "🛒 Add to Order List"}
+                        </button>
                         <button onClick={() => setStatus(r.id, "RESTOCKED")} disabled={updating===r.id} className="btn btn-green">✅ Now Restocked</button>
                       </div>
                     </div>
