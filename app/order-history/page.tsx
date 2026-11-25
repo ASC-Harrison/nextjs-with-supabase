@@ -58,6 +58,16 @@ type Order = {
   receipt_exception_recorded_by?: string | null;
 };
 
+const deliveryStates = ["ORDERED", "BACKORDERED", "AWAITING"];
+const centerDate = new Intl.DateTimeFormat("sv-SE", { timeZone: "America/Chicago", year:"numeric", month:"2-digit", day:"2-digit" });
+function deliveryDay(date: string) { return Date.parse(date.slice(0,10)+"T00:00:00Z")/86400000; }
+function deliveryDelay(order: Order, today: number) {
+  if (!deliveryStates.includes(order.status) || (order.qty_actual_received ?? 0) >= (order.qty_actual_ordered ?? order.qty_requested)) return 0;
+  if (order.expected_delivery_date) return Math.max(0,today-deliveryDay(order.expected_delivery_date));
+  const since = Date.parse(order.confirmed_at || order.created_at);
+  return Number.isFinite(since) ? Math.max(0,today-deliveryDay(centerDate.format(since))-6) : 0;
+}
+
 const RECEIPT_EXCEPTION_OPTIONS = [
   "Stocked at Baxter Main OR instead of delivered to ASC",
   "Delivered to the wrong location",
@@ -113,7 +123,7 @@ const CSS = `
   .badge-received{background:rgba(16,185,129,0.15);color:#6ee7b7;border:1px solid rgba(16,185,129,0.3);}
   .badge-issue{background:rgba(249,115,22,0.15);color:#fdba74;border:1px solid rgba(249,115,22,0.35);}
   .badge-cancelled{background:rgba(100,116,139,0.18);color:#cbd5e1;border:1px solid rgba(148,163,184,0.35);}
-  .view-tabs{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:12px;}
+  .view-tabs{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-bottom:12px;}
   .view-tab{border:1px solid #1e3a5f;border-radius:11px;background:#111827;color:#94a3b8;padding:11px 12px;font:800 13px inherit;cursor:pointer;}
   .view-tab.active{background:#7f1d1d;border-color:#c8102e;color:#fff;}
   .view-tab.issue-active{background:#c2410c;border-color:#f97316;color:#fff;}
@@ -158,7 +168,7 @@ export default function OrderHistoryPage() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("ALL");
-  const [orderView, setOrderView] = useState<"ALL" | "ORDERS" | "ISSUES" | "NOTES">("ORDERS");
+  const [orderView, setOrderView] = useState<"ALL" | "ORDERS" | "ISSUES" | "NOTES" | "LATE">("ORDERS");
   const [staffFilter, setStaffFilter] = useState("ALL");
   const [updatingOrderId, setUpdatingOrderId] = useState<string | null>(null);
   const [followUpId, setFollowUpId] = useState<string | null>(null);
@@ -187,6 +197,8 @@ export default function OrderHistoryPage() {
   const [issueNote, setIssueNote] = useState("");
   const [issueSaving, setIssueSaving] = useState(false);
 
+  const [today,setToday]=useState(()=>deliveryDay(centerDate.format(Date.now())));
+  useEffect(()=>{const tick=()=>setToday(deliveryDay(centerDate.format(Date.now()))); const timer=setInterval(tick,60000); window.addEventListener("focus",tick);return()=>{clearInterval(timer);window.removeEventListener("focus",tick);};},[]);
   const historyVersion = useRef(0);
   useEffect(() => {
     let refreshTimer: ReturnType<typeof setTimeout> | null = null;
@@ -197,10 +209,18 @@ export default function OrderHistoryPage() {
         .select("*")
         .order("created_at", { ascending: false })
         .limit(500)
-        .then(({ data, error }) => {
+        .then(async ({ data, error }) => {
           if (version !== historyVersion.current) return;
           if (error) { setLoading(false); return; }
-          setOrders((data as Order[]) ?? []);
+          const rows=new Map<string,Order>((data as Order[] ?? []).map(row=>[row.id,row] as const));
+          for(let offset=0;;offset+=500){
+            const page=await supabase.from("order_requests").select("*").in("status",deliveryStates).order("id").range(offset,offset+499);
+            if(version!==historyVersion.current)return;
+            if(page.error){setLoading(false);return;}
+            for(const row of page.data as Order[])rows.set(row.id,row);
+            if(page.data.length<500)break;
+          }
+          setOrders([...rows.values()].sort((a,b)=>b.created_at.localeCompare(a.created_at)));
           setLoading(false);
         });
     };
@@ -240,7 +260,7 @@ export default function OrderHistoryPage() {
 
   const filtered = useMemo(() => {
     const activeStatuses = ["PENDING", "ORDERED", "BACKORDERED", "AWAITING"];
-    let list = statusFilter !== "ALL"
+    let list = orderView === "LATE" ? orders.filter(o=>deliveryDelay(o,today)>0).sort((a,b)=>deliveryDelay(b,today)-deliveryDelay(a,today)) : statusFilter !== "ALL"
       ? orders.filter(o => o.status === statusFilter)
       : orderView === "ALL"
         ? orders
@@ -264,7 +284,7 @@ export default function OrderHistoryPage() {
       );
     }
     return list;
-  }, [orders, orderView, statusFilter, staffFilter, search]);
+  }, [orders, orderView, statusFilter, staffFilter, search,today]);
 
   const totalOrders = orders.length;
   const totalReceived = orders.filter(o => o.status === "RECEIVED").length;
@@ -900,11 +920,13 @@ This does NOT add ${qtyThisDelivery} to the inventory count. Use “Add to Inven
           </div>
 
           <div className="view-tabs">
+            <button type="button" className={`view-tab ${orderView==="LATE"?"issue-active":""}`} onClick={()=>{setOrderView("LATE");setStatusFilter("ALL");}}>Needs Follow-Up ({orders.filter(o=>deliveryDelay(o,today)>0).length})</button>
             <button type="button" className={`view-tab ${orderView === "ORDERS" && statusFilter === "ALL" ? "active" : ""}`} onClick={()=>{setOrderView("ORDERS");setStatusFilter("ALL");}}>📋 Active ({totalActiveOrders})</button>
             <button type="button" className={`view-tab ${orderView === "NOTES" ? "note-active" : ""}`} onClick={()=>{setOrderView("NOTES");setStatusFilter("ALL");}}>📝 Notes ({totalActiveNotes})</button>
             <button type="button" className={`view-tab ${orderView === "ISSUES" ? "issue-active" : ""}`} onClick={()=>{setOrderView("ISSUES");setStatusFilter("ALL");}}>⚠️ Issues ({totalIssues})</button>
           </div>
 
+          {orderView==="LATE" && <p>Past the expected delivery date, or waiting at least 7 calendar days with no delivery date. Completed receipts drop off automatically.</p>}
           <div className="controls">
             <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search item, vendor, staff…" className="inp" />
             <select value={staffFilter} onChange={e => setStaffFilter(e.target.value)} className="inp inp-sel">
