@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { createPortal } from "react-dom";
 import { createClient } from "@supabase/supabase-js";
@@ -187,15 +187,19 @@ export default function OrderHistoryPage() {
   const [issueNote, setIssueNote] = useState("");
   const [issueSaving, setIssueSaving] = useState(false);
 
+  const historyVersion = useRef(0);
   useEffect(() => {
     let refreshTimer: ReturnType<typeof setTimeout> | null = null;
     const loadHistory = () => {
+      const version = ++historyVersion.current;
       supabase
         .from("order_requests")
         .select("*")
         .order("created_at", { ascending: false })
         .limit(500)
-        .then(({ data }) => {
+        .then(({ data, error }) => {
+          if (version !== historyVersion.current) return;
+          if (error) { setLoading(false); return; }
           setOrders((data as Order[]) ?? []);
           setLoading(false);
         });
@@ -221,6 +225,7 @@ export default function OrderHistoryPage() {
     window.addEventListener("focus", onFocus);
     document.addEventListener("visibilitychange", onVisibility);
     return () => {
+      ++historyVersion.current;
       if (refreshTimer) clearTimeout(refreshTimer);
       window.removeEventListener("focus", onFocus);
       document.removeEventListener("visibilitychange", onVisibility);
@@ -373,6 +378,7 @@ export default function OrderHistoryPage() {
       const receivedAt = new Date().toISOString();
       const { data: pricedOrder } = await supabase.from("order_requests").select("*").eq("id",receivingOrder.id).single();
       const receiptUpdate = receiptProblemUpdate(staff, receivedAt);
+      ++historyVersion.current;
       setOrders(prev => prev.map(row => row.id === receivingOrder.id ? {
         ...row,
         ...pricedOrder,
@@ -437,6 +443,7 @@ export default function OrderHistoryPage() {
       if(!response.ok||!json.ok)throw new Error(json.error||"Could not mark this order as ordered");
       const savedOrder=json.order as Order;
 
+      ++historyVersion.current;
       setOrders(prev => prev.map(row =>
         row.id === order.id
           ? { ...row, ...savedOrder }
@@ -466,6 +473,7 @@ export default function OrderHistoryPage() {
       const json = await response.json();
       if (!response.ok || !json.ok) throw new Error(json.error || "Could not cancel this order");
 
+      ++historyVersion.current;
       setOrders(prev => prev.map(row => row.id === order.id ? {
         ...row,
         status:"CANCELLED",
@@ -531,6 +539,7 @@ This does NOT add ${qtyThisDelivery} to the inventory count. Use “Add to Inven
         throw new Error("The saved receipt could not be verified.");
       }
 
+      ++historyVersion.current;
       setOrders(prev => prev.map(row =>
         row.id === receivedOnlyOrder.id
           ? {
@@ -576,6 +585,7 @@ This does NOT add ${qtyThisDelivery} to the inventory count. Use “Add to Inven
         .single();
 
       if (error) throw error;
+      ++historyVersion.current;
       setOrders(prev => prev.map(row => row.id === editingReceiptOrder.id ? { ...row, ...saved } : row));
       setEditingReceiptOrder(null);
       alert(receiptHadProblem ? "Receiving problem saved with this order." : "Receiving problem removed from this order.");
@@ -602,6 +612,7 @@ This does NOT add ${qtyThisDelivery} to the inventory count. Use “Add to Inven
       const json = await response.json();
       if (!response.ok || !json.ok) throw new Error(json.error || "Could not move this order to Issues");
       const saved = json.order as Order;
+      ++historyVersion.current;
       setOrders(prev => prev.map(row => row.id === issueOrder.id ? { ...row, ...saved } : row));
       setIssueOrder(null);
       setIssueNote("");
@@ -628,6 +639,7 @@ This does NOT add ${qtyThisDelivery} to the inventory count. Use “Add to Inven
         issue_previous_status: null,
       }).eq("id", order.id).select("id").single();
       if (error) throw error;
+      ++historyVersion.current;
       setOrders(prev => prev.map(row => row.id === order.id ? { ...row, status:restoredStatus, issue_note:null, issue_reported_by:null, issue_reported_at:null, issue_previous_status:null } : row));
     } catch (error) {
       alert(`Could not resolve this issue: ${error instanceof Error ? error.message : "Unknown error"}`);
@@ -650,6 +662,7 @@ This does NOT add ${qtyThisDelivery} to the inventory count. Use “Add to Inven
       });
       const json = await res.json();
       if (!res.ok || !json.ok) throw new Error(json.error || "Could not send follow-up");
+      ++historyVersion.current;
       setOrders(prev => prev.map(o => o.id === order.id ? {
         ...o,
         last_follow_up_note:json.follow_up.note,
@@ -681,6 +694,7 @@ This does NOT add ${qtyThisDelivery} to the inventory count. Use “Add to Inven
       const json = await response.json();
       if (!response.ok || !json.ok) throw new Error(json.error || "Could not send the Pending reminder");
       const counts = new Map<string, number>((json.orders || []).map((order: { id:string; count:number }) => [order.id, order.count]));
+      ++historyVersion.current;
       setOrders(prev => prev.map(order => counts.has(order.id) ? {
         ...order,
         last_follow_up_note:json.follow_up.note,
