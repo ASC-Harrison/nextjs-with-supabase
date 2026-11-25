@@ -31,7 +31,7 @@ function safeJsonParse<T>(raw: string | null, fallback: T): T { if (!raw) return
 function getSessionUnlocked(): boolean { if (typeof window === "undefined") return false; return sessionStorage.getItem(SS.UNLOCKED) === "1"; }
 function setSessionUnlocked(value: boolean): void { if (typeof window === "undefined") return; if (value) sessionStorage.setItem(SS.UNLOCKED, "1"); else sessionStorage.removeItem(SS.UNLOCKED); }
 function supplySourceLabel(s: string|null|undefined): {label:string;cls:string} { if (s==="HOSPITAL") return {label:"Hospital",cls:"src-hosp"}; if (s==="BOTH") return {label:"Both",cls:"src-both"}; return {label:"Vendor",cls:"src-vend"}; }
-function hasOpenOrder(row: Pick<BuildingTotalRow, "order_status">): boolean { return ["PENDING","ORDERED","BACKORDERED","AWAITING"].includes((row.order_status||"").toUpperCase()); }
+function hasOpenOrder(row: Pick<BuildingTotalRow, "open_order_id">): boolean { return Boolean(row.open_order_id); }
 function openOrderRemaining(row: Pick<BuildingTotalRow, "open_order_qty"|"open_order_received">): number|null { if(row.open_order_qty==null)return null; return Math.max(Number(row.open_order_qty||0)-Number(row.open_order_received||0),0); }
 function quantityMentionInNote(note: string): number|null { const match=note.match(/\b(\d+)\s*(?:case(?:s)?|box(?:es)?|bx)\b/i); if(!match)return null; const value=Number(match[1]); return Number.isFinite(value)&&value>0?value:null; }
 
@@ -483,6 +483,7 @@ export default function InventoryPage() {
       const data=await res.json();
       if(!Array.isArray(data))throw new Error("Inventory response was invalid");
       setTotals(data as BuildingTotalRow[]);
+      setTotalsEditRow(prev => { if (!prev) return prev; const live=(data as BuildingTotalRow[]).find(r=>r.item_id===prev.item_id); return live ? {...prev,open_order_id:live.open_order_id,order_status:live.order_status,ordered_at:live.ordered_at,open_order_qty:live.open_order_qty,open_order_received:live.open_order_received,open_order_requested_by:live.open_order_requested_by} : prev; });
     }catch(e:any){
       setTotalsError(e?.name==="AbortError"?"Inventory took too long to load. Tap Retry.":(e?.message??"Failed to load totals — check your connection and try again"));
     }finally{
